@@ -1,0 +1,7 @@
+# SEHAT AI backend — Phase 1 runtime dependencies
+fastapi==0.142.1
+uvicorn[standard]==0.54.0
+aiosqlite==0.22.1
+pyjwt==2.15.1
+semantic-kernel==1.44.1
+python-dotenv==1.2.3

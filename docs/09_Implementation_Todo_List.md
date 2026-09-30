@@ -27,7 +27,7 @@ This document converts the high-level [28-Hour Implementation Plan](08_Implement
 - [x] Documentation set generated (docs 01–08)
 - [x] Agent instructions established (AGENTS.md)
 - [ ] **Pre-implementation checklist completed (Phase 0)** — technical items done; Azure credentials + team items pending
-- [ ] **Implementation started (Phase 1)**
+- [x] **Implementation started (Phase 1)** — foundation complete; SK live prompt pending Azure key
 
 ---
 
@@ -106,55 +106,55 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 
 #### 1.1 FastAPI Backend Scaffold
 
-- [ ] Create `backend/app/main.py` with FastAPI app instance
-- [ ] Add CORS middleware (allow Next.js frontend origin)
-- [ ] Create `backend/requirements.txt` with initial dependencies
-- [ ] Verify `uvicorn main:app --reload` starts without errors
-- [ ] Add `/api/v1/health` endpoint returning `{"status": "ok"}`
+- [x] Create `backend/app/main.py` with FastAPI app instance
+- [x] Add CORS middleware (allow Next.js frontend origin)
+- [x] Create `backend/requirements.txt` with initial dependencies
+- [x] Verify `uvicorn app.main:app --reload` (from `backend/`) starts without errors
+- [x] Add `/api/v1/health` endpoint returning `{"status": "ok"}`
 
 #### 1.2 SQLite Database + Schema
 
-- [ ] Create `backend/app/database.py` with aiosqlite connection
-- [ ] Define schema: `cases` table (case_id, patient_token, facility_code, scenario, status, created_at)
-- [ ] Define schema: `consent` table (consent_id, case_id, method, language, audio_ref, granted_at)
-- [ ] Define schema: `triage_notes` table (case_id, urgency, fields_json, scores_json, review_json, created_at)
-- [ ] Define schema: `audit_events` table (event_id, timestamp, actor_id, action, case_id, details_json, previous_hash, current_hash)
-- [ ] Define schema: `referrals` table (referral_id, case_id, from_facility, to_facility, status, created_at)
-- [ ] Implement auto-creation on first run (CREATE TABLE IF NOT EXISTS)
-- [ ] Verify tables exist after startup
+- [x] Create `backend/app/database.py` with aiosqlite connection
+- [x] Define schema: `cases` table (case_id, patient_token, facility_code, scenario, status, created_at)
+- [x] Define schema: `consent` table (consent_id, case_id, method, language, audio_ref, granted_at)
+- [x] Define schema: `triage_notes` table (case_id, urgency, fields_json, scores_json, review_json, created_at)
+- [x] Define schema: `audit_events` table (event_id, timestamp, actor_id, action, case_id, details_json, previous_hash, current_hash)
+- [x] Define schema: `referrals` table (referral_id, case_id, from_facility, to_facility, status, created_at)
+- [x] Implement auto-creation on first run (CREATE TABLE IF NOT EXISTS)
+- [x] Verify tables exist after startup
 
 #### 1.3 Next.js 15 Frontend Scaffold
 
-- [ ] Create Next.js app (`npx create-next-app@latest frontend --typescript --app --tailwind`)
-- [ ] Verify `npm run dev` shows landing page at localhost:3000
-- [ ] Create layout with navigation shell
-- [ ] Add environment variable for API base URL (`NEXT_PUBLIC_API_URL`)
-- [ ] Create API client utility (`frontend/src/lib/api.ts`)
+- [x] Create Next.js app (`npx create-next-app@15 frontend --ts --tailwind --eslint --app --src-dir`)
+- [x] Verify `npm run dev` shows landing page at localhost:3000
+- [x] Create layout with navigation shell
+- [x] Add environment variable for API base URL (`NEXT_PUBLIC_API_URL`)
+- [x] Create API client utility (`frontend/src/lib/api.ts`)
 
 #### 1.4 JWT Authentication
 
-- [ ] Install PyJWT (`pip install pyjwt`)
-- [ ] Create `POST /api/v1/auth/login` endpoint (username + role → JWT)
-- [ ] Create JWT middleware that extracts role from token
-- [ ] Add `X-SEHAT-Role` and `X-SEHAT-User-ID` header extraction
-- [ ] Create demo accounts: `patient_demo`, `anm_demo`, `mo_demo`, `supervisor_demo`
-- [ ] Verify: valid token → 200, invalid/missing → 401
+- [x] Install PyJWT (`pip install pyjwt`)
+- [x] Create `POST /api/v1/auth/login` endpoint (username + role → JWT)
+- [x] Create JWT middleware that extracts role from token
+- [x] Add `X-SEHAT-Role` and `X-SEHAT-User-ID` header extraction
+- [x] Create demo accounts: `patient_demo`, `anm_demo`, `mo_demo`, `supervisor_demo`
+- [x] Verify: valid token → 200, invalid/missing → 401
 
 #### 1.5 Semantic Kernel Setup
 
-- [ ] Install semantic-kernel (`pip install semantic-kernel`)
-- [ ] Create `backend/app/services/kernel.py` with Kernel initialisation
-- [ ] Register Azure OpenAI chat completion service
-- [ ] Verify basic prompt → response works through SK
-- [ ] Create SK plugin stub for future plugins (empty class with `@kernel_function`)
+- [x] Install semantic-kernel (`pip install semantic-kernel`)
+- [x] Create `backend/app/services/kernel.py` with Kernel initialisation
+- [x] Register Azure OpenAI chat completion service
+- [ ] Verify basic prompt → response works through SK — pending Azure key; run `python -m app.services.kernel` from `backend/`
+- [x] Create SK plugin stub for future plugins (empty class with `@kernel_function`)
 
 #### 1.6 Role-Based Routing (Frontend)
 
-- [ ] Create login page with role selector (Patient, ANM, Medical Officer, Supervisor)
-- [ ] Store JWT in httpOnly cookie or secure localStorage
-- [ ] Create route guards: `/intake/*` → patient/anm, `/dashboard/*` → mo/supervisor
-- [ ] Create redirect logic: login → role-appropriate home page
-- [ ] Verify: unauthorized role cannot access protected routes
+- [x] Create login page with role selector (Patient, ANM, Medical Officer, Supervisor)
+- [x] Store JWT in httpOnly cookie or secure localStorage
+- [x] Create route guards: `/intake/*` → patient/anm, `/dashboard/*` → mo/supervisor
+- [x] Create redirect logic: login → role-appropriate home page
+- [x] Verify: unauthorized role cannot access protected routes
 
 **✅ Phase 1 Definition of Done:** `uvicorn` starts, `npm run dev` starts, login returns JWT, SQLite tables auto-created, SK responds to basic prompt.
 
