@@ -1,0 +1,85 @@
+# ============================================================
+# SEHAT AI — .gitignore
+# Stack: Python (FastAPI) + Node.js (Next.js 15) + SQLite
+# ============================================================
+
+# ── Environment & Secrets ────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# ── Node.js ──────────────────────────────────────────────────
+node_modules/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Next.js ──────────────────────────────────────────────────
+.next/
+out/
+
+# ── SQLite ───────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Testing & Coverage ──────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+coverage/
+*.lcov
+
+# ── IDE & Editors ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+*.DS_Store
+
+# ── Model Files (too large for git) ─────────────────────────
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+models/
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Miscellaneous ────────────────────────────────────────────
+*.bak
+*.tmp
+*.temp
+.cache/
