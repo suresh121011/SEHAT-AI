@@ -1,7 +1,7 @@
 # SEHAT AI — Demo Script (5 Minutes)
 
 > **Version:** 1.0 | **Date:** September 2026
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md) — §25
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md) — §25
 > **Setting:** Odisha PHC — Dengue triage scenario
 
 ---
@@ -60,7 +60,7 @@
 5. Click **"Read Aloud"** → TTS reads consent in Odia
 6. Patient says **"haan"** (audio recorded as consent)
 
-> **Talking Point:** *"Consent is layered — read aloud in the patient's language, with audio confirmation. Compliant with DPDP Act Section 6, ready for enforcement in May 2027."*
+> **Talking Point:** *"Consent is layered — read aloud in the patient's language, with audio confirmation. DPDP-ready by design — built around DPDP Act Section 6 consent ahead of substantive duties starting May 2027."*
 
 **Eval Hits:** Privacy (10%) — consent flow. India (15%) — Odia language.
 

@@ -1,7 +1,7 @@
 # SEHAT AI — Frontend Specification
 
 > **Version:** 1.0 | **Date:** September 2026
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md) — §15, §18, §20
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md) — §15, §18, §20
 > **Stack:** Next.js 15 (PWA, offline-first) | Service Worker + local SQLite
 
 ---

@@ -1,7 +1,7 @@
 # SEHAT AI — 28-Hour Implementation Plan
 
 > **Version:** 1.0 | **Date:** September 2026
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md) — §24
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md) — §24
 > **Objective:** Ship a working demo in 28 hours covering **85%+ of evaluation marks** by P8, with P9-P11 as stretch goals.
 
 ---

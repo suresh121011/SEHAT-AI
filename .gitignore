@@ -83,3 +83,6 @@ logs/
 *.tmp
 *.temp
 .cache/
+
+# ── Agent tooling (HarnessKit session logs) ─────────────────
+.harnesskit/

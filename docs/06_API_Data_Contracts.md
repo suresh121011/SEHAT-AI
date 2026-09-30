@@ -1,7 +1,7 @@
 # SEHAT AI — API & Data Contracts
 
 > **Version:** 1.0 | **Date:** September 2026
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md) — §12, §14, §16, §17
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md) — §12, §14, §16, §17
 > **Stack:** FastAPI (Python) | SQLite (hackathon) | JWT auth
 
 ---

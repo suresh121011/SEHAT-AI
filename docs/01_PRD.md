@@ -1,7 +1,7 @@
 # SEHAT AI — Product Requirements Document (PRD)
 
 > **Version:** 1.0 | **Date:** September 2026 | **Status:** Approved
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md)
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md)
 
 ---
 

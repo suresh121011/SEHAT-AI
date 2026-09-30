@@ -1,6 +1,6 @@
 # SEHAT AI — Agent Instructions
 
-> **Single Source of Truth:** [`../sehat_ai_final_architecture__2.md`](../sehat_ai_final_architecture__2.md)
+> **Single Source of Truth:** [`docs/sehat_ai_final_architecture__2.md`](docs/sehat_ai_final_architecture__2.md)
 
 ## Project Overview
 

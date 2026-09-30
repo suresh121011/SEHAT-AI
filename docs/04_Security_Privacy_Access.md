@@ -1,7 +1,7 @@
 # SEHAT AI — Security, Privacy & Access Control
 
 > **Version:** 1.0 | **Date:** September 2026
-> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](../../sehat_ai_final_architecture__2.md) — §14
+> **Architecture Source:** [SEHAT AI v5.0 Final Architecture](sehat_ai_final_architecture__2.md) — §14
 > **Regulatory Position:** DPDP-ready by design. Research prototype — not clinically validated, not CDSCO-cleared.
 
 ---
