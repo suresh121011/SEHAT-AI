@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.auth import Principal, Role, authenticate_demo_user, create_access_token, get_current_principal
+from app.auth import (
+    Principal,
+    Role,
+    authenticate_demo_user,
+    create_access_token,
+    get_current_principal,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

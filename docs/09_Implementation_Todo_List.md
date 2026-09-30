@@ -167,76 +167,76 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Safety (20%), Review (15%)
 > **Features:** #1, #2, #3, #4
 
-#### 2.1 AIIMS Red/Yellow/Green Rules
+> **Implemented 2026-09-30** — [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md). Thresholds corrected to the published ATP 2022 Supplementary Table 1 and RCP NEWS2 (ADR-5/6); items below reflect the corrected spec.
 
-- [ ] Create `backend/app/rules/aiims.py`
-- [ ] Implement RED criterion: airway compromise (stridor OR gurgling OR unable_to_speak)
-- [ ] Implement RED criterion: respiratory distress (SpO2 < 90 OR RR > 30 OR RR < 8)
-- [ ] Implement RED criterion: shock (SBP < 90 OR pulse > 130 OR active_bleeding)
-- [ ] Implement RED criterion: altered consciousness (GCS < 13 OR new_confusion OR seizure)
-- [ ] Implement RED criterion: severe hypothermia (temp < 35)
-- [ ] Implement YELLOW criteria (e.g., moderate pain, HR 100-130, SpO2 90-94)
-- [ ] Implement GREEN criteria (stable vitals, low acuity complaint)
-- [ ] Add source citation to every rule (`"AIIMS Protocol, PubMed 36353399"`)
+#### 2.1 ATP Red / Yellow / Green Rules
+
+- [x] Create `backend/app/rules/atp.py` (one rule per ATP Supplementary Table 1 row)
+- [x] RED airway: stridor, facial angioedema, active seizures
+- [x] RED breathing: incomplete sentences, audible wheeze, RR > 22 or < 10, SpO2 < 90%
+- [x] RED circulation: pulse < 50 or > 120 (without fever), SBP > 220 / DBP > 110, SBP < 90 / DBP < 60, shock index > 1, active bleeding
+- [x] RED disability: altered sensorium (ACVPU V/P/U)
+- [x] RED time-sensitive and increased-urgency conditions (chest pain < 24h, stroke < 24h, fever > 39°C, 3rd-trimester bleeding, poisoning, …)
+- [x] YELLOW from sourced scores/scenario rules/safety floor (ATP defines no YELLOW list — ADR-8)
+- [x] GREEN only when earned: complete vitals + completed red-flag screen + age ≥ 14 (ADR-4)
+- [x] Source citation on every rule (`app/rules/sources.py`)
 
 #### 2.2 NEWS2 Scoring
 
-- [ ] Create `backend/app/rules/news2.py`
-- [ ] Implement RR scoring (≤8→3, 9-11→1, 12-20→0, 21-24→2, ≥25→3)
-- [ ] Implement SpO2 scoring (with on_oxygen scale variant)
-- [ ] Implement SBP scoring (≤90→3, 91-100→2, 101-110→1, 111-219→0, ≥220→3)
-- [ ] Implement pulse scoring (≤40→3, 41-50→1, 51-90→0, 91-110→1, ≥131→3)
-- [ ] Implement consciousness scoring (Alert→0, else→3)
-- [ ] Implement temperature scoring (≤35.0→3, 35.1-36.0→1, 36.1-38.0→0, ≥39.1→2)
-- [ ] Aggregate: score ≥ 7 → RED, ≥ 5 → YELLOW, else → GREEN
+- [x] Create `backend/app/rules/news2.py`
+- [x] RR (≤8→3, 9-11→1, 12-20→0, 21-24→2, ≥25→3)
+- [x] SpO2 Scale 1 (≤91→3, 92-93→2, 94-95→1, ≥96→0) and Scale 2; air/oxygen (oxygen→2)
+- [x] SBP (≤90→3, 91-100→2, 101-110→1, 111-219→0, ≥220→3)
+- [x] Pulse (≤40→3, 41-50→1, 51-90→0, 91-110→1, 111-130→2, ≥131→3)
+- [x] Consciousness (Alert→0, C/V/P/U→3)
+- [x] Temperature (≤35.0→3, 35.1-36.0→1, 36.1-38.0→0, 38.1-39.0→1, ≥39.1→2)
+- [x] Mapping (RCP Chart 2): ≥ 7 → RED, 5–6 → YELLOW, any single 3 → YELLOW; not used < 16 years or in pregnancy
 
 #### 2.3 qSOFA Scoring
 
-- [ ] Create `backend/app/rules/qsofa.py`
-- [ ] Implement: RR ≥ 22, SBP ≤ 100, altered consciousness → 1 point each
-- [ ] Score ≥ 2 → escalate urgency
-- [ ] Trigger only when infection suspected (flag in input)
+- [x] Create `backend/app/rules/qsofa.py`
+- [x] RR ≥ 22, SBP ≤ 100, altered mentation → 1 point each
+- [x] Score ≥ 2 → YELLOW minimum (positive screen, not a diagnosis)
+- [x] Only when infection suspected (flag in input)
 
 #### 2.4 Scenario Rule Packs
 
-- [ ] Create `backend/app/rules/scenarios/` directory
-- [ ] Implement OPD Triage pack (AIIMS + NEWS2 + chief complaint matching)
-- [ ] Implement Maternal pack (Hb < 7 severe, age < 18/>35, danger signs)
-- [ ] Implement Dengue/Fever pack (platelets < 100K + fever ≥ 3d = warning signs)
-- [ ] Define required fields per scenario (list of mandatory fields)
-- [ ] Return missing_fields list when required fields absent
+- [x] Create `backend/app/rules/scenarios/` (all 7 packs)
+- [x] OPD (ATP + NEWS2)
+- [x] Maternal (danger signs → YELLOW, Hb < 7 → YELLOW, ATP RED for 3rd-trimester bleeding / seizures / BP > 220/110)
+- [x] Chronic NCD (BP > 180/110 → YELLOW; 2 readings required)
+- [x] Health Camp, Campus Fever, Occupational, Referral (advisories only)
+- [x] Required fields per scenario; `missing_fields` returned when absent
+- [ ] Dengue warning-signs pack — deferred: needs verified WHO 2009 criteria (ADR-7)
 
 #### 2.5 Cardinal Rule — LLM Override Prevention
 
-- [ ] Create `final_urgency()` function: returns max(rules, jev, llm)
-- [ ] Implement urgency ordering: RED=3, YELLOW=2, GREEN=1
-- [ ] Verify: if rules=RED, llm=GREEN → final=RED
-- [ ] Add unit test proving LLM can never lower urgency
-- [ ] Handle missing vitals: resolve to "needs_human_review", NEVER "normal"
+- [x] `enforce_raise_only(result, suggestion)` → max(deterministic, suggestion)
+- [x] Urgency ordering: RED=3, YELLOW=2, GREEN=1
+- [x] Verified: rules=RED, llm=GREEN → final=RED (downgrade refused and recorded)
+- [x] Unit tests prove LLM can never lower urgency or mutate the deterministic result
+- [x] Missing vitals → YELLOW + `needs_human_review`, NEVER "normal"
 
 #### 2.6 Rules API Endpoint
 
-- [ ] Create `POST /api/v1/triage/process` endpoint
-- [ ] Accept JSON body with vitals, entities, chief_complaint, scenario
-- [ ] Return: urgency, red_flags (with rule names + citations), news2_score, missing_fields
-- [ ] Add error handling for invalid input
+- [x] `POST /api/v1/triage/process` (roles: anm, medical_officer)
+- [x] Accepts scenario, age, vitals, red-flag screen, scenario data
+- [x] Returns urgency, triggered_rules (rule IDs + citations + evidence), NEWS2/qSOFA scores, missing_fields, advisories
+- [x] Invalid input → 400 `VALIDATION_ERROR` (impossible values rejected, never coerced)
 
 #### 2.7 Unit Tests
 
-- [ ] Write test: chest pain → RED (AIIMS criterion)
-- [ ] Write test: SpO2 88 → RED (respiratory distress)
-- [ ] Write test: SBP 85 + pulse 135 → RED (shock)
-- [ ] Write test: GCS 10 → RED (altered consciousness)
-- [ ] Write test: temp 34 → RED (severe hypothermia)
-- [ ] Write test: NEWS2 score 7 → RED
-- [ ] Write test: NEWS2 score 5 → YELLOW
-- [ ] Write test: NEWS2 score 2 → GREEN
-- [ ] Write test: final_urgency(RED, YELLOW, GREEN) → RED
-- [ ] Write test: missing vitals → "needs_human_review"
-- [ ] Write test: dengue scenario (platelets 85K + fever 3d) → RED
-- [ ] Run all tests: `pytest tests/test_rules.py` → 100% pass
+- [x] chest pain → RED (ATP)
+- [x] SpO2 89 → RED; SpO2 90 → not ATP RED (boundary)
+- [x] SBP 85 + pulse 135 → RED (BP low, pulse, shock index)
+- [x] ACVPU V/P/U → RED (replaces unsourced "GCS 10 → RED")
+- [x] temp 34 → YELLOW via NEWS2 (replaces unsourced "temp 34 → RED")
+- [x] NEWS2 7 → RED; NEWS2 5 → YELLOW; NEWS2 0 → GREEN
+- [x] Override matrix (RED+GREEN → RED, …)
+- [x] missing vitals → YELLOW + needs_human_review
+- [x] Run: `cd backend && ../.venv/bin/python -m pytest tests/rules` → 230 passed
 
-**✅ Phase 2 Definition of Done:** All 5 AIIMS RED criteria implemented with citations. NEWS2 + qSOFA scoring correct. 3+ scenario packs working. LLM can never lower urgency. 12+ unit tests passing.
+**✅ Phase 2 Definition of Done:** All computable ATP RED criteria implemented with citations. NEWS2 + qSOFA scoring correct. 7 scenario packs working. LLM can never lower urgency. Vignettes return correct urgency + explanation with zero LLM involvement.
 
 ---
 

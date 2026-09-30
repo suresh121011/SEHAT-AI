@@ -79,30 +79,33 @@ gantt
 
 #### Deliverables
 
+> Implemented 2026-09-30 — see [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md). Thresholds corrected to published ATP 2022 / RCP NEWS2 (ADR-5, ADR-6); dengue pack deferred (ADR-7).
+
 | # | Deliverable | Definition of Done |
 |:---:|:---|:---|
-| 1 | AIIMS Red/Yellow/Green rules | Input vitals → correct RED/YELLOW/GREEN classification. All 5 RED criteria implemented. |
-| 2 | NEWS2 scoring | Calculate NEWS2 from 6 vital parameters. Score ≥ 7 → RED, ≥ 5 → YELLOW. |
-| 3 | qSOFA scoring | Calculate qSOFA when infection suspected. Score ≥ 2 → escalate. |
-| 4 | Scenario rule packs (OPD, Maternal, Dengue) | At least 3 of 7 packs implemented with correct thresholds. |
-| 5 | Cardinal rule enforcement | `final_urgency()` returns max(rules, JEV, LLM). LLM can NEVER lower. |
-| 6 | Rules API endpoint | `POST /triage/process` → returns urgency level with rule citations. |
-| 7 | Unit tests for RED criteria | 10+ test cases covering all 5 AIIMS RED criteria. |
+| 1 | ATP Red rules + YELLOW/GREEN logic | All computable ATP 2022 Supplementary Table 1 criteria → RED. YELLOW from NEWS2/qSOFA/scenario rules/safety floor. GREEN only when data complete. |
+| 2 | NEWS2 scoring | Full RCP Chart 1 (7 parameters, SpO2 Scale 1/2). ≥ 7 → RED, 5–6 or any single 3 → YELLOW. |
+| 3 | qSOFA scoring | Only when infection suspected. ≥ 2 → YELLOW minimum (screen, not diagnosis). |
+| 4 | Scenario rule packs | All 7 packs (OPD, Maternal, Chronic NCD, Health Camp, Campus Fever, Occupational, Referral). |
+| 5 | Cardinal rule enforcement | `enforce_raise_only()` returns max(deterministic, suggestion). LLM can NEVER lower. |
+| 6 | Rules API endpoint | `POST /api/v1/triage/process` → urgency + triggered rules with citations and evidence. |
+| 7 | Unit tests | Boundary tests for every ATP/NEWS2/qSOFA threshold, every flag, every pack, override matrix. |
 
 #### Test Cases (Examples)
 
 ```python
-# Test: Chest pain → RED
-assert triage({"chief_complaint": "chest pain"}).urgency == "RED"
+# Chest pain < 24h → RED (ATP time-sensitive)
+assert triage(red_flags_present=["chest_pain_acute_24h"]).urgency == "RED"
 
-# Test: NEWS2 ≥ 7 → RED
-assert triage({"rr": 32, "spo2": 88, "sbp": 85, "pulse": 135, "temp": 34}).urgency == "RED"
+# Multiple abnormal vitals → RED (ATP RR/SpO2/BP/pulse/shock index + NEWS2 ≥ 7)
+assert triage(vitals={"resp_rate": 32, "spo2": 88, "sbp": 85, "dbp": 55, "pulse": 135, "temp_c": 34.0}).urgency == "RED"
 
-# Test: LLM says GREEN but rules say RED → final is RED
-assert final_urgency("RED", "YELLOW", "GREEN") == "RED"
+# LLM says GREEN but rules say RED → final is RED
+assert enforce_raise_only(red_result, "GREEN").final_urgency == "RED"
 
-# Test: Missing vitals → "needs_human_review"
-assert triage({"chief_complaint": "fever"}).missing_fields == ["spo2", "bp", "pulse"]
+# Missing vitals → YELLOW + needs_human_review (never GREEN)
+r = triage(scenario="opd", age_years=30)
+assert r.urgency == "YELLOW" and r.needs_human_review and "vitals.spo2" in r.missing_fields
 ```
 
 ---

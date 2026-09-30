@@ -290,39 +290,63 @@ MedGemma is the **primary** image model (runs locally, DPDP-ready — patient im
 
 ### Core: AIIMS Triage (96.2% sensitive for 24h mortality)
 
-```python
-AIIMS_RED_CRITERIA = [
-    {"name": "airway_compromise", "check": "stridor OR gurgling OR unable_to_speak",
-     "action": "RED", "source": "AIIMS Protocol, PubMed 36353399"},
-    {"name": "respiratory_distress", "check": "SpO2 < 90 OR RR > 30 OR RR < 8",
-     "action": "RED", "source": "AIIMS Protocol + NEWS2"},
-    {"name": "shock", "check": "SBP < 90 OR pulse > 130 OR active_bleeding",
-     "action": "RED", "source": "AIIMS Protocol"},
-    {"name": "altered_consciousness", "check": "GCS < 13 OR new_confusion OR seizure",
-     "action": "RED", "source": "AIIMS Protocol + qSOFA"},
-    {"name": "severe_hypothermia", "check": "temp < 35",
-     "action": "RED", "source": "NEWS2"},
-]
+The AIIMS Triage Protocol (ATP) Red criteria were **96.2% sensitive** for 24-hour mortality in 13,754 patients (Singh, Sahu et al., *JETS* 2022;15(3):124-7, doi:10.4103/jets.jets_146_21, PubMed 36353399). Adopted at AIIMS Bhubaneswar (Odisha).
 
-# THE CARDINAL RULE
-def final_urgency(rules_urgency, jev_urgency, llm_suggested_urgency):
-    """Urgency is the MAXIMUM of all assessments."""
+> **Corrected 2026-09-30 (Phase 2).** Thresholds below are taken verbatim from the published ATP **Supplementary Table 1** and RCP NEWS2 Charts 1–2. Earlier versions of this section listed unsourced values (RR >30/<8, pulse >130, GCS <13, "temp <35 → RED"). Implementation, full rule list, source registry and decision record: [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md).
+
+```python
+# RULES ENGINE — DETERMINISTIC, ZERO HALLUCINATION (backend/app/rules/)
+# Each rule has: id, urgency, reason, source_id, predicate, evidence {value, threshold}
+
+ATP_RED_CRITERIA = {   # ATP 2022, Supplementary Table 1 — any one present → RED
+    "airway":      "stridor/noisy breathing | facial angioedema | active seizures",
+    "breathing":   "incomplete sentences | audible wheeze | RR > 22 or < 10 | SpO2 < 90%",
+    "circulation": "pulse < 50 or > 120 (without fever) | SBP > 220 or DBP > 110 | "
+                   "SBP < 90 or DBP < 60 | shock index > 1 | active bleeding",
+    "disability":  "altered sensorium (responds only to Voice/Pain, or Unresponsive)",
+    "time_sensitive": "acute chest pain < 24h | limb weakness < 24h | suspected stroke < 24h | "
+                   "dangerous-mechanism trauma | acute SOB < 12h | limb ischaemia < 48h | allergic reaction | "
+                   "scrotal pain (young male) | severe pain | sudden abdominal pain | sudden headache | "
+                   "urinary retention | fever with temp > 39°C or immunocompromise | syncope | needle prick",
+    "increased_urgency": "abdominal pain + vaginal bleeding | agitated/violent | poisoning/snake/scorpion | "
+                   "3rd trimester with abdominal pain/vaginal bleeding",
+}
+
+# NEWS2 (RCP 2017 Chart 1) — scored separately from interpretation
+#   RR:    ≤8→3, 9–11→1, 12–20→0, 21–24→2, ≥25→3
+#   SpO2 Scale 1: ≤91→3, 92–93→2, 94–95→1, ≥96→0   (Scale 2 for hypercapnic respiratory failure)
+#   Air or oxygen: oxygen→2
+#   SBP:   ≤90→3, 91–100→2, 101–110→1, 111–219→0, ≥220→3
+#   Pulse: ≤40→3, 41–50→1, 51–90→0, 91–110→1, 111–130→2, ≥131→3
+#   ACVPU: Alert→0, C/V/P/U→3
+#   Temp:  ≤35.0→3, 35.1–36.0→1, 36.1–38.0→0, 38.1–39.0→1, ≥39.1→2
+# RCP Chart 2 → SEHAT urgency: ≥7 → RED; 5–6 → YELLOW; any single parameter = 3 → YELLOW; 0–4 → no escalation
+# Not used under 16 years or in pregnancy (RCP). Missing parameters are never assumed normal.
+
+# qSOFA (Sepsis-3, JAMA 2016) — only with suspected infection: RR ≥ 22, altered mentation, SBP ≤ 100
+# ≥ 2 → YELLOW minimum. A positive screen, not a diagnosis.
+
+# GREEN must be earned: missing vitals / red-flag screen not completed / age < 14
+#   → YELLOW + needs_human_review (never "normal")
+
+# THE CARDINAL RULE: LLM can NEVER lower urgency
+def enforce_raise_only(deterministic, suggested):
+    """final = max(deterministic, suggested); downgrades refused and recorded."""
     urgency_order = {"RED": 3, "YELLOW": 2, "GREEN": 1}
-    return max(rules_urgency, jev_urgency, llm_suggested_urgency,
-               key=lambda x: urgency_order.get(x, 0))
+    return max(deterministic, suggested or deterministic, key=urgency_order.__getitem__)
 ```
 
 ### 7 Scenario Rule Packs
 
-| Scenario | Key Rules | Source |
-|:---|:---|:---|
-| **OPD Triage** | AIIMS Red/Yellow/Green + NEWS2 | PubMed 36353399 |
-| **Maternal** | Hb < 7 severe, age < 18/>35, danger signs | JOGH 2023, NHM GDM |
-| **Chronic NCD** | BP ≥ 180/110 → referral. BP < 140/90 in 3mo = controlled | Punjab protocol |
-| **Health Camp** | CBAC > 4 → NCD clinic referral. Anaemia thresholds | NHSRC CBAC |
-| **Campus Fever** | Temp ≥ 38°C + cough = ILI. EARS outbreak alarm | PMC5590954 |
-| **Occupational** | Hearing shift ≥ 10dB at 2-4kHz → review | Factories Act |
-| **Referral** | Escort + transport plan. Identity + consent. | TPG 2020 |
+| Scenario | Urgency rules (raise-only) | Advisories (never change urgency) | Source |
+|:---------|:----------|:-------|:---------------|
+| **OPD Triage** | ATP + NEWS2 (+ qSOFA if infection suspected) | — | ATP 2022, RCP NEWS2 |
+| **Maternal** | Any danger sign → YELLOW; Hb < 7 g/dL → YELLOW; ATP RED for seizures, 3rd-trimester bleed/pain, BP > 220/110. No NEWS2 in pregnancy | Age < 18 / > 35 (pending verification) | MoHFW MCP card, WHO Hb 2024 |
+| **Chronic NCD** | BP > 180/110 on any reading → YELLOW (refer; > 220/110 RED via ATP). Needs 2 readings for GREEN | — | IHCI protocol |
+| **Health Camp** | ATP + NEWS2 | CBAC > 4 → prioritise NCD screening | NPCDCS CBAC |
+| **Campus Fever** | ATP (temp > 39°C RED) + qSOFA | Fever ≥ 38°C + cough, onset ≤ 10 d = WHO ILI | WHO ILI 2014 |
+| **Occupational** | ATP + NEWS2 | Hearing shift ≥ 10 dB avg at 2/3/4 kHz → audiology review | 29 CFR 1910.95 (US) |
+| **Referral** | ATP + NEWS2 | Escort, transport, identity, consent missing → packet incomplete | SEHAT policy |
 
 ---
 

@@ -287,6 +287,61 @@ Headers:
 }
 ```
 
+### 3.5a TriageProcess — `POST /triage/process` (implemented, Phase 2)
+
+Deterministic rules engine, no LLM. Full field reference, rule list and sources: [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md). Scenarios: `opd | maternal | chronic_ncd | health_camp | campus_fever | occupational | referral`. Scenario-specific data goes in a block named after the scenario (e.g. `"maternal": {"danger_sign_screen_completed": true, "danger_signs": [...], "hb_g_dl": 9.8}`). Impossible values return `400 VALIDATION_ERROR`.
+
+**Request**
+```json
+{
+  "scenario": "opd",
+  "age_years": 28,
+  "red_flag_screen_completed": true,
+  "red_flags_present": ["sudden_abdominal_pain"],
+  "suspected_infection": true,
+  "vitals": {
+    "resp_rate": 22, "spo2": 96, "on_supplemental_oxygen": false, "pulse": 104,
+    "sbp": 108, "dbp": 70, "temp_c": 38.9, "consciousness": "A"
+  }
+}
+```
+
+**Response** (abridged)
+```json
+{
+  "urgency": "RED",
+  "determination": "complete",
+  "needs_human_review": false,
+  "scenario": "opd",
+  "triggered_rules": [
+    {
+      "rule_id": "ATP_RED_SUDDEN_ABDOMINAL_PAIN", "family": "atp", "urgency": "RED",
+      "reason": "Time-sensitive: sudden onset abdominal pain",
+      "source_id": "ATP_2022", "source": "Singh SK, Sahu AK, et al. … J Emerg Trauma Shock 2022;15(3):124-7, Supplementary Table 1",
+      "evidence": {"red_flag": {"value": "sudden_abdominal_pain", "threshold": "present on assessment"}}
+    },
+    {
+      "rule_id": "NEWS2_MEDIUM", "family": "news2", "urgency": "YELLOW",
+      "source_id": "RCP_NEWS2_2017",
+      "evidence": {"news2": {"value": 5, "threshold": "5-6 (RCP medium clinical risk)"}}
+    }
+  ],
+  "scores": {
+    "news2": {"status": "complete", "total": 5, "band": "medium", "components": {"resp_rate": {"value": 22, "points": 2}, "…": "…"}},
+    "qsofa": {"status": "complete", "total": 1, "positive": false, "note": "qSOFA is a risk prompt, not a diagnosis of sepsis (SEPSIS3_2016)"}
+  },
+  "missing_fields": [],
+  "advisories": [],
+  "engine_version": "1.0.0",
+  "ruleset_version": "1.0.0",
+  "evaluated_at": "2026-09-30T10:00:00Z"
+}
+```
+
+When data is incomplete, `urgency` is never `GREEN`: it is at least `YELLOW` with `"determination": "insufficient_data"`, `"needs_human_review": true` and the list in `missing_fields`.
+
+**Mapping to TriageNote (3.5):** `urgency` → `urgency.rules_level`; `triggered_rules` → `red_flags` (`rule_id` ≈ `rule_name`, `evidence` ≈ `triggered_by`); `scores` → `scores`. The LLM/JEV suggestion is combined with `enforce_raise_only()` → `urgency.final_level`. The dengue example in 3.5 predates Phase 2 — that rule is not implemented (docs/10 ADR-7).
+
 ### 3.6 ReviewSignOff
 
 ```json

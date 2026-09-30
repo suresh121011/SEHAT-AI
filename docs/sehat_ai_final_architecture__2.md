@@ -842,66 +842,67 @@ All MedGemma output passes through the **same 5-layer anti-hallucination pipelin
 
 ### Core: AIIMS Triage Protocol (evidence-based)
 
-The AIIMS protocol's Red criteria were **96.2% sensitive** for 24-hour mortality in 13,754 patients (PubMed 36353399). Adopted at AIIMS Bhubaneswar (Odisha).
+The AIIMS Triage Protocol (ATP) Red criteria were **96.2% sensitive** for 24-hour mortality in 13,754 patients (Singh, Sahu et al., *JETS* 2022;15(3):124-7, doi:10.4103/jets.jets_146_21, PubMed 36353399). Adopted at AIIMS Bhubaneswar (Odisha).
+
+> **Corrected 2026-09-30 (Phase 2).** Thresholds below are taken verbatim from the published ATP **Supplementary Table 1** and RCP NEWS2 Charts 1–2. Earlier versions of this section listed unsourced values (RR >30/<8, pulse >130, GCS <13, "temp <35 → RED"). Implementation, full rule list, source registry and decision record: [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md).
 
 ```python
-# RULES ENGINE — DETERMINISTIC, ZERO HALLUCINATION
-# Each rule has: name, threshold, source_citation, action
+# RULES ENGINE — DETERMINISTIC, ZERO HALLUCINATION (backend/app/rules/)
+# Each rule has: id, urgency, reason, source_id, predicate, evidence {value, threshold}
 
-AIIMS_RED_CRITERIA = [
-    # Airway
-    {"name": "airway_compromise", "check": "stridor OR gurgling OR unable_to_speak",
-     "action": "RED", "source": "AIIMS Protocol, PubMed 36353399"},
-    # Breathing  
-    {"name": "respiratory_distress", "check": "SpO2 < 90 OR RR > 30 OR RR < 8",
-     "action": "RED", "source": "AIIMS Protocol + NEWS2"},
-    # Circulation
-    {"name": "shock", "check": "SBP < 90 OR pulse > 130 OR active_bleeding",
-     "action": "RED", "source": "AIIMS Protocol"},
-    # Disability
-    {"name": "altered_consciousness", "check": "GCS < 13 OR new_confusion OR seizure",
-     "action": "RED", "source": "AIIMS Protocol + qSOFA"},
-    # Exposure
-    {"name": "severe_hypothermia", "check": "temp < 35",
-     "action": "RED", "source": "NEWS2"},
-]
+ATP_RED_CRITERIA = {   # ATP 2022, Supplementary Table 1 — any one present → RED
+    "airway":      "stridor/noisy breathing | facial angioedema | active seizures",
+    "breathing":   "incomplete sentences | audible wheeze | RR > 22 or < 10 | SpO2 < 90%",
+    "circulation": "pulse < 50 or > 120 (without fever) | SBP > 220 or DBP > 110 | "
+                   "SBP < 90 or DBP < 60 | shock index > 1 | active bleeding",
+    "disability":  "altered sensorium (responds only to Voice/Pain, or Unresponsive)",
+    "time_sensitive": "acute chest pain < 24h | limb weakness < 24h | suspected stroke < 24h | "
+                   "dangerous-mechanism trauma | acute SOB < 12h | limb ischaemia < 48h | allergic reaction | "
+                   "scrotal pain (young male) | severe pain | sudden abdominal pain | sudden headache | "
+                   "urinary retention | fever with temp > 39°C or immunocompromise | syncope | needle prick",
+    "increased_urgency": "abdominal pain + vaginal bleeding | agitated/violent | poisoning/snake/scorpion | "
+                   "3rd trimester with abdominal pain/vaginal bleeding",
+}
 
-# NEWS2 scoring when full vital set available
-def calculate_news2(vitals):
-    """National Early Warning Score 2 — deterministic, cited."""
-    score = 0
-    score += news2_rr_score(vitals.respiratory_rate)    # ≤8→3, 9-11→1, 12-20→0, 21-24→2, ≥25→3
-    score += news2_spo2_score(vitals.spo2, vitals.on_oxygen)
-    score += news2_sbp_score(vitals.systolic_bp)        # ≤90→3, 91-100→2, 101-110→1, 111-219→0, ≥220→3
-    score += news2_pulse_score(vitals.pulse)             # ≤40→3, 41-50→1, 51-90→0, 91-110→1, ≥131→3
-    score += news2_consciousness_score(vitals.consciousness)  # AVPU: Alert→0, else→3
-    score += news2_temp_score(vitals.temperature)        # ≤35.0→3, 35.1-36.0→1, 36.1-38.0→0, ≥39.1→2
-    
-    if score >= 7: return "RED", "NEWS2 ≥ 7: Urgent clinical review", "RCP NEWS2"
-    elif score >= 5: return "YELLOW", "NEWS2 5-6: Increased observation", "RCP NEWS2"
-    else: return "GREEN", f"NEWS2 {score}: Routine", "RCP NEWS2"
+# NEWS2 (RCP 2017 Chart 1) — scored separately from interpretation
+#   RR:    ≤8→3, 9–11→1, 12–20→0, 21–24→2, ≥25→3
+#   SpO2 Scale 1: ≤91→3, 92–93→2, 94–95→1, ≥96→0   (Scale 2 for hypercapnic respiratory failure)
+#   Air or oxygen: oxygen→2
+#   SBP:   ≤90→3, 91–100→2, 101–110→1, 111–219→0, ≥220→3
+#   Pulse: ≤40→3, 41–50→1, 51–90→0, 91–110→1, 111–130→2, ≥131→3
+#   ACVPU: Alert→0, C/V/P/U→3
+#   Temp:  ≤35.0→3, 35.1–36.0→1, 36.1–38.0→0, 38.1–39.0→1, ≥39.1→2
+# RCP Chart 2 → SEHAT urgency: ≥7 → RED; 5–6 → YELLOW; any single parameter = 3 → YELLOW; 0–4 → no escalation
+# Not used under 16 years or in pregnancy (RCP). Missing parameters are never assumed normal.
+
+# qSOFA (Sepsis-3, JAMA 2016) — only with suspected infection: RR ≥ 22, altered mentation, SBP ≤ 100
+# ≥ 2 → YELLOW minimum. A positive screen, not a diagnosis.
+
+# GREEN must be earned: missing vitals / red-flag screen not completed / age < 14
+#   → YELLOW + needs_human_review (never "normal")
 
 # THE CARDINAL RULE: LLM can NEVER lower urgency
-def final_urgency(rules_urgency, jev_urgency, llm_suggested_urgency):
-    """Urgency is the MAXIMUM of all assessments."""
+def enforce_raise_only(deterministic, suggested):
+    """final = max(deterministic, suggested); downgrades refused and recorded."""
     urgency_order = {"RED": 3, "YELLOW": 2, "GREEN": 1}
-    return max(rules_urgency, jev_urgency, llm_suggested_urgency,
-               key=lambda x: urgency_order.get(x, 0))
+    return max(deterministic, suggested or deterministic, key=urgency_order.__getitem__)
 ```
 
 ### 7 Scenario Rule Packs
 
-| Scenario | Key Rules | Source | Required Fields |
+| Scenario | Urgency rules (raise-only) | Advisories (never change urgency) | Source |
 |:---------|:----------|:-------|:---------------|
-| **OPD Triage** | AIIMS Red/Yellow/Green + NEWS2 | PubMed 36353399 | Chief complaint, SpO2, BP, pulse, RR, consciousness |
-| **Maternal** | Hb < 7 severe, age <18/>35, danger signs (headache, bleeding, reduced fetal movement) | JOGH 2023, NHM GDM | LMP, EDD, gravida/parity, Hb, BP, GTT |
-| **Chronic NCD** | BP ≥ 180/110 → referral. BP < 140/90 in 3 months = controlled | Punjab protocol, Simple app | Two BP readings, blood sugar, current drugs, adherence |
-| **Health Camp** | CBAC > 4 → NCD clinic referral. Anaemia: mild 10-10.9, moderate 7-9.9, severe <7 | NHSRC CBAC, PMSMA | Camp ID, token, CBAC items, BP, RBS, Hb |
-| **Campus Fever** | Temp ≥ 38°C + cough/sore throat = ILI. EARS C1/C3 outbreak alarm | PMC5590954, IDSP | Hostel/block/room, temp, onset, contacts |
-| **Occupational** | Hearing shift ≥ 10dB at 2-4kHz → review. 6-monthly exam for hazardous | Factories Act, OSH Code | Employer, hazard type, exposure years |
-| **Referral** | Escort + transport plan. Identity confirmed. Consent taken. | TPG 2020, PMC9004167 | Reason, flags with evidence, transport |
+| **OPD Triage** | ATP + NEWS2 (+ qSOFA if infection suspected) | — | ATP 2022, RCP NEWS2 |
+| **Maternal** | Any danger sign → YELLOW; Hb < 7 g/dL → YELLOW; ATP RED for seizures, 3rd-trimester bleed/pain, BP > 220/110. No NEWS2 in pregnancy | Age < 18 / > 35 (pending verification) | MoHFW MCP card, WHO Hb 2024 |
+| **Chronic NCD** | BP > 180/110 on any reading → YELLOW (refer; > 220/110 RED via ATP). Needs 2 readings for GREEN | — | IHCI protocol |
+| **Health Camp** | ATP + NEWS2 | CBAC > 4 → prioritise NCD screening | NPCDCS CBAC |
+| **Campus Fever** | ATP (temp > 39°C RED) + qSOFA | Fever ≥ 38°C + cough, onset ≤ 10 d = WHO ILI | WHO ILI 2014 |
+| **Occupational** | ATP + NEWS2 | Hearing shift ≥ 10 dB avg at 2/3/4 kHz → audiology review | 29 CFR 1910.95 (US) |
+| **Referral** | ATP + NEWS2 | Escort, transport, identity, consent missing → packet incomplete | SEHAT policy |
 
 ### Dengue Danger Signs (Critical for Odisha Demo)
+
+> **Not implemented in Phase 2 — see [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md) ADR-7.** Dengue is not one of the 7 scenarios, and "platelets < 100K → RED" is not a WHO 2009 criterion (WHO 2009 severe dengue = severe plasma leakage, severe bleeding, severe organ impairment). A verified WHO 2009 warning-signs pack is a follow-up; the demo patient reaches RED through ATP (severe pain / sudden abdominal pain).
 
 ```python
 DENGUE_RULES = [
