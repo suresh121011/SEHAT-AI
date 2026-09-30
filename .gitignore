@@ -72,7 +72,7 @@ Thumbs.db
 *.pth
 *.bin
 *.safetensors
-models/
+/models/
 
 # ── Logs ─────────────────────────────────────────────────────
 *.log
