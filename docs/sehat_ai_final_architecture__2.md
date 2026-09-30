@@ -159,7 +159,7 @@ flowchart LR
 |:-:|:---------|:----:|:------------|
 | 12 | **DPDP Act 2023** — Consent Manager Framework deadline: Nov 13, 2026 | ₹250 crore penalty | Layered consent in patient's language (TTS read-aloud, audio "yes"), revocation, Data Protection Impact Assessment |
 | 13 | **CDSCO SaMD classification** (July 2026 guidance) | Triage AI = Class B/C medical device | Position as "administrative triage support" (not diagnostic), mandatory disclaimer |
-| 14 | **Medical liability** — Doctor bears liability for following faulty AI | Trust deficit | Transparent AI confidence, mandatory human override, immutable audit trail, counterfactual XAI |
+| 14 | **Medical liability** — Doctor bears liability for following faulty AI | Trust deficit | Transparent AI confidence, mandatory human override, append-only, tamper-evident audit trail (not immutable), counterfactual XAI |
 | 15 | **No public Indian medical datasets** | ABDM data locked; DPDP restricts real data | 10 public international datasets + custom synthetic data (50K triage records, 10K lab reports, 5K prescriptions) |
 
 ---
@@ -175,7 +175,7 @@ flowchart LR
 | **Multimodal capability** | **15%** | Voice in Indian languages. OCR of lab reports. Medical image understanding. | Silero VAD → STT → Dakshini (Odia). Chandra OCR 2 (INT8) + Surya. **🆕 MedGemma** (X-ray, ECG, CT descriptions). Body map. Read-back confirmation. | **15/15** |
 | **India-wide facility relevance** | **15%** | Scenario rule packs per facility. Odia/Hindi/English. Health-worker-operated mode. Offline. ABDM/FHIR. | 7 scenario rule packs. Assisted mode (worker operates device for patient). PWA offline-first. FHIR R4 + SNOMED export. | **14/15** |
 | **Human-review & escalation** | **15%** | Review queue, sign-off, edit logging, override reasons, urgency alerts, escalation timers, referral handoff | Priority queue ordered by RULES not LLM. Named sign-off. Red escalation timer (3 min). Lowering urgency needs reason code. | **14/15** |
-| **Privacy & responsible AI** | **10%** | Consent, anonymization, audit, role-based access, retention limits, prompt-injection defense, model card | Presidio PII → redact before LLM. NeMo Guardrails. DPDP-ready design. Tamper-evident audit log. Test evidence slide. | **9/10** |
+| **Privacy & responsible AI** | **10%** | Consent, PII redaction (risk reduction, not anonymization), audit, role-based access, retention limits, prompt-injection defense, model card | Presidio PII → redact before LLM. NeMo Guardrails. DPDP-ready design. Tamper-evident audit log. Test evidence slide. | **9/10** |
 | **Demo quality** | **5%** | One scripted end-to-end story | Odisha PHC: Odia voice → OCR → triage → sign-off → referral with closure tracking. Under 5 minutes. | **5/5** |
 | **TOTAL** | **100%** | | | **94/100** |
 
@@ -251,7 +251,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph L1["📥 LAYER 1: MULTIMODAL INPUT + CONSENT"]
-        CONSENT["Layered Consent\n(Read aloud in Odia/Hindi,\naudio 'haan/yes')"]
+        CONSENT["Layered Consent\n(notice en/hi/or, staff-attested\n'haan/yes', no audio stored)"]
         VOICE["🎤 Voice\n(Silero VAD → STT)"]
         DOC["📷 Document\n(Camera → OCR)"]
         XRAY["🩻 Medical Image\n(X-ray / ECG / CT)"]
@@ -260,7 +260,7 @@ flowchart TD
     end
     
     subgraph L2["🔒 LAYER 2: PRE-PROCESSING SAFETY"]
-        PII["Presidio PII\n(Anonymize before LLM)"]
+        PII["Presidio PII\n(Redact before LLM — heuristic)"]
         INJECT["Prompt Injection\nDetector (LLM Guard)"]
         SCOPE["NeMo Guardrails\n(Topic boundaries)"]
     end
@@ -291,7 +291,7 @@ flowchart TD
         QUEUE["Priority Queue\n(Rules-ordered)"]
         REVIEW["Sign-Off\n(Named reviewer)"]
         REFERRAL["Referral Packet\n+ Closure Tracking"]
-        AUDIT["Immutable\nAudit Log"]
+        AUDIT["Append-only, tamper-evident\nAudit Log"]
     end
     
     L1 --> L2 --> L3 --> L4
@@ -377,7 +377,7 @@ sequenceDiagram
     
     SK->>PII: Raw text (transcript + OCR)
     PII->>PII: Strip names, ABHA, Aadhaar, phone
-    PII->>SK: Anonymized text
+    PII->>SK: Redacted text (heuristic; not anonymized)
     
     SK->>NER: Extract entities
     NER->>NER: Symptoms, drugs, values → SNOMED codes
@@ -1088,7 +1088,7 @@ async def maker_voting_extract(field_name, context, k_threshold=2):
 
 | Stage | Tool | What it Does | Latency |
 |:------|:-----|:------------|:-------:|
-| **Pre-LLM** | Presidio + LLM Guard | Anonymize PII (names, ABHA, Aadhaar, phone). Detect prompt injection. Topic boundary check. | <50ms |
+| **Pre-LLM** | Presidio analyzer (+ LLM Guard planned) | Redact PII (names, ABHA, Aadhaar-like, phone, PAN) — heuristic, not anonymization (docs/11). Prompt-injection detection planned. | ~50ms |
 | **During** | NeMo Guardrails (Colang 2.0) | Enforce "cannot diagnose", "cannot prescribe". Emergency escalation flow. | <10ms |
 | **Post-LLM** | Output Guard + Language Filter | Block diagnosis/prescription language. PII re-check. HASSUM entropy flag. Mandatory disclaimer. | <30ms |
 
@@ -1147,10 +1147,10 @@ INJECTION_PATTERNS = [
 
 | Requirement | Implementation | Legal Basis |
 |:-----------|:--------------|:-----------|
-| Layered consent in patient's language | TTS reads consent in Odia/Hindi. Audio "haan/yes" recorded. | TPG clause 3.4, DPDP Section 6 |
+| Layered consent in patient's language | Notice en/hi/or (hi/or unreviewed drafts); read-aloud with a matching voice; staff-attested "haan/yes", no audio stored (docs/11). | TPG clause 3.4, DPDP Section 6 |
 | Data minimization | Only symptom + vitals for triage. Age band, not DOB. District, not address. | DPDP Section 4 |
 | Redact before cloud API | Presidio strips PII before any Azure OpenAI call | DPDP Rule 6 |
-| Right to erasure | "Delete My Data" button in patient profile | DPDP Section 12 |
+| Right to erasure | **Deferred** — Phase 3 implements withdrawal only (docs/11) | DPDP Section 12 |
 | Audit log (1 year) | Tamper-evident, hash-chained log (SHA-256) | CERT-In Directions |
 | Breach notification (72h) | Sentry alerting → DPO notification pipeline | DPDP Rule 7 |
 | Emergency bypass | Process without consent in medical emergency, logged | DPDP Section 7(f) |
@@ -1322,7 +1322,7 @@ kernel.add_plugin(FHIRPlugin(),        "FHIRExport")        # FHIR R4 bundle
 kernel.add_plugin(ReferralPlugin(),    "ReferralPacket")    # Closure tracking
 
 # Safety Plugins
-kernel.add_plugin(PresidioPlugin(),    "PIIAnonymizer")
+# PII redaction is not an SK plugin: all AI calls go through app/privacy/gateway.py (docs/11)
 kernel.add_plugin(NeMoPlugin(),        "DialogueGuard")
 kernel.add_plugin(AuditPlugin(),       "AuditLogger")
 ```
@@ -1352,7 +1352,7 @@ flowchart LR
     style Gateway fill:#0078D4,color:#fff
 ```
 
-> **The Pitch:** *"SEHAT AI is the patient-facing triage front-end that produces structured, FHIR-compliant clinical data. This data flows seamlessly through the TriZetto AI Gateway into Cognizant's administrative backend. We built on Microsoft Semantic Kernel — the same orchestration framework powering TriZetto."*
+> **The Pitch:** *"SEHAT AI is the patient-facing triage front-end that produces structured, FHIR R4-shaped (planned; not yet validated against a FHIR server) clinical data. This data flows seamlessly through the TriZetto AI Gateway into Cognizant's administrative backend. We built on Microsoft Semantic Kernel — the same orchestration framework powering TriZetto."*
 
 ---
 

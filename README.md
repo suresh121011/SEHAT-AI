@@ -15,7 +15,7 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | **Multimodal** | Handles vitals, audio notes, clinical documents, and visual signs. |
 | **Human Sign-Off** | A named human reviewer always signs off every triage. Every field links to its source. |
 | **DPDP-Ready** | Designed with patient privacy, data minimisation, and consent boundaries aligned to India's DPDP Act. |
-| **FHIR R4** | Interoperable data contracts for seamless EHR/EMR integration. |
+| **FHIR R4** | FHIR R4-shaped export contracts planned for EHR/EMR integration (not yet validated against a FHIR server). |
 
 ---
 
@@ -33,6 +33,7 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | [`docs/08_Implementation_28h_Plan.md`](docs/08_Implementation_28h_Plan.md) | Phased 28-hour implementation plan |
 | [`docs/09_Implementation_Todo_List.md`](docs/09_Implementation_Todo_List.md) | Granular checkbox task list for each phase |
 | [`docs/10_Safety_Rules_Engine.md`](docs/10_Safety_Rules_Engine.md) | Deterministic triage rules engine: clinical sources, decisions, tests |
+| [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md) | Consent, PII redaction, AI gateway, audit log — implemented controls, threat model, limitations (demo-only) |
 
 ---
 
@@ -40,3 +41,5 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 
 > This is a **research prototype, not a clinically validated device**. It has not received CDSCO clearance.
 > Verify all clinical rules against current primary sources before implementation.
+>
+> **Demo accounts only — not for real patients.** Login uses shared, password-less demo accounts; the backend refuses to start outside `development`/`test`. PII redaction is a heuristic safeguard, not anonymization; the audit log is tamper-evident, not immutable. See [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md).

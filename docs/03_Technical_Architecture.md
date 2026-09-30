@@ -27,7 +27,7 @@ HUMAN signs off (mandatory, logged)
 ```mermaid
 flowchart TD
     subgraph L1["📥 LAYER 1: MULTIMODAL INPUT + CONSENT"]
-        CONSENT["Layered Consent\n(Read aloud in Odia/Hindi,\naudio 'haan/yes')"]
+        CONSENT["Layered Consent\n(notice en/hi/or, staff-attested\n'haan/yes', no audio stored)"]
         VOICE["🎤 Voice\n(Silero VAD → STT)"]
         DOC["📷 Document\n(Camera → OCR)"]
         XRAY["🩻 Medical Image\n(X-ray / ECG / CT)"]
@@ -36,7 +36,7 @@ flowchart TD
     end
     
     subgraph L2["🔒 LAYER 2: PRE-PROCESSING SAFETY"]
-        PII["Presidio PII\n(Anonymise before LLM)"]
+        PII["Presidio PII\n(Redact before LLM — heuristic)"]
         INJECT["Prompt Injection\nDetector (LLM Guard)"]
         SCOPE["NeMo Guardrails\n(Topic boundaries)"]
     end
@@ -67,7 +67,7 @@ flowchart TD
         QUEUE["Priority Queue\n(Rules-ordered)"]
         REVIEW["Sign-Off\n(Named reviewer)"]
         REFERRAL["Referral Packet\n+ Closure Tracking"]
-        AUDIT["Immutable\nAudit Log"]
+        AUDIT["Append-only, tamper-evident\nAudit Log"]
     end
     
     L1 --> L2 --> L3 --> L4
@@ -183,7 +183,7 @@ sequenceDiagram
     
     SK->>PII: Raw text (transcript + OCR)
     PII->>PII: Strip names, ABHA, Aadhaar, phone
-    PII->>SK: Anonymised text
+    PII->>SK: Redacted text (heuristic; not anonymized)
     
     SK->>NER: Extract entities
     NER->>NER: Symptoms, drugs, values → SNOMED codes
@@ -443,7 +443,7 @@ kernel.add_plugin(FHIRPlugin(),        "FHIRExport")
 kernel.add_plugin(ReferralPlugin(),    "ReferralPacket")
 
 # Safety Plugins
-kernel.add_plugin(PresidioPlugin(),    "PIIAnonymizer")
+# PII redaction is NOT an SK plugin: all AI calls go through app/privacy/gateway.py (docs/11)
 kernel.add_plugin(NeMoPlugin(),        "DialogueGuard")
 kernel.add_plugin(AuditPlugin(),       "AuditLogger")
 ```
@@ -473,7 +473,7 @@ flowchart LR
     style Gateway fill:#0078D4,color:#fff
 ```
 
-> **The Pitch:** *"SEHAT AI is the patient-facing triage front-end. Its FHIR-compliant output flows seamlessly through TriZetto AI Gateway into Cognizant's administrative backend. Built on Microsoft Semantic Kernel — the same orchestration framework powering TriZetto."*
+> **The Pitch:** *"SEHAT AI is the patient-facing triage front-end. Its FHIR R4-shaped output (planned; not yet validated against a FHIR server) flows seamlessly through TriZetto AI Gateway into Cognizant's administrative backend. Built on Microsoft Semantic Kernel — the same orchestration framework powering TriZetto."*
 
 ---
 

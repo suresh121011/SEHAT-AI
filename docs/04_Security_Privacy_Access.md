@@ -12,9 +12,9 @@ SEHAT AI's safety architecture is built on a fundamental principle: **the most d
 
 1. **Rules set urgency** — deterministic, cited protocols with zero hallucination risk
 2. **LLM extracts and summarises** — never decides, never diagnoses, never prescribes
-3. **PII is stripped before the LLM sees it** — Presidio redaction is mandatory pre-processing
+3. **PII redaction runs before any LLM adapter** — heuristic Presidio-based redaction on the single AI gateway; risk reduction, not anonymization (see [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md))
 4. **Humans sign off** — every triage note requires named reviewer approval
-5. **Everything is logged** — tamper-evident, hash-chained audit trail
+5. **Security-relevant actions are logged** — application-level append-only, hash-chained, tamper-evident (not immutable) audit log (see [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md))
 
 ---
 
@@ -55,9 +55,9 @@ flowchart TD
     B --> C["Consent text displayed\nin patient's language"]
     C --> D["TTS reads consent aloud\n(Indic Parler-TTS)"]
     D --> E{"Patient response?"}
-    E -->|"Audio 'haan/yes'\n(recorded)"| F["✅ Consent recorded\nwith timestamp + audio"]
+    E -->|"Patient button, or ANM attests\nverbal 'haan/yes' (no audio stored)"| F["✅ Consent recorded\nwith timestamp, notice version, language"]
     E -->|"Decline"| G["Manual intake\n(text-only, minimal data)"]
-    E -->|"Emergency\n(DPDP §7f)"| H["Process without consent\nEmergency bypass logged"]
+    E -->|"Emergency (DPDP §7f)\nDEFERRED — not implemented"| H["Not available in Phase 3"]
     
     F --> I["Proceed to intake"]
     G --> I
@@ -69,11 +69,11 @@ flowchart TD
 | Field | Value |
 |:---|:---|
 | **Consent type** | Data collection for triage, sharing with reviewer, referral transmission |
-| **Method** | Audio recording ("haan/yes"), text confirmation, or emergency bypass |
+| **Method** | `patient_button` (patient account) or `staff_attested_verbal` (ANM account attests the patient said yes). No audio stored. Emergency bypass deferred. |
 | **Language** | The language consent was presented and read aloud in |
 | **Timestamp** | ISO 8601 with facility timezone |
-| **Revocable** | Yes — "Delete My Data" button available (DPDP Section 12) |
-| **Emergency bypass** | Allowed under DPDP Section 7(f) for medical emergencies, logged |
+| **Revocable** | Yes — purpose-specific withdrawal (`triage` / `ai_assist`). Data deletion ("Delete My Data", DPDP §12) is **deferred** |
+| **Emergency bypass** | DPDP §7(f) legitimate use — **deferred**, not implemented |
 
 ---
 
@@ -83,7 +83,7 @@ flowchart TD
 
 | Stage | Tool | What It Does | Latency |
 |:---|:---|:---|:---:|
-| **Pre-LLM** | Microsoft Presidio + India patterns | Anonymise PII (names, ABHA, Aadhaar, phone). Detect prompt injection. | < 50ms |
+| **Pre-LLM** | Microsoft Presidio analyzer + India heuristic patterns | Redact PII (names, ABHA, Aadhaar-like, phone, PAN) — risk reduction, not anonymization; English text only. Prompt-injection detection deferred. | ~50ms after model load |
 | **During** | NeMo Guardrails (Colang 2.0) | Enforce topic boundaries. Emergency escalation flow. | < 10ms |
 | **Post-LLM** | Output Guard + Language Filter | PII re-check. Block diagnosis/prescription language. HASSUM entropy flag. | < 30ms |
 
@@ -101,6 +101,8 @@ flowchart TD
 
 ## 5. Data Retention & Deletion
 
+> **Target policy — not enforced in Phase 3.** No automatic purge or deletion runs yet, no audio is collected, and the append-only audit log cannot currently expire rows. See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
+
 | Data Type | Retention | Trigger for Deletion |
 |:---|:---|:---|
 | **Raw audio recordings** | Until reviewer sign-off | Deleted after MO approves triage note |
@@ -112,13 +114,15 @@ flowchart TD
 
 ### Right to Erasure
 
-"Delete My Data" button triggers: mark records for deletion → verify no active referrals → delete PII/audio/images → retain anonymised audit trail (hash only) → confirm deletion to patient.
+**Deferred (not implemented in Phase 3).** Planned: "Delete My Data" button triggers: mark records for deletion → verify no active referrals → delete PII/audio/images → retain audit trail (which avoids direct identifiers by design but is still linkable; hash only) → confirm deletion to patient.
 
 ---
 
 ## 6. Audit Logging
 
 ### Tamper-Evident Hash Chain
+
+> Implemented as `audit_log` (see [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md)). Tamper-evident, **not immutable**: a database-file administrator can bypass triggers, and deletion of the newest rows is not detectable without an external checkpoint.
 
 Every audit event is hash-chained using SHA-256:
 
@@ -227,13 +231,13 @@ PRESCRIPTION_PATTERNS = [
 
 | DPDP Requirement | Our Implementation | Legal Basis |
 |:---|:---|:---|
-| Layered consent in patient's language | TTS reads consent in Odia/Hindi. Audio "haan/yes" recorded. | TPG 3.4, DPDP §6 |
+| Layered consent in patient's language | Notice in en/hi/or (hi/or are unreviewed draft translations); read-aloud only with a matching voice; staff-attested verbal agreement, no audio stored. | TPG 3.4, DPDP §6 |
 | Data minimisation | Only symptoms + vitals. Age band, not DOB. District, not address. | DPDP §4 |
 | Redact before cloud API | Presidio strips PII before any Azure OpenAI call | DPDP Rule 6 |
-| Right to erasure | "Delete My Data" button in patient profile | DPDP §12 |
+| Right to erasure | **Deferred** — withdrawal implemented; deletion not yet | DPDP §12 |
 | Audit log (1 year) | Tamper-evident, hash-chained (SHA-256) | CERT-In Directions |
 | Breach notification (72h) | Sentry alerting → DPO notification pipeline | DPDP Rule 7 |
-| Emergency bypass | Process without consent in medical emergency, logged | DPDP §7(f) |
+| Emergency bypass | **Deferred** — not implemented | DPDP §7(f) |
 | Retention countdown | Raw audio + images deleted after reviewer sign-off | DPDP Rule 6 |
 | Disclaimers | "AI-drafted, pending review" on every note | ICMR 2023, CDSCO |
 
@@ -250,7 +254,9 @@ PRESCRIPTION_PATTERNS = [
 
 ## 10. Non-Diagnostic Language Enforcement
 
-This is an **architectural guarantee**, not just a filter:
+> **Planned — not implemented.** The non-diagnostic output filter and guardrails below are deferred to Phase 6 (docs/11). Phase 3 has no live LLM output.
+
+Design intent (layered controls, not yet built):
 
 | Layer | Enforcement |
 |:---|:---|
@@ -273,7 +279,7 @@ Pre-demo verification:
 - [ ] **Consent flow complete** — Consent → TTS → audio → stored record
 - [ ] **Audit log populated** — After triage, verify hash-chained entries exist
 - [ ] **Override logged** — Override urgency → reason code captured in audit
-- [ ] **Data deletion works** — "Delete My Data" → records removed (anonymised audit retained)
+- [ ] **Data deletion works** — deferred (Phase 3 implements withdrawal only; audit avoids direct identifiers by design)
 - [ ] **Role-based access enforced** — Patient cannot access reviewer dashboard
 - [ ] **Mandatory disclaimer present** — Every triage note shows "AI-drafted, pending review"
 - [ ] **Evidence slide ready** — Prompt injection test, PII redaction screenshot, consent flow

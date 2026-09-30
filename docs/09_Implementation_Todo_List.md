@@ -248,58 +248,45 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Privacy (10%)
 > **Features:** #5, #6, #7, #25
 
+> **Implemented 2026-09-30** — [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md). Items below reflect the reviewed plan (rev 3.2), which changed several original items.
+
 #### 3.1 Consent Recording API
 
-- [ ] Create `POST /api/v1/consent` endpoint
-- [ ] Accept: case_id, method (audio/text/emergency), language, audio_ref
-- [ ] Store in consent table with timestamp
-- [ ] Return consent_id
+- [x] `POST /api/v1/cases` (opaque token, no name/ID) + `POST /api/v1/cases/{id}/consent`
+- [x] Purpose-specific (`triage`, `ai_assist`); method derived server-side (`patient_button` / `staff_attested_verbal`); no audio stored
+- [x] Append-only `consent_events` with notice version, language, review status, actor, timestamp
+- [x] Purpose-specific withdrawal (`POST /cases/{id}/consent/withdraw`), triage → ai_assist cascade recorded
 
-#### 3.2 Consent Gate Middleware
+#### 3.2 Consent Gate
 
-- [ ] Create middleware/dependency: check consent exists for case_id before intake
-- [ ] Apply to all `/intake/*` endpoints
-- [ ] Return 403 `CONSENT_REQUIRED` if no consent record
-- [ ] Emergency bypass: accept `emergency_bypass: true` flag (log it)
+- [x] Consent checked inside the protected write transaction (case triage, AI gateway) → 403 `CONSENT_REQUIRED` + audit
+- [x] Case access checked separately (identical 404 for unauthorized/unknown)
+- [ ] Emergency bypass (DPDP §7(f)) — **deferred**
+- [ ] `/intake/*` endpoints — arrive with Phases 4–7; must use the same gate
 
-#### 3.3 Presidio PII Redaction
+#### 3.3 PII Redaction
 
-- [ ] Install presidio-analyzer and presidio-anonymizer
-- [ ] Create `backend/app/services/pii.py`
-- [ ] Configure default recognisers (names, emails, phone numbers)
-- [ ] Add India-specific ABHA recogniser (regex: `\d{2}-\d{4}-\d{4}-\d{4}`)
-- [ ] Add Aadhaar recogniser (regex: `\d{4}\s?\d{4}\s?\d{4}`)
-- [ ] Add PAN recogniser (regex: `[A-Z]{5}\d{4}[A-Z]`)
-- [ ] Create `redact(text: str) -> str` function
-- [ ] Verify: text with "Aadhaar 1234 5678 9012" → redacted
-- [ ] Integrate into triage pipeline: redact BEFORE any LLM call
+- [x] presidio-analyzer + `en_core_web_sm` (presidio-anonymizer excluded: `cryptography` conflict)
+- [x] `backend/app/privacy/pii.py`: phone, email, PAN, Aadhaar-like, ABHA number/address, DOB, PERSON/LOCATION (heuristic)
+- [x] Normalization (Unicode digits, zero-width, combining marks), English-only script policy, residual sweep — fail closed
+- [x] Single AI gateway (`app/privacy/gateway.py`); adapters accept only `RedactedText`; no live LLM
+- [ ] Name detection to a deployment standard — **not met** (known misses documented as xfail)
 
-#### 3.4 Tamper-Evident Audit Log
+#### 3.4 Audit Log
 
-- [ ] Create `backend/app/services/audit.py`
-- [ ] Implement hash-chain: SHA-256(event_data + previous_hash) = current_hash
-- [ ] Create `log_event(actor_id, action, case_id, details)` function
-- [ ] Genesis event: first entry has previous_hash = "0" * 64
-- [ ] Create `GET /api/v1/audit/{case_id}` endpoint
-- [ ] Verify chain integrity: recalculate hashes and compare
+- [x] `backend/app/audit.py`: append-only `audit_log`, SHA-256 chain (genesis `"0"*64`), typed details, atomic with changes
+- [x] `GET /api/v1/audit/{case_id}` + `POST /api/v1/audit/verify` (supervisor only)
+- [x] Triggers reject UPDATE/DELETE; tamper-evident, not immutable (tail truncation undetectable)
 
 #### 3.5 Non-Diagnostic Language Filter
 
-- [ ] Create `backend/app/services/language_filter.py`
-- [ ] Implement regex patterns: "diagnosed with", "you have \w+ disease", "this is likely"
-- [ ] Implement prescription patterns: "take \w+ (mg|ml|tablet)", "I prescribe"
-- [ ] Create `filter_output(text: str) -> FilterResult` function
-- [ ] If violation found: sanitise text + log violation
-- [ ] Verify: "You are diagnosed with fever" → blocked
+- [ ] **Deferred** — needed when AI output is displayed (Phase 6)
 
 #### 3.6 Data Deletion Endpoint
 
-- [ ] Create `DELETE /api/v1/consent/{case_id}` endpoint
-- [ ] Delete PII from cases, consent, triage_notes
-- [ ] Retain anonymised audit entries (hash only, no PII)
-- [ ] Return confirmation with deletion timestamp
+- [ ] **Deferred** — withdrawal implemented; deletion/erasure not yet. The audit log avoids direct identifiers by design but remains linkable to accounts and cases.
 
-**✅ Phase 3 Definition of Done:** Consent gate blocks intake without consent. Presidio strips ABHA/Aadhaar/PAN. Audit log is hash-chained. Language filter catches diagnosis patterns. Data deletion works.
+**✅ Phase 3 Definition of Done (revised):** consent recorded and enforced server-side; purpose-specific withdrawal; heuristic PII redaction before any LLM adapter (fail closed); append-only hash-chained audit; demo-only startup guard. Deferred: emergency bypass, deletion, language filter, live LLM.
 
 ---
 

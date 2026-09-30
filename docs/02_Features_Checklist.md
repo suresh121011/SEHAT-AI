@@ -17,9 +17,9 @@ These features are required for a viable demo and cover **85%+** of evaluation m
 | 2 | **NEWS2 + qSOFA vital scoring** (deterministic, cited) | Safety (20%) | P2 | |
 | 3 | **7 scenario-specific rule packs** (OPD, Maternal, Chronic NCD, Health Camp, Campus Fever, Occupational, Referral) | Safety (20%), India (15%) | P2 | ✅ #5 |
 | 4 | **Rules override LLM** — LLM can NEVER lower urgency | Safety (20%) | P2 | ✅ #9 |
-| 5 | **Layered consent** in patient's language (TTS read-aloud, audio "haan/yes") | Privacy (10%) | P3 | |
-| 6 | **PII redaction** (Presidio + ABHA, Aadhaar, phone, PAN) BEFORE cloud LLM | Privacy (10%) | P3 | |
-| 7 | **Tamper-evident audit log** (hash-chained SHA-256) | Privacy (10%) | P3 | |
+| 5 | **Layered consent** in patient's language (read-aloud with matching voice, staff-attested "haan/yes", no audio stored) | Privacy (10%) | P3 | ✅ Phase 3 |
+| 6 | **PII redaction** (Presidio + ABHA, Aadhaar-like, phone, PAN; heuristic, not anonymization) BEFORE any LLM adapter | Privacy (10%) | P3 | ✅ Phase 3 |
+| 7 | **Tamper-evident audit log** (append-only, hash-chained SHA-256; not immutable) | Privacy (10%) | P3 | ✅ Phase 3 |
 | 8 | **Voice input** (Silero VAD + STT) in Odia/Hindi/English | Multimodal (15%) | P4 | |
 | 9 | **TTS read-back confirmation** ("I heard temp 102°F — correct?") | Multimodal (15%), Safety (20%) | P4 | ✅ #6 |
 | 10 | **Presear Dakshini** native Odia voice agent | Multimodal (15%), India (15%) | P4 | ✅ #10 |
@@ -51,7 +51,7 @@ These features are required for a viable demo and cover **85%+** of evaluation m
 | 31 | **Test evidence slide** (red-flag sensitivity on 50 vignettes, prompt-injection test) | Demo (5%), Privacy (10%) | P10 | |
 | 32 | **Model card with limitations** | Privacy (10%) | P10 | |
 | 33 | **Synthetic demo data** (50 triage vignettes, lab reports, prescriptions) | Demo (5%) | P10 | |
-| 34 | **DPDP-ready privacy design** (consent, retention, erasure, emergency bypass) | Privacy (10%) | P3/P10 | ✅ #15 |
+| 34 | **DPDP-ready privacy design** (consent + withdrawal implemented; retention enforcement, erasure, emergency bypass deferred) | Privacy (10%) | P3/P10 | ✅ #15 |
 | 35 | **HASSUM uncertainty escalation** (high entropy → force human review) | Safety (20%) | P6/P10 | ✅ #3 |
 
 ### 🟢 Tier 3: Nice-to-Have / Stretch — Phase P11 + Future

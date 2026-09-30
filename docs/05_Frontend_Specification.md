@@ -74,14 +74,14 @@ flowchart TD
 │                                          │
 │  🎤 Say "haan" or "yes" to consent      │
 │                                          │
-│  ⚠️ Emergency? We can proceed without    │
-│  full consent (DPDP §7f). [Emergency →]  │
+│  (Emergency bypass DPDP §7f: DEFERRED —  │
+│   not shown in the Phase 3 UI)           │
 └─────────────────────────────────────────┘
 ```
 
 - TTS reads consent aloud in patient's selected language
-- Audio "haan/yes" recorded as consent evidence
-- Emergency bypass for life-threatening situations (logged)
+- Verbal "haan/yes" is recorded as an **ANM attestation** (checkbox + button); no audio is stored. Browser speech recognition is not used.
+- Emergency bypass: **deferred** (not in Phase 3). Hindi/Odia notices show a "draft translation — not reviewed" banner; AI assistance is English-text-only. Implemented page: `/intake/consent` (see [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md))
 
 ### 3.2 Scenario Selector
 

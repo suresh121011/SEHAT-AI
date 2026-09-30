@@ -31,11 +31,20 @@ Headers:
 
 ### 2.2 Consent
 
+> **Implemented in Phase 3** — details, state rules and limitations in [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md). Demo accounts only.
+
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
-| POST | `/consent` | Record patient consent | patient, anm |
-| GET | `/consent/{case_id}` | Get consent record for a case | medical_officer, admin |
-| DELETE | `/consent/{case_id}` | Revoke consent (triggers data deletion) | patient |
+| GET | `/consent/notice?language=en\|hi\|or` | Versioned notice text + review status (hi/or: unreviewed drafts) | any authenticated |
+| POST | `/cases` | Create case `{scenario, facility_code}` → server `case_id` + opaque `patient_token` | patient, anm |
+| GET | `/cases/{case_id}` | Case summary + effective consent per purpose | creator, medical_officer, supervisor |
+| POST | `/cases/{case_id}/consent` | `{decision: grant\|decline, include_ai_assist, language, notice_version}`; method derived server-side | creator (patient, anm) |
+| POST | `/cases/{case_id}/consent/withdraw` | `{purpose: triage\|ai_assist}`; withdrawing triage cascades to ai_assist | creator (patient, anm) |
+| GET | `/cases/{case_id}/consent` | Consent history (actor role only) | creator, medical_officer, supervisor |
+| POST | `/cases/{case_id}/triage` | `TriageInput`; requires `triage` consent; appends `triage_runs` | creating anm, medical_officer |
+| DELETE | `/consent/{case_id}` | Data deletion — **deferred** (not implemented) | — |
+
+Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 
 ### 2.3 Intake
 
@@ -72,7 +81,8 @@ Headers:
 
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
-| GET | `/audit/{case_id}` | Get audit trail for a case | medical_officer (own), supervisor, admin |
+| GET | `/audit/{case_id}` | Audit events for a case (`actor_role`, never `actor_id`) — implemented | supervisor |
+| POST | `/audit/verify` | Recompute hash chain; returns `{ok, verified_through_seq, first_bad_seq}` — implemented | supervisor |
 | GET | `/audit/governance` | Get governance telemetry (override rate, etc.) | supervisor, admin |
 
 ### 2.7 Export
@@ -85,23 +95,27 @@ Headers:
 
 ## 3. JSON Schemas
 
-### 3.1 ConsentRecord
+### 3.1 ConsentEvent (implemented, append-only)
+
+Consent is stored as an append-only history (`consent_events`); the effective state per purpose is the latest event. No audio or transcript is stored. See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
 
 ```json
 {
-  "consent_id": "uuid",
+  "seq": 12,
+  "event_id": "uuid",
   "case_id": "uuid",
-  "patient_token": "PHC-2026-0453",
-  "consent_type": "data_collection_and_triage",
-  "method": "audio",
+  "purpose": "triage",
+  "action": "granted",
+  "notice_version": "2026-09-30.1",
   "language": "or",
-  "audio_ref": "s3://consent/PHC-2026-0453.wav",
-  "emergency_bypass": false,
-  "granted_at": "2026-09-29T10:15:00+05:30",
-  "revoked_at": null,
-  "facility_code": "PHC-KHURDA-01"
+  "notice_review_status": "draft_unreviewed_translation",
+  "method": "staff_attested_verbal",
+  "actor_role": "anm",
+  "created_at": "2026-09-30T10:15:00.000000+00:00"
 }
 ```
+
+`purpose` ∈ `triage | ai_assist`; `action` ∈ `granted | declined | withdrawn`; `method` ∈ `patient_button | staff_attested_verbal | cascade_from_triage` (server-derived). `actor_id` is stored but not returned by read APIs.
 
 ### 3.2 IntakePayload (Voice)
 
@@ -406,6 +420,8 @@ When data is incomplete, `urgency` is never `GREEN`: it is at least `YELLOW` wit
 
 ### 3.9 AuditEvent
 
+> **Implemented as `audit_log`** ([`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md)): fields `seq, event_id, timestamp, actor_id, actor_role, action, case_id, outcome, request_id, details_json, previous_hash, current_hash`. Details are typed per action (counts, rule IDs, versions — no raw clinical content). Tamper-evident, not immutable. The example below is the original design sketch.
+
 ```json
 {
   "event_id": "uuid",
@@ -534,12 +550,20 @@ All API errors follow a consistent shape:
 | Code | HTTP Status | Description |
 |:---|:---:|:---|
 | `VALIDATION_ERROR` | 400 | Request validation failed |
-| `CONSENT_REQUIRED` | 403 | No consent record found for case |
+| `CONSENT_REQUIRED` | 403 | Consent for this purpose is not in effect |
+| `CONSENT_WITHDRAWN` | 409 | Consent changed while an AI request was in progress; output discarded |
+| `NOTICE_VERSION_STALE` | 409 | Consent notice changed; re-review required |
+| `NOTHING_TO_WITHDRAW` | 409 | No consent in effect for that purpose |
+| `SCENARIO_MISMATCH` | 409 | Triage scenario differs from the case scenario |
+| `AI_INPUT_UNSUPPORTED_LANGUAGE` | 422 | AI assistance accepts English text only (prototype) |
+| `AI_ADAPTER_ERROR` | 502 | AI adapter failed; no output returned |
+| `PII_REDACTION_UNAVAILABLE` | 503 | Redaction unavailable; request blocked (fail closed) |
+| `INTERNAL_ERROR` | 500 | Generic error; no request values echoed |
 | `UNAUTHORIZED` | 401 | Invalid or expired JWT |
 | `FORBIDDEN` | 403 | Role does not have permission |
 | `NOT_FOUND` | 404 | Resource not found |
 | `TRIAGE_LOCKED` | 409 | Case already signed off, cannot modify |
-| `PII_DETECTED` | 422 | PII detected in field that should be redacted |
+| `PII_DETECTED` | 422 | Possible identifier remained after redaction; request blocked |
 | `INJECTION_BLOCKED` | 422 | Prompt injection pattern detected in input |
 
 ---

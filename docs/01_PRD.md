@@ -150,7 +150,7 @@ The following are **explicitly out of scope** and must be avoided:
 flowchart TD
     A["Health worker opens SEHAT AI\n(PWA on tablet)"] --> B["Selects facility type\n(PHC, Khurda, Odisha)"]
     B --> C["Consent read aloud\nin patient's language (Odia TTS)"]
-    C --> D{"Patient consents?\n(Audio 'haan')"}
+    C --> D{"Patient consents?\n(button, or ANM attests 'haan')"}
     D -->|Yes| E["Voice intake: Patient\nspeaks symptoms in Odia"]
     D -->|No| F["Manual intake:\nHealth worker types"]
     E --> G["TTS read-back:\n'I heard fever 3 days, 102°F.\nIs that correct?'"]
@@ -281,7 +281,7 @@ stateDiagram-v2
 | **Accessibility** | Low-literacy users | Voice-first input, TTS output, large touch targets |
 | **Accessibility** | Health-worker-assisted mode | Worker operates device for patient |
 | **Scalability** | OPD throughput | Handle 500+ patients/day per facility |
-| **Security** | PII never reaches cloud unredacted | Presidio pre-processing enforced |
+| **Security** | Only the redaction gateway can reach an LLM adapter | Heuristic Presidio redaction, fail-closed; not a guarantee of anonymity (docs/11) |
 | **Availability** | PWA offline-first | Service Worker + local SQLite |
 
 ---
@@ -319,7 +319,7 @@ stateDiagram-v2
 | **Multimodal capability** | **15%** | Voice in Indian languages. OCR of lab reports. Medical image understanding. | Silero VAD → STT → Dakshini (Odia). Chandra OCR 2 (INT8) + Surya. MedGemma (X-ray, ECG). Body map. Read-back confirmation. | **15/15** |
 | **India-wide facility relevance** | **15%** | Scenario rule packs per facility. Odia/Hindi/English. Health-worker-operated mode. Offline. ABDM/FHIR. | 7 scenario rule packs. Assisted mode. PWA offline-first. FHIR R4 + SNOMED export. | **14/15** |
 | **Human-review & escalation** | **15%** | Review queue, sign-off, edit logging, override reasons, urgency alerts, escalation timers, referral handoff | Priority queue ordered by RULES not LLM. Named sign-off. RED escalation timer (3 min). Lowering urgency needs reason code. | **14/15** |
-| **Privacy & responsible AI** | **10%** | Consent, anonymisation, audit, role-based access, retention limits, prompt-injection defence, model card | Presidio PII → redact before LLM. NeMo Guardrails. DPDP-ready design. Tamper-evident audit log. Test evidence slide. | **9/10** |
+| **Privacy & responsible AI** | **10%** | Consent, PII redaction (risk reduction, not anonymisation), audit, role-based access, retention limits, prompt-injection defence, model card | Presidio PII → redact before LLM. NeMo Guardrails. DPDP-ready design. Tamper-evident audit log. Test evidence slide. | **9/10** |
 | **Demo quality** | **5%** | One scripted end-to-end story | Odisha PHC: Odia voice → OCR → triage → sign-off → referral with closure tracking. Under 5 minutes. | **5/5** |
 | **TOTAL** | **100%** | | | **94/100** |
 

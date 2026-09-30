@@ -128,7 +128,7 @@ assert r.urgency == "YELLOW" and r.needs_human_review and "vitals.spo2" in r.mis
 | 4 | India-specific patterns | Custom Presidio recognisers for ABHA (14-digit), Aadhaar (12-digit), PAN |
 | 5 | Tamper-evident audit log | Hash-chained SHA-256 entries. Insert + query working. |
 | 6 | Non-diagnostic language filter | Regex patterns block "diagnosed with", "prescribe", "take [drug]" |
-| 7 | Data deletion endpoint | `DELETE /consent/{case_id}` removes PII, retains anonymised audit |
+| 7 | Data deletion endpoint | **Deferred** — Phase 3 implements purpose-specific withdrawal; the audit log avoids direct identifiers by design (see [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md)) |
 
 ---
 

@@ -5,3 +5,8 @@ aiosqlite==0.22.1
 pyjwt==2.15.1
 semantic-kernel==1.44.1
 python-dotenv==1.2.3
+# Phase 3 privacy (docs/11). presidio-anonymizer intentionally excluded: it would downgrade
+# `cryptography` and break pyopenssl/azure; span replacement is implemented in app/privacy/pii.py.
+presidio-analyzer==2.2.364
+spacy==3.8.16
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl

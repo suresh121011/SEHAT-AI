@@ -61,7 +61,7 @@
 3. Select scenario: "OPD Triage"
 4. Consent screen appears — in **Odia**
 5. Click **"Read Aloud"** → TTS reads consent in Odia
-6. Patient says **"haan"** (audio recorded as consent)
+6. Patient says **"haan"**; the ANM ticks the attestation box and records the agreement (no audio stored — docs/11)
 
 > **Talking Point:** *"Consent is layered — read aloud in the patient's language, with audio confirmation. DPDP-ready by design — built around DPDP Act Section 6 consent ahead of substantive duties starting May 2027."*
 
@@ -158,7 +158,7 @@
 5. Show mandatory disclaimer: *"AI-drafted, pending review by qualified clinician"*
 6. Point out what the engine did **not** decide: dengue-specific assessment (e.g. platelet trend, tourniquet test — NCVBDC 2023 triage parameters) is left to the clinician
 7. **Sign off**: Dr. Patel approves under their own name and ID
-8. Point out: *"Every action is logged in a tamper-evident, hash-chained audit trail"*
+8. Point out: *"Security-relevant actions are logged in an append-only, hash-chained audit trail — tamper-evident, not immutable"*
 
 > **Talking Point:** *"Source-linked evidence — click any field, see the original source. The doctor knows exactly where each data point came from. Named sign-off — the doctor's name goes on every approval, not the AI's."*
 

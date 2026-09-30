@@ -10,6 +10,8 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details: Record<string, unknown> = {},
+    public requestId: string | null = null,
   ) {
     super(message);
   }
@@ -25,7 +27,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
-    throw new ApiError(res.status, err?.code ?? "HTTP_ERROR", err?.message ?? res.statusText);
+    throw new ApiError(res.status, err?.code ?? "HTTP_ERROR", err?.message ?? res.statusText, err?.details ?? {}, err?.request_id ?? null);
   }
   return data as T;
 }

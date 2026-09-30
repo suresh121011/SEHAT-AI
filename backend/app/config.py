@@ -22,6 +22,9 @@ _PLACEHOLDERS = {
 
 logger = logging.getLogger("sehat.config")
 
+# Environments where the password-less demo accounts may run. Anything else refuses to start.
+DEMO_AUTH_ENVIRONMENTS = frozenset({"development", "test"})
+
 
 def _env(name: str, default: str = "") -> str:
     value = os.getenv(name, default).strip()
@@ -52,6 +55,9 @@ def get_settings() -> Settings:
     load_dotenv(REPO_ROOT / ".env")
 
     environment = _env("ENVIRONMENT", "development")
+    if environment not in DEMO_AUTH_ENVIRONMENTS:
+        # Hard deployment block (docs/11): authentication is password-less shared demo accounts.
+        raise RuntimeError("password-less demo authentication cannot run outside development/test")
     jwt_secret = _env("JWT_SECRET_KEY")
     if not jwt_secret:
         if environment != "development":

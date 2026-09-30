@@ -1,0 +1,151 @@
+"""Application-level append-only, hash-chained audit log (docs/11 §H).
+
+Guarantees (and limits):
+- Rows are append-only at the application layer (SQLite triggers reject UPDATE/DELETE).
+- Each row's hash covers its content plus the previous row's hash, so edits made without recomputing
+  the chain are detected by `verify_chain`. This is tamper-evident, not immutable: a database-file
+  administrator can drop triggers or rewrite the file, and removal of the newest rows is not detectable
+  without an external checkpoint (future work).
+- Details avoid direct identifiers and raw clinical content by design, but actor_id, case_id,
+  request_id and timestamps link events to accounts and cases and may still be personal data.
+"""
+
+import hashlib
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import Literal
+
+import aiosqlite
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.auth import Principal
+from app.database import read_transaction
+
+GENESIS_HASH = "0" * 64
+
+AuditAction = Literal[
+    "case_created",
+    "consent_granted",
+    "consent_declined",
+    "consent_withdrawn",
+    "consent_denied",
+    "triage_recorded",
+    "pii_redacted",
+    "ai_request_blocked",
+    "ai_output_discarded",
+    "ai_output_returned",
+    "audit_verified",
+]
+Outcome = Literal["success", "denied", "failure"]
+
+
+class _Details(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+
+class CaseCreatedDetails(_Details):
+    scenario: str
+    facility_code: str
+
+
+class ConsentChangeDetails(_Details):
+    purposes: list[Literal["triage", "ai_assist"]]
+    notice_version: str
+    language: Literal["en", "hi", "or"]
+    method: Literal["patient_button", "staff_attested_verbal", "cascade_from_triage"]
+
+
+class ConsentDeniedDetails(_Details):
+    purpose: Literal["triage", "ai_assist"]
+    state: Literal["not_provided", "declined", "withdrawn"]
+
+
+class TriageRecordedDetails(_Details):
+    run_id: str
+    urgency: Literal["RED", "YELLOW", "GREEN"]
+    rule_ids: list[str]
+    engine_version: str
+    ruleset_version: str
+
+
+class PiiRedactedDetails(_Details):
+    redacted_total: int = Field(ge=0)
+
+
+class ReasonDetails(_Details):
+    reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+
+
+class AuditVerifiedDetails(_Details):
+    verified_through_seq: int = Field(ge=0)
+    ok: bool
+
+
+def _canonical(payload: dict) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def compute_hash(row: dict, previous_hash: str) -> str:
+    payload = {k: row[k] for k in ("seq", "event_id", "timestamp", "actor_id", "actor_role", "action", "case_id", "outcome", "request_id", "details_json")}
+    return hashlib.sha256((_canonical(payload) + previous_hash).encode()).hexdigest()
+
+
+async def record(
+    conn: aiosqlite.Connection,
+    *,
+    principal: Principal,
+    action: AuditAction,
+    outcome: Outcome,
+    details: _Details,
+    case_id: str | None = None,
+    request_id: str | None = None,
+) -> int:
+    """Append one event. Must run inside the caller's `transaction()` so it commits (or rolls back)
+    together with the change it describes; seq is computed under the write lock."""
+    if not conn.in_transaction:
+        raise RuntimeError("audit.record must be called inside a write transaction")
+    async with conn.execute("SELECT seq, current_hash FROM audit_log ORDER BY seq DESC LIMIT 1") as cur:
+        last = await cur.fetchone()
+    seq = (last["seq"] + 1) if last else 1
+    previous_hash = last["current_hash"] if last else GENESIS_HASH
+    row = {
+        "seq": seq,
+        "event_id": str(uuid.uuid4()),
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        "actor_id": principal.user_id,
+        "actor_role": principal.role.value,
+        "action": action,
+        "case_id": case_id,
+        "outcome": outcome,
+        "request_id": request_id,
+        "details_json": _canonical(details.model_dump(mode="json")),
+    }
+    current_hash = compute_hash(row, previous_hash)
+    await conn.execute(
+        "INSERT INTO audit_log (seq, event_id, timestamp, actor_id, actor_role, action, case_id, outcome, request_id, details_json, previous_hash, current_hash) "
+        "VALUES (:seq, :event_id, :timestamp, :actor_id, :actor_role, :action, :case_id, :outcome, :request_id, :details_json, :previous_hash, :current_hash)",
+        {**row, "previous_hash": previous_hash, "current_hash": current_hash},
+    )
+    return seq
+
+
+class VerifyResult(BaseModel):
+    ok: bool
+    verified_through_seq: int
+    first_bad_seq: int | None = None
+
+
+async def verify_chain(conn: aiosqlite.Connection) -> VerifyResult:
+    """Recompute the chain over a consistent snapshot. Detects edits, middle deletions and broken
+    links; cannot detect truncation of the newest rows (no external checkpoint)."""
+    async with read_transaction(conn):
+        async with conn.execute("SELECT * FROM audit_log ORDER BY seq") as cur:
+            rows = list(await cur.fetchall())
+    previous_hash = GENESIS_HASH
+    for expected_seq, r in enumerate(rows, start=1):
+        row = dict(r)
+        if row["seq"] != expected_seq or row["previous_hash"] != previous_hash or compute_hash(row, previous_hash) != row["current_hash"]:
+            return VerifyResult(ok=False, verified_through_seq=expected_seq - 1, first_bad_seq=row["seq"])
+        previous_hash = row["current_hash"]
+    return VerifyResult(ok=True, verified_through_seq=len(rows))
