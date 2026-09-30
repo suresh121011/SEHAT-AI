@@ -158,7 +158,7 @@ Headers:
     "overall_confidence": 0.89,
     "disputed_values": [],
     "rxnorm_matches": [],
-    "reference_range_flags": ["hemoglobin_low", "platelets_critical"]
+    "reference_range_flags": ["hemoglobin_low", "platelets_below_reference_range"]
   },
   "source_ref": {
     "type": "ocr",
@@ -223,19 +223,18 @@ Headers:
 
   "red_flags": [
     {
-      "rule_name": "dengue_warning_signs",
-      "check": "platelets < 100K AND fever >= 3 days",
-      "source": "WHO Dengue Classification 2009 + AIIMS Protocol",
+      "rule_name": "ATP_RED_SEVERE_PAIN",
+      "check": "Time-sensitive: severe pain anywhere in body",
+      "source": "ATP_2022 — AIIMS Triage Protocol, J Emerg Trauma Shock 2022, Supplementary Table 1",
       "triggered_by": {
-        "platelets": {"value": 85000, "source_ref": "ocr:lab_report:L380"},
-        "fever_duration": {"value": 3, "source_ref": "transcript:0:04-0:08"}
+        "red_flag": {"value": "severe_pain", "source_ref": "anm_red_flag_screen + transcript:0:10-0:18"}
       }
     }
   ],
 
   "scores": {
-    "news2": {"score": 4, "interpretation": "Increased observation", "source": "RCP NEWS2"},
-    "qsofa": null,
+    "news2": {"score": 2, "interpretation": "low (RCP Chart 2)", "source": "RCP NEWS2"},
+    "qsofa": {"score": 0, "interpretation": "negative screen (not a diagnosis)", "source": "Sepsis-3"},
     "jev_confidence": 0.82
   },
 
@@ -263,17 +262,17 @@ Headers:
   ],
 
   "missing_fields": [
-    {"field": "tourniquet_test", "reason": "Required for dengue assessment"},
-    {"field": "fluid_io", "reason": "Required for dengue warning signs"}
+    {"field": "tourniquet_test", "reason": "Clinician prompt (NCVBDC 2023 triage parameter) — not a rules-engine input"},
+    {"field": "fluid_io", "reason": "Clinician prompt — not a rules-engine input"}
   ],
 
   "counterfactual": [
-    {"if_changed": "platelets > 100K", "then_urgency": "YELLOW"},
-    {"if_changed": "no fever", "then_urgency": "YELLOW"},
-    {"if_changed": "SpO2 < 94%", "then_urgency": "RED (unchanged)"}
+    {"if_changed": "severe_pain not recorded (vitals unchanged)", "then_urgency": "GREEN — current engine; dengue warning-sign pack deferred (docs/10 ADR-7)"},
+    {"if_changed": "red-flag screen not completed", "then_urgency": "YELLOW + needs_human_review (safety floor)"},
+    {"if_changed": "SpO2 < 90%", "then_urgency": "RED (unchanged; ATP_RED_SPO2)"}
   ],
 
-  "ai_summary": "28-year-old patient presenting with 3-day history of high-grade fever (102°F), severe headache, and abdominal pain. Laboratory findings show thrombocytopenia (platelets 85,000/μL). Clinical picture consistent with dengue warning signs per WHO classification.",
+  "ai_summary": "28-year-old patient presenting with 3-day history of high-grade fever (102°F), severe headache, and abdominal pain. Lab report shows platelets 85,000/μL (below reference range) for clinician review. Urgency RED set by rules engine (ATP_RED_SEVERE_PAIN).",
   "ai_disclaimer": "AI-drafted triage summary. Pending review by qualified medical officer. Not a diagnosis.",
 
   "review": {
@@ -340,7 +339,7 @@ Deterministic rules engine, no LLM. Full field reference, rule list and sources:
 
 When data is incomplete, `urgency` is never `GREEN`: it is at least `YELLOW` with `"determination": "insufficient_data"`, `"needs_human_review": true` and the list in `missing_fields`.
 
-**Mapping to TriageNote (3.5):** `urgency` → `urgency.rules_level`; `triggered_rules` → `red_flags` (`rule_id` ≈ `rule_name`, `evidence` ≈ `triggered_by`); `scores` → `scores`. The LLM/JEV suggestion is combined with `enforce_raise_only()` → `urgency.final_level`. The dengue example in 3.5 predates Phase 2 — that rule is not implemented (docs/10 ADR-7).
+**Mapping to TriageNote (3.5):** `urgency` → `urgency.rules_level`; `triggered_rules` → `red_flags` (`rule_id` ≈ `rule_name`, `evidence` ≈ `triggered_by`); `scores` → `scores`. The LLM/JEV suggestion is combined with `enforce_raise_only()` → `urgency.final_level`. The 3.5 example uses the demo patient (docs/07); platelets appear as an OCR field for the clinician, not as a rule input — no engine rule reads platelets and the dengue pack is deferred (docs/10 ADR-7).
 
 ### 3.6 ReviewSignOff
 
@@ -372,7 +371,7 @@ When data is incomplete, `urgency` is never `GREEN`: it is at least `YELLOW` wit
   "old_urgency": "RED",
   "new_urgency": "YELLOW",
   "reason_code": "clinical_reassessment",
-  "reason_text": "Repeat platelet count at 1.1 lakh after hydration",
+  "reason_text": "On examination abdominal pain is mild, not severe; vitals stable",
   "timestamp": "2026-09-29T10:20:00+05:30"
 }
 ```
@@ -387,7 +386,7 @@ When data is incomplete, `urgency` is never `GREEN`: it is at least `YELLOW` wit
   "from_facility": "PHC-KHURDA-01",
   "to_facility": "DH-BBSR-01",
   "urgency": "RED",
-  "flags": ["dengue_warning_signs", "thrombocytopenia"],
+  "flags": ["ATP_RED_SEVERE_PAIN"],
   "triage_note_ref": "uuid (link to TriageNote)",
   "transport_plan": {
     "mode": "108_ambulance",
@@ -458,7 +457,7 @@ For interoperability with ABDM and TriZetto, cases export as FHIR R4 Bundles:
           },
           {
             "title": "Triage Assessment",
-            "text": {"div": "<div>RED — Dengue warning signs (WHO 2009 + AIIMS Protocol)</div>"}
+            "text": {"div": "<div>RED — ATP_RED_SEVERE_PAIN: severe pain anywhere in body (AIIMS Triage Protocol 2022)</div>"}
           }
         ]
       }
@@ -497,13 +496,12 @@ For interoperability with ABDM and TriZetto, cases export as FHIR R4 Bundles:
             "coding": [{
               "system": "http://sehat-ai/triage",
               "code": "RED",
-              "display": "Immediate — Dengue Warning Signs"
+              "display": "Immediate — ATP time-sensitive: severe pain"
             }]
           }
         }],
         "basis": [
-          {"display": "AIIMS Triage Protocol (PubMed 36353399)"},
-          {"display": "WHO Dengue Classification 2009"}
+          {"display": "AIIMS Triage Protocol 2022, Supplementary Table 1 (doi:10.4103/jets.jets_146_21)"}
         ]
       }
     }

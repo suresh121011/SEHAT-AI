@@ -36,7 +36,7 @@ These features are required for a viable demo and cover **85%+** of evaluation m
 | 21 | **Named sign-off** (reviewer ID + name on every approval) | Review (15%) | P8 | |
 | 22 | **Override with reason code** (structured justification for lowering urgency) | Review (15%), Safety (20%) | P8 | |
 | 23 | **Escalation timer** (3-min auto-escalation for unacknowledged RED) | Review (15%), Safety (20%) | P8 | |
-| 24 | **Counterfactual XAI** ("If platelets > 100K → YELLOW") | Review (15%), Safety (20%) | P8 | ✅ #11 |
+| 24 | **Counterfactual XAI** ("If red-flag screen not completed → YELLOW + human review") | Review (15%), Safety (20%) | P8 | ✅ #11 |
 | 25 | **Non-diagnostic language filter** (regex + architectural enforcement) | Safety (20%), Privacy (10%) | P3/P6 | ✅ #14 |
 
 ### 🟡 Tier 2: Should-Have (High Differentiation) — Phases P9–P10

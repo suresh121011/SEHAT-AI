@@ -386,7 +386,7 @@ sequenceDiagram
     RULES->>RULES: AIIMS Red/Yellow/Green check
     RULES->>RULES: NEWS2 score calculation
     RULES->>RULES: qSOFA (if infection suspected)
-    RULES->>RULES: Scenario pack (dengue warning signs)
+    RULES->>RULES: Scenario pack (7 scenarios; dengue pack deferred)
     
     alt 🔴 RED FLAG
         RULES->>DOC: IMMEDIATE ESCALATION
@@ -905,7 +905,7 @@ def enforce_raise_only(deterministic, suggested):
 > **Not implemented in Phase 2 — see [`10_Safety_Rules_Engine.md`](10_Safety_Rules_Engine.md) ADR-7.** Dengue is not one of the 7 scenarios, and "platelets < 100K → RED" is not a WHO 2009 criterion (WHO 2009 severe dengue = severe plasma leakage, severe bleeding, severe organ impairment). A verified WHO 2009 warning-signs pack is a follow-up; the demo patient reaches RED through ATP (severe pain / sudden abdominal pain).
 
 ```python
-DENGUE_RULES = [
+DENGUE_RULES = [   # NOT IMPLEMENTED — historical draft; platelet rule is mis-cited (docs/10 ADR-7)
     {"name": "dengue_severe_platelets", "check": "platelets < 100000",
      "action": "RED", "source": "WHO Dengue Classification 2009"},
     {"name": "dengue_severe_bleeding", "check": "mucosal_bleeding OR gi_bleeding",
@@ -1192,18 +1192,18 @@ INJECTION_PATTERNS = [
 │ 🟡 P-0845│    📎 Source: [Audio 0:12-0:24] "teen din se..."    │
 │ 🟢 P-0828│                                                      │
 │          │  Vitals:                                             │
-│ ─────────│    SpO2: 94% 📎[Manual entry]                       │
-│ STATS    │    BP: 100/70 📎[Device auto-fill]                  │
-│          │    Temp: 39°C 📎[Audio 0:30-0:35]                   │
-│ Reviewed:│    Platelet: 85,000 📎[OCR bbox: lab-report.jpg]    │
+│ ─────────│    SpO2: 97% 📎[Manual entry]                       │
+│ STATS    │    BP: 118/76 📎[Device auto-fill]                  │
+│          │    Temp: 38.9°C 📎[Audio 0:30-0:35]                 │
+│ Reviewed:│    Platelet: 85,000 📎[OCR] (context, not a rule)   │
 │   12     │                                                      │
-│ Pending: │  🔴 RED FLAG: Dengue warning signs                  │
-│   6      │    Rule: Platelet < 100K + fever + pain             │
-│ Override │    Source: AIIMS Protocol, PubMed 36353399           │
+│ Pending: │  🔴 RED: ATP_RED_SEVERE_PAIN                        │
+│   6      │    Rule: severe pain anywhere in body               │
+│ Override │    Source: ATP_2022, Supplementary Table 1          │
 │ rate: 8% │                                                      │
-│          │  🔄 COUNTERFACTUAL:                                 │
-│ OVERDUE  │    If platelets > 100K → urgency would be YELLOW    │
-│ Referrals│    If no fever → urgency would be GREEN             │
+│          │  🔄 WHAT WOULD CHANGE IT:                           │
+│ OVERDUE  │    Screen not completed → YELLOW + human review     │
+│ Referrals│    Pain not recorded severe → GREEN (dengue deferred)│
 │   1      │                                                      │
 │          │  Missing Information:                                │
 │          │    ☐ Bleeding sites  ☐ Tourniquet test               │
@@ -1448,21 +1448,20 @@ Instead of SHAP values (which doctors don't understand), we generate **natural l
 
 ```
 ┌─────────────────────────────────────────────┐
-│  TRIAGE ASSESSMENT: 🔴 RED (Urgent)        │
-│  Confidence: 94%                             │
+│  TRIAGE ASSESSMENT: 🔴 RED (rules engine)  │
 │                                               │
 │  📋 WHY THIS LEVEL:                          │
-│  • Platelet count 85,000 (< 100,000)         │
-│  • Fever for 3 days + abdominal pain          │
-│  • SpO2: 94% (borderline)                    │
+│  • ATP_RED_SEVERE_PAIN: severe pain present  │
+│    (ANM red-flag screen)                     │
+│  • NEWS2 2 (low), qSOFA 0 — shown, not used  │
+│  • Platelets 85K: context only, not a rule   │
 │                                               │
 │  🔄 WHAT WOULD CHANGE IT:                    │
-│  • If platelets > 100K → YELLOW              │
-│  • If no fever → YELLOW                      │
-│  • If SpO2 > 96% → still RED (platelets)     │
+│  • Screen not completed → YELLOW + review    │
+│  • SpO2 < 90% → still RED (ATP_RED_SPO2)     │
 │                                               │
-│  📖 RULE: Dengue Warning Signs               │
-│  SOURCE: WHO 2009 + AIIMS Protocol           │
+│  📖 RULE: AIIMS Triage Protocol (ATP 2022)   │
+│  SOURCE: Supplementary Table 1               │
 │                                               │
 │  [✅ Approve]  [✏️ Override]  [📋 Refer]     │
 └─────────────────────────────────────────────┘
@@ -1588,14 +1587,14 @@ Full Model (FP16)
 | **0:00–0:30** | Disclaimer. Facility selection (PHC, Khurda, Odisha). Role-based login as ANM. Consent read aloud in Odia with audio "haan". | Privacy 10%, India 15% |
 | **0:30–1:30** | Patient speaks symptoms in Odia via Dakshini. Silero VAD detects speech. Transcript appears. TTS reads back: "ମୁଁ ତାପମାତ୍ରା ୧୦୨°F ଶୁଣିଲି — ଏହା ଠିକ୍?" Patient confirms. | Multimodal 15%, Safety 20% |
 | **1:30–2:15** | Photo of blood count report. Chandra OCR extracts values. Gödel verifier: platelet value disputed (85K vs 58K) → flagged amber. Out-of-range values highlighted red. | Multimodal 15%, Extraction 20% |
-| **2:15–3:00** | Structured note with source links (click field → see transcript/OCR source). Missing info: "tourniquet test not done." Follow-up question in Odia. 🔴 **RED FLAG: Dengue warning signs** — rule name + citation shown. Counterfactual: "If platelets > 100K → YELLOW." | Extraction 20%, Safety 20% |
+| **2:15–3:00** | Structured note with source links (click field → see transcript/OCR source). Clinician prompt: "tourniquet test not done." Follow-up question in Odia. 🔴 **RED: `ATP_RED_SEVERE_PAIN`** (ATP 2022) — rule ID, evidence and citation shown; platelets shown as context only (see docs/07). | Extraction 20%, Safety 20% |
 | **3:00–3:45** | Medical Officer's view. Queue reorders — RED on top. Reviews source-linked evidence. Edits disputed Hb value. Signs under own ID. Override reason code. Unacknowledged RED auto-escalated. Governance tile: override rate 8%. | Review 15%, Safety 20% |
 | **3:45–4:20** | Referral packet to District Hospital Cuttack. Escort + transport plan. FHIR export. Closure tracker: status "referred" → "in transit". Overdue alert preview. Audit log. Redaction preview. | Review 15%, India 15%, Privacy 10% |
 | **4:20–5:00** | **Evidence slide**: Red-flag sensitivity on 50 vignettes. Under-triage rate. Field accuracy. Prompt-injection test passed. Model card with limitations. TriZetto connection diagram. | All criteria |
 
 ### Lead Scenario Rationale
 - **Odisha-focused**: BPUT hackathon is in Rourkela, Odisha. AIIMS Bhubaneswar adopted the triage protocol. CureBay operates in Odisha.
-- **Dengue + falling platelets**: Simple rules-first scenario that proves RED flags work even if LLM fails.
+- **Febrile illness with severe abdominal pain** (dengue-like context): RED comes from a cited ATP rule, proving RED flags work even if the LLM fails. Dengue-specific rules are deferred (docs/10 ADR-7); platelets are not a rule input.
 - **Referral to DH**: Targets the specialist shortfall (74% of Odisha CHC specialist posts vacant).
 
 ---

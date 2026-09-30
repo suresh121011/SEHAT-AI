@@ -300,7 +300,7 @@ assert r.urgency == "YELLOW" and r.needs_human_review and "vitals.spo2" in r.mis
 - [ ] **End-to-end flow works:** Consent → Voice → OCR → Triage → Review → Sign-off → Referral
 - [ ] **Odia voice input** transcribes correctly with read-back
 - [ ] **Lab report OCR** extracts and verifies values
-- [ ] **Rules engine** fires correctly (dengue RED, normal GREEN)
+- [ ] **Rules engine** fires correctly (demo patient RED via `ATP_RED_SEVERE_PAIN`, normal GREEN, incomplete screen YELLOW — see docs/07 appendix)
 - [ ] **Priority queue** orders by rules (not by LLM)
 - [ ] **Sign-off** records reviewer name and ID
 - [ ] **Override** requires reason code

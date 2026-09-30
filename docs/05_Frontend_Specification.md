@@ -179,7 +179,7 @@ flowchart TD
 │  ┌─────────────────────────────────┐    │
 │  │ ✅ Extracted:                    │    │
 │  │ Hb: 8.5 g/dL (🟡 Low)          │    │
-│  │ Platelets: 85K (🔴 Critical)    │    │
+│  │ Platelets: 85K (⚠️ Below ref.)  │    │
 │  │ Confidence: 92%                  │    │
 │  │                                   │    │
 │  │ ⚠️ AI-extracted, pending review  │    │
@@ -235,8 +235,8 @@ flowchart TD
 │  └────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ 🔴 Token PHC-2026-0453 │ ⏰ 1:23 since arrival       │ │
-│  │ Dengue warning signs: Platelets 85K, abdominal pain   │ │
-│  │ RED FLAGS: Platelets < 100K + fever 3 days             │ │
+│  │ Fever 3 days, severe abdominal pain                    │ │
+│  │ RED: ATP_RED_SEVERE_PAIN (ATP 2022)                    │ │
 │  │ [Open Case →]                                          │ │
 │  └────────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────────┐ │
@@ -265,33 +265,31 @@ flowchart TD
 │   Confidence: 0.94                                           │
 │                                                              │
 │ ─── VITALS ───                                               │
-│ Temp: 102°F (🔴)    │ SpO2: 96%       │ BP: 110/70         │
-│ Pulse: 98 bpm        │ RR: 20          │ GCS: 15 (Alert)    │
+│ Temp: 38.9°C (102°F) │ SpO2: 97% (air) │ BP: 118/76         │
+│ Pulse: 96 bpm        │ RR: 20          │ ACVPU: Alert       │
 │                                                              │
 │ ─── LAB VALUES (OCR) ───                                    │
-│ Platelets: 85,000/μL (🔴 CRITICAL)                         │
+│ Platelets: 85,000/μL (⚠️ below ref. range — not a rule input)│
 │   📎 [View lab report image]                                │
 │   OCR Confidence: 0.91 │ Gödel verified ✅                  │
 │ Hb: 11.2 g/dL (Normal)                                     │
 │   📎 [View lab report image]                                │
 │                                                              │
-│ ─── RED FLAGS TRIGGERED ───                                 │
-│ 1. 🔴 Platelets < 100K + Fever ≥ 3 days                   │
-│    Rule: WHO Dengue Warning Signs                            │
-│ 2. 🔴 Abdominal pain with thrombocytopenia                 │
-│    Rule: Scenario Pack — Dengue                              │
-│ NEWS2 Score: 4                                               │
+│ ─── RULES TRIGGERED (deterministic engine) ───              │
+│ 1. 🔴 ATP_RED_SEVERE_PAIN                                   │
+│    "Time-sensitive: severe pain anywhere in body"            │
+│    Evidence: red_flag = severe_pain (ANM red-flag screen)    │
+│    Source: ATP_2022 (AIIMS Triage Protocol, Suppl. Table 1)  │
+│ NEWS2: 2 (low) │ qSOFA: 0 (negative screen)                  │
 │                                                              │
-│ ─── COUNTERFACTUAL ───                                      │
-│ 🔄 WHAT WOULD CHANGE IT:                                    │
-│   • If platelets > 100K → 🟡 YELLOW                        │
-│   • If no fever → 🟡 YELLOW                                │
-│   • If SpO2 < 94% → still 🔴 RED (platelets)               │
+│ ─── WHAT THE ENGINE DID NOT DECIDE ───                      │
+│   • Platelets are shown for the clinician; no rule reads them│
+│   • Dengue warning-sign pack: deferred (docs/10 ADR-7)       │
 │                                                              │
 │ ─── AI SUMMARY ───                                          │
 │ "28-year-old patient presenting with 3-day history of       │
-│ high-grade fever, thrombocytopenia, and abdominal pain      │
-│ consistent with dengue warning signs..."                     │
+│ high-grade fever, headache and severe abdominal pain.       │
+│ Lab report shows platelets below reference range..."         │
 │ ⚠️ AI-drafted, pending review by qualified clinician        │
 │                                                              │
 │ ─── MISSING INFORMATION ───                                 │
@@ -369,7 +367,7 @@ When a reviewer clicks "⬇️ Lower Urgency":
 │  To: District Hospital, Bhubaneswar ▾   │
 │                                          │
 │  Urgency: 🔴 RED                        │
-│  Flags: Dengue warning signs             │
+│  Flags: ATP_RED_SEVERE_PAIN (ATP 2022)   │
 │                                          │
 │  Included Evidence:                      │
 │  ✅ Triage note (source-linked)         │

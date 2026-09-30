@@ -207,7 +207,8 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - [x] Chronic NCD (BP > 180/110 → YELLOW; 2 readings required)
 - [x] Health Camp, Campus Fever, Occupational, Referral (advisories only)
 - [x] Required fields per scenario; `missing_fields` returned when absent
-- [ ] Dengue warning-signs pack — deferred: needs verified WHO 2009 criteria (ADR-7)
+- [ ] Dengue warning-signs pack — deferred: needs verified NCVBDC 2023 / WHO 2009 warning-sign criteria (ADR-7)
+- [x] Demo (docs/07) aligned to engine: RED via `ATP_RED_SEVERE_PAIN`; platelets are context only (regression: `tests/rules/test_demo_vignette.py`)
 
 #### 2.5 Cardinal Rule — LLM Override Prevention
 

@@ -518,13 +518,13 @@ Patient: "Chest pain and difficulty breathing, I have BP problem"
 Instead of SHAP values (which doctors don't understand), natural language counterfactuals:
 
 ```
-🔴 RED — Dengue warning signs
-📋 WHY: Platelets 85K (< 100K) + Fever 3 days + Abdominal pain
-🔄 WHAT WOULD CHANGE IT:
-  • If platelets > 100K → YELLOW
-  • If no fever → YELLOW
-  • If SpO2 > 96% → still RED (platelets)
-📖 RULE: WHO Dengue Classification 2009 + AIIMS Protocol
+🔴 RED — ATP_RED_SEVERE_PAIN (severe pain anywhere in body)
+📋 WHY: red_flag = severe_pain (ANM red-flag screen) — present on assessment
+🔄 WHAT WOULD CHANGE IT (from rule evidence and thresholds):
+  • If severe pain not recorded and vitals unchanged → GREEN (dengue pack deferred)
+  • If red-flag screen not completed → YELLOW + needs human review
+  • If SpO2 < 90% → still RED (ATP_RED_SPO2)
+📖 RULE: AIIMS Triage Protocol 2022, Supplementary Table 1 (ATP_2022)
 ```
 
 **Research:** IEEE 2025 — Counterfactual XAI improves clinician trust by 47%.

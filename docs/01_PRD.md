@@ -166,9 +166,9 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["MO logs into dashboard"] --> B["Sees priority queue\nordered by RULES\n(RED on top)"]
-    B --> C["Opens RED case:\nDengue warning signs"]
+    B --> C["Opens RED case:\nATP_RED_SEVERE_PAIN (ATP 2022)"]
     C --> D["Reviews source-linked\nevidence (click field →\nsee transcript/OCR source)"]
-    D --> E["Sees counterfactual:\n'If platelets > 100K → YELLOW'"]
+    D --> E["Sees rule evidence + threshold:\n'severe_pain present → RED'"]
     E --> F{"Agrees with\nassessment?"}
     F -->|Yes| G["Signs off under\nown ID and name"]
     F -->|No| H["Overrides with\nreason code + free text"]
