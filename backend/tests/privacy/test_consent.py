@@ -34,7 +34,7 @@ def test_notice_per_language_has_version_and_review_status(client, anm, language
     body = client.get(f"/api/v1/consent/notice?language={language}", headers=auth(anm)).json()
     assert body["version"] == NOTICE_VERSION
     assert body["review_status"] == status
-    assert set(body["purposes"]) == {"triage", "ai_assist"}
+    assert set(body["purposes"]) == {"triage", "ai_assist", "voice_cloud"}
 
 
 def test_unsupported_notice_language_rejected(client, anm):
@@ -43,15 +43,15 @@ def test_unsupported_notice_language_rejected(client, anm):
 
 def test_initial_state_is_not_provided(client, anm):
     cid = new_case(client, anm)
-    assert client.get(f"/api/v1/cases/{cid}", headers=auth(anm)).json()["consent"] == {"triage": "not_provided", "ai_assist": "not_provided"}
+    assert client.get(f"/api/v1/cases/{cid}", headers=auth(anm)).json()["consent"] == {"triage": "not_provided", "ai_assist": "not_provided", "voice_cloud": "not_provided"}
 
 
 def test_anm_grant_is_recorded_as_staff_attestation_with_all_bound_fields(client, anm):
     cid = new_case(client, anm)
     resp = grant(client, anm, cid, language="or")
-    assert resp.json()["consent"] == {"triage": "granted", "ai_assist": "declined"}
+    assert resp.json()["consent"] == {"triage": "granted", "ai_assist": "declined", "voice_cloud": "declined"}
     ev = _events(cid)
-    assert [(e["purpose"], e["action"]) for e in ev] == [("triage", "granted"), ("ai_assist", "declined")]
+    assert [(e["purpose"], e["action"]) for e in ev] == [("triage", "granted"), ("ai_assist", "declined"), ("voice_cloud", "declined")]
     e = ev[0]
     assert (e["method"], e["actor_role"], e["language"], e["notice_version"], e["notice_review_status"]) == (
         "staff_attested_verbal", "anm", "or", NOTICE_VERSION, "draft_unreviewed_translation"
@@ -99,7 +99,7 @@ def test_withdraw_ai_assist_keeps_triage(client, anm):
     cid = new_case(client, anm)
     grant(client, anm, cid, ai=True)
     resp = withdraw(client, anm, cid, "ai_assist")
-    assert resp.json()["consent"] == {"triage": "granted", "ai_assist": "withdrawn"}
+    assert resp.json()["consent"] == {"triage": "granted", "ai_assist": "withdrawn", "voice_cloud": "declined"}
     assert triage(client, anm, cid).status_code == 200
 
 
@@ -107,13 +107,13 @@ def test_withdraw_triage_cascades_to_ai_assist_with_explicit_event(client, anm):
     cid = new_case(client, anm)
     grant(client, anm, cid, ai=True)
     resp = withdraw(client, anm, cid, "triage")
-    assert resp.json()["consent"] == {"triage": "withdrawn", "ai_assist": "withdrawn"}
+    assert resp.json()["consent"] == {"triage": "withdrawn", "ai_assist": "withdrawn", "voice_cloud": "declined"}
     ev = _events(cid)
     assert [(e["purpose"], e["action"], e["method"]) for e in ev[-2:]] == [
         ("triage", "withdrawn", "staff_attested_verbal"),
         ("ai_assist", "withdrawn", "cascade_from_triage"),
     ]
-    assert len(ev) == 4  # history kept, nothing overwritten
+    assert len(ev) == 5  # history kept, nothing overwritten (3 decision events + 2 withdrawals)
     assert triage(client, anm, cid).status_code == 403
 
 
@@ -143,7 +143,7 @@ def test_consent_changes_are_audited_atomically(client, anm):
     grant(client, anm, cid, ai=True)
     withdraw(client, anm, cid, "triage")
     actions = [r["action"] for r in audit_rows(client) if r["case_id"] == cid]
-    assert actions == ["case_created", "consent_granted", "consent_withdrawn"]
+    assert actions == ["case_created", "consent_granted", "consent_declined", "consent_withdrawn"]  # voice_cloud declined
 
 
 def test_audit_failure_rolls_back_the_consent_change(client, anm, monkeypatch):

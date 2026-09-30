@@ -10,3 +10,7 @@ python-dotenv==1.2.3
 presidio-analyzer==2.2.364
 spacy==3.8.16
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# Phase 4 voice (docs/12) — always installed (audio validation and the cloud adapter import them).
+# The heavy, optional speech models live in requirements-voice.txt.
+numpy==2.4.6
+httpx==0.28.1

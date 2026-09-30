@@ -29,10 +29,10 @@ def new_case(client, token: str, scenario: str = "opd") -> str:
     return resp.json()["case_id"]
 
 
-def grant(client, token: str, case_id: str, ai: bool = False, language: str = "en", version: str = NOTICE_VERSION):
+def grant(client, token: str, case_id: str, ai: bool = False, language: str = "en", version: str = NOTICE_VERSION, voice_cloud: bool = False):
     return client.post(
         f"/api/v1/cases/{case_id}/consent",
-        json={"decision": "grant", "include_ai_assist": ai, "language": language, "notice_version": version},
+        json={"decision": "grant", "include_ai_assist": ai, "include_voice_cloud": voice_cloud, "language": language, "notice_version": version},
         headers=auth(token),
     )
 

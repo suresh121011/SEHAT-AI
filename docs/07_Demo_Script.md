@@ -15,7 +15,7 @@
 |:---|:---|
 | **Duration** | 5 minutes |
 | **Scenario** | 28-year-old patient at PHC Khurda: 3 days of fever, headache, severe abdominal pain |
-| **Languages** | Odia voice input → English triage note |
+| **Languages** | Hindi voice input verified on-device; Odia voice input not yet verified; translation to English deferred (Phase 6) |
 | **Modalities** | Voice + lab report (OCR) + body map |
 | **Story** | Intake → Triage → Review → Sign-off → Referral → Closure Tracking |
 
@@ -39,7 +39,7 @@
 - [ ] Frontend running (`npm run dev`)
 - [ ] Demo accounts seeded (patient, ANM, MO)
 - [ ] Synthetic lab report image ready (CBC with Platelets 85K, Hb 11.2 — context for the reviewer, not a rule input)
-- [ ] Odia TTS working (consent read-aloud)
+- [ ] Check whether this device has an Odia voice for read-aloud (browser voices vary); if not, the screen says read-aloud is unavailable — read the notice to the patient
 - [ ] Microphone tested for voice recording
 - [ ] Reviewer dashboard empty queue (fresh start)
 - [ ] Audit log table empty
@@ -63,7 +63,7 @@
 5. Click **"Read Aloud"** → TTS reads consent in Odia
 6. Patient says **"haan"**; the ANM ticks the attestation box and records the agreement (no audio stored — docs/11)
 
-> **Talking Point:** *"Consent is layered — read aloud in the patient's language, with audio confirmation. DPDP-ready by design — built around DPDP Act Section 6 consent ahead of substantive duties starting May 2027."*
+> **Talking Point:** *"Consent is layered — read aloud in the patient's language where a matching voice exists, and the ANM attests the patient's verbal agreement (no audio stored). DPDP-ready by design — built around DPDP Act Section 6 consent ahead of substantive duties starting May 2027."*
 
 **Eval Hits:** Privacy (10%) — consent flow. India (15%) — Odia language.
 
@@ -73,17 +73,23 @@
 
 **[Screen: Voice Recorder]**
 
-> **Narrator:** *"The patient speaks in Odia. Here's the differentiator — Indian speech systems capture numbers only 2.7% of the time. We mitigate this."*
+> **Narrator:** *"Speech recognisers often get numbers wrong — and triage depends on numbers — so nothing heard is used until the health worker checks it."*
 
-**Actions:**
-1. Click **Record** → Patient speaks in Odia: *"ତିନି ଦିନ ହେଲା ଜ୍ୱର ହେଉଛି, ତାପମାନ 102 ଡିଗ୍ରୀ, ମୁଣ୍ଡ ବିନ୍ଧା ଓ ପେଟ ଯନ୍ତ୍ରଣା"*
-   - (Translation: "Fever for 3 days, temperature 102 degrees, headache and abdominal pain")
-   - 102 °F = **38.9 °C**. Note: this is *not* above the ATP fever threshold (>39 °C), so fever alone does not make this patient RED.
-2. System transcribes via **Presear Dakshini** (native Odia — no translation pipeline)
-3. **TTS Read-Back**: *"I heard: fever 3 days, temperature 102°F, headache, abdominal pain. Is that correct?"*
-4. Patient confirms ✅
+**Actions.** Details and per-language status are in [docs/12](12_Voice_Pipeline.md). The **verified** path is Hindi on the on-device model; the Odia paths are **not yet verified**, so present them as such.
 
-> **Talking Point:** *"TTS read-back confirmation — every extracted number is read back. This is our answer to the 97% entity-miss rate in Indian ASR. No competitor does this."*
+1. Choose **हिन्दी** and **On this device (local model)**. The page shows which engine ran, and that it was checked on a synthetic clip only.
+2. Click **▶ Sample: Hindi fever (synthetic)**, or record live. Live recording needs localhost or HTTPS.
+   - The screen shows **Raw transcript (not checked)**: *"मुझे तीन दिन से बुखार है तापमान एक सौ दो डिग्री है"*, with the heard values highlighted.
+3. The read-back card says *"मैंने सुना तापमान: 102 °F = 38.89 °C। क्या यह सही है?"*. The Hindi wording is an unreviewed draft, and a banner says so. 🔊 plays it only if a matching voice exists; otherwise the screen says spoken read-back is unavailable.
+   - 102 °F is exactly 38.888… °C, and the engine uses the unrounded value. It is *not* above the ATP fever threshold (>39 °C), so fever alone does not make this patient RED.
+4. The **ANM**, not the patient, taps **✓ Yes, that's right**. The value appears under *Values the health worker confirmed*, labelled "heard, confirmed by anm".
+5. **Safety beat.** Click **▶ Sample: Hindi 'saadhe 39'**. The model hears *"तापमान साढ़े उनतालीस डिग्री"* (39.5 °C).
+   - The card is flagged: *"A word like 'saadhe/sawa/half' changes this number — enter the value yourself"*. **Yes, that's right** is disabled.
+   - The ANM taps **✎ Change value** and enters 39.5 °C. That explicit value, labelled as entered by the ANM, is what is pre-filled. 39.5 °C is above the ATP threshold.
+   - Before the fix, the system would have offered a clean-looking "39 °C".
+6. *(Optional, unverified.)* Odia: choose **ଓଡ଼ିଆ**. On-device Odia has not been run on real Odia audio yet, and cloud Odia needs a Sarvam key plus separate consent. Say so if you show it.
+
+> **Talking Point:** *"Every number the machine heard is read back and must be accepted or entered by the health worker; anything doubtful — 'not', 'yesterday', 'saadhe', numbers spoken in parts — cannot be accepted with one click, and anything unclear stays blank for human review. Voice only pre-fills; the rules engine and the ANM still decide. A value heard correctly but measured wrongly can still be wrong, which is why the reviewer signs off."*
 
 5. Select body map locations: **Head** (headache, severity 3/5) + **Abdomen** (pain, severity 5/5 — patient describes it as severe)
 6. ANM records vitals: RR 20, SpO2 97% on air, pulse 96, BP 118/76, temp 38.9 °C, Alert
@@ -209,9 +215,9 @@
 
 | Failure | Fallback |
 |:---|:---|
-| **Microphone fails** | Use pre-recorded Odia audio file |
+| **Microphone fails** | Use the **▶ Sample clip** button (synthetic audio, same backend path); mic needs localhost or HTTPS |
 | **OCR server down** | Use pre-extracted JSON with canned result |
-| **Voice STT fails** | Type symptoms manually, explain STT would work |
+| **Voice STT fails** | The screen shows an explicit error (nothing inferred); type symptoms manually |
 | **MedGemma unavailable** | Skip image demo, focus on voice + OCR |
 | **Slow processing** | Pre-computed triage note cached, swap in after animation |
 | **Reviewer dashboard blank** | Pre-seed queue with 3 demo cases |
@@ -224,7 +230,7 @@
 
 | Asset | Status | Description |
 |:---|:---|:---|
-| Odia audio recording | Needed | 15-second symptom description |
+| Odia audio recording | Needed to verify Odia (not yet available) | 15-second symptom description; synthetic or consented team recording only |
 | Lab report image (CBC) | Needed | Printed with Platelets 85K, Hb 11.2 (reviewer context only) |
 | Demo triage input | Ready | Reproducible request below; regression-tested in `backend/tests/rules/test_demo_vignette.py` |
 | Pre-seeded queue cases | Needed | 3 cases: 1 RED, 1 YELLOW, 1 GREEN |

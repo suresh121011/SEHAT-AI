@@ -36,6 +36,11 @@ AuditAction = Literal[
     "ai_output_discarded",
     "ai_output_returned",
     "audit_verified",
+    "voice_transcription_started",
+    "voice_transcribed",
+    "voice_transcription_failed",
+    "voice_readback_resolved",
+    "voice_tts_generated",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -49,15 +54,18 @@ class CaseCreatedDetails(_Details):
     facility_code: str
 
 
+ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud"]
+
+
 class ConsentChangeDetails(_Details):
-    purposes: list[Literal["triage", "ai_assist"]]
+    purposes: list[ConsentPurpose]
     notice_version: str
     language: Literal["en", "hi", "or"]
     method: Literal["patient_button", "staff_attested_verbal", "cascade_from_triage"]
 
 
 class ConsentDeniedDetails(_Details):
-    purpose: Literal["triage", "ai_assist"]
+    purpose: ConsentPurpose
     state: Literal["not_provided", "declined", "withdrawn"]
 
 
@@ -75,6 +83,40 @@ class PiiRedactedDetails(_Details):
 
 class ReasonDetails(_Details):
     reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+
+
+class VoiceTranscribedDetails(_Details):
+    """Counts and categories only: never transcript text, values, or audio."""
+
+    transcription_id: str
+    engine: Literal["local", "cloud"]
+    language: Literal["en", "hi", "or"]
+    status: Literal["completed", "no_speech", "empty_transcript"]
+    duration_bucket: Literal["lt_5s", "5_15s", "15_30s"]
+    segment_count: int = Field(ge=0)
+    candidate_count: int = Field(ge=0)
+
+
+class VoiceStartedDetails(_Details):
+    transcription_id: str
+    engine: Literal["local", "cloud"]
+    language: Literal["en", "hi", "or"]
+
+
+class VoiceFailedDetails(_Details):
+    engine: Literal["local", "cloud"]
+    reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+
+
+class VoiceReadbackDetails(_Details):
+    candidate_id: str
+    field: str = Field(pattern=r"^[a-z_0-9]{1,24}$")
+    outcome: Literal["confirmed", "corrected", "rejected", "unsure"]
+
+
+class VoiceTtsDetails(_Details):
+    language: Literal["en", "hi", "or"]
+    ok: bool
 
 
 class AuditVerifiedDetails(_Details):

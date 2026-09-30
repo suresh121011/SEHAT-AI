@@ -5,7 +5,9 @@ Service functions take a connection so routes stay thin and race tests can drive
 - Case access is checked separately from consent. Unauthorized and non-existent cases get the same
   404, and no audit event is written for them.
 - Consent is an append-only history; the effective state per purpose is the latest event by seq.
-  `ai_assist` is only effective while `triage` is effective.
+  `ai_assist` and `voice_cloud` are only effective while `triage` is effective.
+- A decision records every purpose explicitly: optional purposes not opted into are recorded as
+  `declined` (an omitted `include_voice_cloud` therefore declines cloud speech processing).
 - Actor identity and confirmation method come from the authenticated principal, never the client.
   A principal is an application account (shared, password-less demo accounts in this prototype),
   not a verified patient; `staff_attested_verbal` is the ANM account's attestation.
@@ -27,7 +29,8 @@ from app.database import transaction as _write
 from app.errors import ApiError, consent_required, not_found
 from app.rules.models import Scenario
 
-PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist")
+PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist", "voice_cloud")
+DEPENDENT_PURPOSES: tuple[Purpose, ...] = ("ai_assist", "voice_cloud")  # require triage
 State = Literal["not_provided", "granted", "declined", "withdrawn"]
 AccessMode = Literal["write", "triage", "read"]
 
@@ -44,6 +47,7 @@ class CaseCreate(_Body):
 class ConsentDecision(_Body):
     decision: Literal["grant", "decline"]
     include_ai_assist: bool = Field(default=False, strict=True)
+    include_voice_cloud: bool = Field(default=False, strict=True)
     language: Language
     notice_version: str = Field(max_length=32)
 
@@ -114,8 +118,8 @@ class ConsentSnapshot:
     authz_seq: int  # latest consent event seq for the case across all purposes (0 if none)
 
     def effective(self, purpose: Purpose) -> State:
-        if purpose == "ai_assist" and self.raw["triage"] != "granted":
-            return self.raw["triage"] if self.raw["ai_assist"] == "granted" else self.raw["ai_assist"]
+        if purpose in DEPENDENT_PURPOSES and self.raw["triage"] != "granted":
+            return self.raw["triage"] if self.raw[purpose] == "granted" else self.raw[purpose]
         return self.raw[purpose]
 
     def is_effective(self, purpose: Purpose) -> bool:
@@ -181,23 +185,27 @@ async def _insert_event(conn, *, case_id, purpose, action, language, review_stat
 
 
 async def record_decision(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: ConsentDecision, request_id: str | None) -> ConsentSnapshot:
-    """A decision sets both purposes explicitly: grant → triage granted, ai_assist granted only if
-    opted in (else declined); decline → both declined."""
+    """A decision sets every purpose explicitly: grant → triage granted, each optional purpose granted
+    only if opted in (else declined); decline → all declined."""
     method = _method_for(principal)
     notice = get_notice(body.language)
     if body.notice_version != notice.version:
         raise ApiError(409, "NOTICE_VERSION_STALE", "The consent notice has changed; please review the current version")
-    if body.decision == "decline" and body.include_ai_assist:
-        raise ApiError(400, "VALIDATION_ERROR", "AI assistance cannot be granted when consent is declined")
+    if body.decision == "decline" and (body.include_ai_assist or body.include_voice_cloud):
+        raise ApiError(400, "VALIDATION_ERROR", "Optional purposes cannot be granted when consent is declined")
 
-    triage_action = "granted" if body.decision == "grant" else "declined"
-    ai_action = "granted" if (body.decision == "grant" and body.include_ai_assist) else "declined"
+    grant = body.decision == "grant"
+    actions: tuple[tuple[Purpose, str], ...] = (
+        ("triage", "granted" if grant else "declined"),
+        ("ai_assist", "granted" if grant and body.include_ai_assist else "declined"),
+        ("voice_cloud", "granted" if grant and body.include_voice_cloud else "declined"),
+    )
     async with _write(conn):
         await load_case(conn, principal, case_id, "write")
-        for purpose, action in (("triage", triage_action), ("ai_assist", ai_action)):
+        for purpose, action in actions:
             await _insert_event(conn, case_id=case_id, purpose=purpose, action=action, language=body.language, review_status=notice.review_status, method=method, principal=principal)
-        granted = [p for p, a in (("triage", triage_action), ("ai_assist", ai_action)) if a == "granted"]
-        declined = [p for p, a in (("triage", triage_action), ("ai_assist", ai_action)) if a == "declined"]
+        granted = [p for p, a in actions if a == "granted"]
+        declined = [p for p, a in actions if a == "declined"]
         for action, purposes in (("consent_granted", granted), ("consent_declined", declined)):
             if purposes:
                 await audit.record(
@@ -213,9 +221,9 @@ async def record_decision(conn: aiosqlite.Connection, principal: Principal, case
 
 
 async def withdraw(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: WithdrawRequest, request_id: str | None) -> ConsentSnapshot:
-    """Purpose-specific withdrawal. Withdrawing `triage` also records an explicit `ai_assist`
-    withdrawal (method `cascade_from_triage`) if AI assistance was granted. Withdrawing `ai_assist`
-    leaves triage consent unchanged."""
+    """Purpose-specific withdrawal. Withdrawing `triage` also records an explicit withdrawal (method
+    `cascade_from_triage`) for each dependent purpose that was granted. Withdrawing a dependent
+    purpose leaves triage consent unchanged."""
     method = _method_for(principal)
     async with _write(conn):
         await load_case(conn, principal, case_id, "write")
@@ -226,9 +234,11 @@ async def withdraw(conn: aiosqlite.Connection, principal: Principal, case_id: st
             raise ApiError(409, "NOTHING_TO_WITHDRAW", "Consent for this purpose is not currently in effect")
         await _insert_event(conn, case_id=case_id, purpose=body.purpose, action="withdrawn", language=language, review_status=notice.review_status, method=method, principal=principal)
         purposes: list[str] = [body.purpose]
-        if body.purpose == "triage" and snap.raw["ai_assist"] == "granted":
-            await _insert_event(conn, case_id=case_id, purpose="ai_assist", action="withdrawn", language=language, review_status=notice.review_status, method="cascade_from_triage", principal=principal)
-            purposes.append("ai_assist")
+        if body.purpose == "triage":
+            for dependent in DEPENDENT_PURPOSES:
+                if snap.raw[dependent] == "granted":
+                    await _insert_event(conn, case_id=case_id, purpose=dependent, action="withdrawn", language=language, review_status=notice.review_status, method="cascade_from_triage", principal=principal)
+                    purposes.append(dependent)
         await audit.record(
             conn,
             principal=principal,

@@ -73,7 +73,7 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
   - `patient_button` means a patient account pressed "I agree".
   - `staff_attested_verbal` means the **ANM account attests** that the notice was read and the patient agreed. It does not prove the patient's identity or their exact words.
 - **No audio or transcript** is collected or stored for consent.
-- **Speech recognition is not used.** Chrome's `SpeechRecognition` sends audio to a server, which is a third-party processing decision this project has not made.
+- **Browser speech recognition is not used.** Chrome's `SpeechRecognition` sends audio to a server. Phase 4 speech-to-text is server-side and explicit instead: on-device IndicConformer, or Sarvam AI only with the separate `voice_cloud` consent (docs/12 §3).
 
 **Who can do what** (checked independently of consent):
 - **Record or withdraw consent:** the account that created the case.
@@ -208,3 +208,13 @@ Plain ASCII clinical text is passed through byte-for-byte: this is tested with "
 | `test_boundary` | static boundary checks |
 
 All data is synthetic. The 250 Phase 1–2 tests still pass. Browser read-aloud and the consent screens were checked manually; there are no automated frontend tests.
+
+
+## Phase 4 addendum — voice (see [docs/12](12_Voice_Pipeline.md))
+
+- **Third consent purpose `voice_cloud`** (notice `2026-09-30.3`): sending the patient's voice to Sarvam AI for online speech-to-text, and the heard values for spoken read-back. The checkbox states retention (up to 30 days) and possible model training. Opt-in; effective only while `triage` is granted; omitted = declined; withdrawing `triage` cascades. Migration 3 rebuilds `consent_events` (CHECK constraint) with foreign keys off and `foreign_key_check` before commit.
+- **Notice change**: "No voice recording is stored" became "SEHAT AI does not store the voice recording itself", plus a plain statement that Sarvam may keep audio up to 30 days and may use it for training unless the deploying organisation opts out (not verified by this software).
+- **Audio**: in process memory only, bounded read, never persisted or logged by this code. Transcripts are stored as untrusted text under triage consent. They are visible to the case creator and MOs (not supervisors), and only while triage consent is in effect: reads after withdrawal are refused and audited.
+- **Consent before egress**: checked before any cloud upload; the post-call re-check only discards the result — audio already sent cannot be recalled.
+- **Audit**: `voice_transcription_started` (committed before any engine runs), `voice_transcribed`, `voice_transcription_failed`, `voice_readback_resolved`, `voice_tts_generated` — ids, categories and counts only.
+- **Bystanders**: a live microphone may capture other people; no speaker separation.

@@ -101,7 +101,7 @@ flowchart TD
 
 ## 5. Data Retention & Deletion
 
-> **Target policy — not enforced in Phase 3.** No automatic purge or deletion runs yet, no audio is collected, and the append-only audit log cannot currently expire rows. See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
+> **Target policy — not enforced in Phase 3.** No automatic purge or deletion runs yet, and the append-only audit log cannot currently expire rows. Phase 4 processes audio in memory and does not store it; voice transcripts are stored and fall under this (unenforced) retention policy — see [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md). See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
 
 | Data Type | Retention | Trigger for Deletion |
 |:---|:---|:---|
