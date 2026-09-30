@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { DemoBanner } from "@/components/DemoBanner";
 import { ApiError, api } from "@/lib/api";
+import { useMatchingVoice } from "@/lib/useMatchingVoice";
 
 type Language = "en" | "hi" | "or";
 type State = "not_provided" | "granted" | "declined" | "withdrawn";
@@ -15,9 +16,9 @@ type Notice = {
   review_status: "project_draft" | "draft_unreviewed_translation";
   title: string;
   paragraphs: string[];
-  purposes: { triage: string; ai_assist: string };
+  purposes: { triage: string; ai_assist: string; voice_cloud: string };
 };
-type CaseView = { case_id: string; patient_token: string; scenario: string; is_creator: boolean; consent: { triage: State; ai_assist: State } };
+type CaseView = { case_id: string; patient_token: string; scenario: string; is_creator: boolean; consent: { triage: State; ai_assist: State; voice_cloud: State } };
 
 const LANGUAGES: { code: Language; label: string; speech: string }[] = [
   { code: "en", label: "English", speech: "en" },
@@ -32,26 +33,6 @@ const STATE_WORDS: Record<State, string> = {
   withdrawn: "Withdrew",
 };
 
-// Read-aloud: only a voice whose language matches the selected notice language is ever used.
-function useMatchingVoice(prefix: string) {
-  const [voice, setVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [supported, setSupported] = useState(true);
-  useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setSupported(false);
-      return;
-    }
-    const pick = () => {
-      const voices = window.speechSynthesis.getVoices();
-      setVoice(voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ?? null);
-    };
-    pick();
-    window.speechSynthesis.addEventListener("voiceschanged", pick);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", pick);
-  }, [prefix]);
-  return { voice, supported };
-}
-
 function ConsentScreen() {
   const caseId = useSearchParams().get("case");
   const [role, setRole] = useState<string | null>(null);
@@ -59,6 +40,7 @@ function ConsentScreen() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [caseView, setCaseView] = useState<CaseView | null>(null);
   const [aiOptIn, setAiOptIn] = useState(false);
+  const [voiceCloudOptIn, setVoiceCloudOptIn] = useState(false);
   const [attested, setAttested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -105,7 +87,7 @@ function ConsentScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      await api.post(`cases/${caseId}/consent`, { decision, include_ai_assist: decision === "grant" && aiOptIn, language, notice_version: notice.version });
+      await api.post(`cases/${caseId}/consent`, { decision, include_ai_assist: decision === "grant" && aiOptIn, include_voice_cloud: decision === "grant" && voiceCloudOptIn, language, notice_version: notice.version });
       await loadCase();
     } catch (err) {
       setMessage(explain(err));
@@ -114,7 +96,7 @@ function ConsentScreen() {
     }
   }
 
-  async function withdraw(purpose: "triage" | "ai_assist") {
+  async function withdraw(purpose: "triage" | "ai_assist" | "voice_cloud") {
     if (!caseId) return;
     setBusy(true);
     setMessage(null);
@@ -153,6 +135,7 @@ function ConsentScreen() {
   const canRecord = caseView?.is_creator && (role === "patient" || role === "anm");
   const triageState = caseView?.consent.triage ?? "not_provided";
   const aiState = caseView?.consent.ai_assist ?? "not_provided";
+  const voiceCloudState = caseView?.consent.voice_cloud ?? "not_provided";
 
   return (
     <section className="mx-auto max-w-2xl space-y-5">
@@ -206,7 +189,7 @@ function ConsentScreen() {
 
       <div className="rounded border border-black/10 p-4 dark:border-white/15">
         <p className="text-sm">
-          Triage consent: <strong>{STATE_WORDS[triageState]}</strong> · AI assistance: <strong>{STATE_WORDS[aiState]}</strong>
+          Triage consent: <strong>{STATE_WORDS[triageState]}</strong> · AI assistance: <strong>{STATE_WORDS[aiState]}</strong> · Online speech (Sarvam): <strong>{STATE_WORDS[voiceCloudState]}</strong>
         </p>
       </div>
 
@@ -218,6 +201,13 @@ function ConsentScreen() {
             <span>
               {notice.purposes.ai_assist}
               <span className="block opacity-70">AI assistance works with English text only in this prototype.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={voiceCloudOptIn} onChange={(e) => setVoiceCloudOptIn(e.target.checked)} />
+            <span>
+              {notice.purposes.voice_cloud}
+              <span className="block opacity-70">Optional. Without it, speech can only be processed on this device (if available), or symptoms can be typed.</span>
             </span>
           </label>
           {isAnm && (
@@ -239,13 +229,21 @@ function ConsentScreen() {
 
       {canRecord && triageState === "granted" && (
         <div className="flex flex-wrap gap-3">
+          <Link href={`/intake/voice?case=${caseId}`} className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+            Next: describe symptoms by voice →
+          </Link>
+          {voiceCloudState === "granted" && (
+            <button type="button" disabled={busy} onClick={() => withdraw("voice_cloud")} className="rounded border border-black/20 px-4 py-2 text-sm dark:border-white/20">
+              Stop online speech processing (keep triage consent)
+            </button>
+          )}
           {aiState === "granted" && (
             <button type="button" disabled={busy} onClick={() => withdraw("ai_assist")} className="rounded border border-black/20 px-4 py-2 text-sm dark:border-white/20">
               Stop AI assistance (keep triage consent)
             </button>
           )}
           <button type="button" disabled={busy} onClick={() => withdraw("triage")} className="rounded border border-red-600 px-4 py-2 text-sm text-red-700 dark:text-red-400">
-            Withdraw all consent (stops triage and AI assistance)
+            Withdraw all consent (stops triage, AI assistance and online speech)
           </button>
         </div>
       )}

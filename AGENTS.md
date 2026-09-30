@@ -25,6 +25,7 @@ All project documentation lives in `docs/`:
 | [`docs/09_Implementation_Todo_List.md`](docs/09_Implementation_Todo_List.md) | Granular checkbox tasks for each phase |
 | [`docs/10_Safety_Rules_Engine.md`](docs/10_Safety_Rules_Engine.md) | Deterministic triage rules engine: verified clinical sources, decision record, test matrix |
 | [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md) | Consent, PII redaction, AI gateway, audit log — implemented controls, threat model, limitations (demo-only) |
+| [`docs/12_Voice_Pipeline.md`](docs/12_Voice_Pipeline.md) | Voice pipeline (Phase 4): technology decisions, consent (`voice_cloud`), read-back policy, flags, verification status |
 
 ## Agent Rules
 

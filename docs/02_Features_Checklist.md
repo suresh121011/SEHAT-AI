@@ -20,9 +20,9 @@ These features are required for a viable demo and cover **85%+** of evaluation m
 | 5 | **Layered consent** in patient's language (read-aloud with matching voice, staff-attested "haan/yes", no audio stored) | Privacy (10%) | P3 | ✅ Phase 3 |
 | 6 | **PII redaction** (Presidio + ABHA, Aadhaar-like, phone, PAN; heuristic, not anonymization) BEFORE any LLM adapter | Privacy (10%) | P3 | ✅ Phase 3 |
 | 7 | **Tamper-evident audit log** (append-only, hash-chained SHA-256; not immutable) | Privacy (10%) | P3 | ✅ Phase 3 |
-| 8 | **Voice input** (Silero VAD + STT) in Odia/Hindi/English | Multimodal (15%) | P4 | |
-| 9 | **TTS read-back confirmation** ("I heard temp 102°F — correct?") | Multimodal (15%), Safety (20%) | P4 | ✅ #6 |
-| 10 | **Presear Dakshini** native Odia voice agent | Multimodal (15%), India (15%) | P4 | ✅ #10 |
+| 8 | **Voice input** (Silero VAD + STT) in Odia/Hindi/English | Multimodal (15%) | P4 | ✅ Phase 4 — per-language status in docs/12 §9 |
+| 9 | **TTS read-back confirmation** ("I heard temp 102°F — correct?") | Multimodal (15%), Safety (20%) | P4 | ✅ Phase 4 (visible read-back always; spoken where a voice is available) |
+| 10 | **Presear Dakshini** native Odia voice agent | Multimodal (15%), India (15%) | P4 | ❌ Not verifiable (docs/12 §1); Odia via Saaras `od-IN` / IndicConformer `or` |
 | 11 | **OCR — printed lab reports** (Surya/PaddleOCR, table-aware) | Multimodal (15%), Extraction (20%) | P5 | |
 | 12 | **OCR — handwritten prescriptions** (Chandra OCR 2, INT8 QAT) | Multimodal (15%), Extraction (20%) | P5 | |
 | 13 | **Gödel OCR self-verification** (CoVe + RxNorm cross-check) | Extraction (20%) | P5 | ✅ #7 |

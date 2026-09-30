@@ -416,6 +416,12 @@ sequenceDiagram
 
 ## 9. Voice Pipeline — Silero VAD + STT + Dakshini
 
+> **Phase 4 implementation note (2026-09-30):** the design below was checked against primary sources
+> before implementation. Silero STT (non-commercial licence, no Hindi/Odia) and Presear Dakshini (not
+> verifiable) were not used; IndicConformer "30M" does not exist (the 600M model is used); IndicTrans2 is
+> deferred; read-back confirms each value by the health worker. See
+> [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md) for what was built and its verification status.
+
 ### Architecture
 
 ```mermaid

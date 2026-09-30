@@ -32,7 +32,34 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+async function throwApiError(res: Response): Promise<never> {
+  const data = await res.json().catch(() => null);
+  const err = (data as ApiErrorBody | null)?.error;
+  throw new ApiError(res.status, err?.code ?? "HTTP_ERROR", err?.message ?? res.statusText, err?.details ?? {}, err?.request_id ?? null);
+}
+
+// Raw audio upload (the backend accepts only a raw audio/wav body — no multipart form).
+async function postAudio<T>(path: string, wav: Blob): Promise<T> {
+  const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, {
+    method: "POST",
+    headers: { "Content-Type": "audio/wav" },
+    body: wav,
+    cache: "no-store",
+  });
+  if (!res.ok) return throwApiError(res);
+  return (await res.json()) as T;
+}
+
+// POST that returns binary (spoken read-back audio).
+async function postForBlob(path: string): Promise<Blob> {
+  const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, { method: "POST", cache: "no-store" });
+  if (!res.ok) return throwApiError(res);
+  return res.blob();
+}
+
 export const api = {
+  postAudio,
+  postForBlob,
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),

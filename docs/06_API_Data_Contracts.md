@@ -50,7 +50,9 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
-| POST | `/intake/voice` | Submit voice recording for STT | patient, anm |
+| POST | `/cases/{case_id}/voice/transcriptions` | Submit a raw `audio/wav` clip for STT (Phase 4, [docs/12](12_Voice_Pipeline.md) §7) | patient, anm (case creator) |
+| POST | `/cases/{case_id}/voice/candidates/{candidate_id}/readback` | Reviewer confirms/corrects/rejects a heard value | anm (creator), medical_officer |
+| GET | `/cases/{case_id}/voice/prefill` | Reviewer-confirmed values shaped for `TriageInput` | anm (creator), medical_officer |
 | POST | `/intake/document` | Upload document for OCR | patient, anm |
 | POST | `/intake/image` | Upload medical image for MedGemma | patient, anm |
 | POST | `/intake/body-map` | Submit body map selections | patient, anm |
@@ -115,28 +117,41 @@ Consent is stored as an append-only history (`consent_events`); the effective st
 }
 ```
 
-`purpose` ∈ `triage | ai_assist`; `action` ∈ `granted | declined | withdrawn`; `method` ∈ `patient_button | staff_attested_verbal | cascade_from_triage` (server-derived). `actor_id` is stored but not returned by read APIs.
+`purpose` ∈ `triage | ai_assist | voice_cloud`; `action` ∈ `granted | declined | withdrawn`; `method` ∈ `patient_button | staff_attested_verbal | cascade_from_triage` (server-derived). `actor_id` is stored but not returned by read APIs.
 
-### 3.2 IntakePayload (Voice)
+### 3.2 Voice transcription (Phase 4 — implemented)
+
+The sketch previously here (single `IntakePayload` with `stt_engine: "dakshini"`, `transcript_english`
+and an audio `file_ref`) is superseded: no audio is stored, translation is deferred, and Dakshini could
+not be verified. The implemented contract ([docs/12](12_Voice_Pipeline.md) §7):
 
 ```json
 {
-  "case_id": "uuid",
-  "input_type": "voice",
-  "language_detected": "or",
-  "audio_duration_sec": 18.5,
-  "stt_engine": "dakshini",
-  "transcript_raw": "ତିନି ଦିନ ହେଲା ଜ୍ୱର ହେଉଛି...",
-  "transcript_english": "Fever for 3 days, temperature 102°F, severe headache",
-  "read_back_confirmed": true,
-  "source_ref": {
-    "type": "audio",
-    "start_sec": 4,
-    "end_sec": 18,
-    "file_ref": "audio/PHC-2026-0453.wav"
-  }
+  "transcription_id": "uuid",
+  "status": "completed",
+  "language": "or",
+  "engine": "local",
+  "processing": "local inference (no provider call)",
+  "model_id": "ai4bharat/indic-conformer-600m-multilingual@e9b71b369c04",
+  "speech_segments": [[0.42, 6.1]],
+  "transcript_raw": "…",
+  "transcript_status": "machine transcript — not checked",
+  "candidates": [
+    {
+      "candidate_id": "uuid",
+      "field": "temp",
+      "char_start": 31, "char_end": 41, "heard_text": "102 ଡିଗ୍ରୀ",
+      "raw_value": 102, "unit": "f", "normalized": {"temp_c": 38.888888888888886},
+      "flags": ["unit_inferred"],
+      "readback_text": "ମୁଁ ଶୁଣିଲି ତାପମାତ୍ରା: 102 °F = 38.89 °C। ଏହା ଠିକ୍ କି?",
+      "can_confirm": true,
+      "resolution": null
+    }
+  ]
 }
 ```
+
+Prefill source reference (per value): `{"type": "voice_transcript" | "voice_manual_correction", "transcription_id", "candidate_id", "transcript_chars": [start, end], "clip_speech_sec": [start, end], "readback_outcome", "resolved_by_role"}`.
 
 ### 3.3 IntakePayload (Document OCR)
 

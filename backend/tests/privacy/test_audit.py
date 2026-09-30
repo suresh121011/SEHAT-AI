@@ -42,7 +42,7 @@ def _admin_edit(sql: str, params=()):
 
 def test_events_capture_actor_from_token_and_no_raw_content(client, populated):
     rows = [r for r in audit_rows(client) if r["case_id"] == populated]
-    assert [r["action"] for r in rows] == ["case_created", "consent_granted", "triage_recorded", "consent_withdrawn"]
+    assert [r["action"] for r in rows] == ["case_created", "consent_granted", "consent_declined", "triage_recorded", "consent_withdrawn"]
     assert {r["actor_role"] for r in rows} == {"anm"}
     for r in rows:
         assert r["timestamp"] and r["current_hash"] and len(r["current_hash"]) == 64

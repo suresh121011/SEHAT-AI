@@ -82,3 +82,22 @@ def test_rules_engine_has_no_privacy_or_consent_imports():
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
                 assert not node.module.startswith(("app.privacy", "app.consent", "app.audit", "app.database", "presidio", "spacy")), path
+
+
+def test_only_non_json_body_is_constrained_voice_audio():
+    """Phase 4: the voice upload is the only non-JSON request body. It is raw audio/wav (no multipart
+    form fields that could carry free text), and its query parameters are enums or UUIDs."""
+    spec = create_app().openapi()
+    non_json = []
+    for path, ops in spec["paths"].items():
+        for method, op in ops.items():
+            content = op.get("requestBody", {}).get("content", {})
+            for ctype in content:
+                if ctype != "application/json":
+                    non_json.append((method.upper(), path, ctype))
+                    for param in op.get("parameters", []):
+                        if param["in"] == "header":
+                            continue  # auth cross-check headers (app/auth.py), common to every route
+                        schema = param.get("schema", {})
+                        assert "enum" in schema or schema.get("format") == "uuid", (path, param["name"])
+    assert non_json == [("POST", "/api/v1/cases/{case_id}/voice/transcriptions", "audio/wav")]

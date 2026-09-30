@@ -1,0 +1,11 @@
+# SEHAT AI — optional voice components (docs/12). The app starts and all non-voice features work
+# without these; voice features stay unavailable (and report so) until installed AND enabled.
+# The project venv has no pip: install with
+#   uv pip install --python .venv/bin/python -r backend/requirements-voice.txt
+-r requirements.txt
+silero-vad==6.2.3          # MIT; VAD model ships inside the package (no download). Imports torch.
+onnxruntime==1.20.1        # pinned by the IndicConformer model card; also runs Silero VAD (onnx=True)
+torch==2.14.0
+torchaudio==2.11.0
+transformers==4.57.6       # <5: IndicConformer loads via trust_remote_code (reviewed revision pinned in app/voice/engines.py)
+huggingface-hub==0.36.2    # used only by backend/scripts/download_voice_models.py

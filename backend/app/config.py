@@ -3,7 +3,7 @@
 import logging
 import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,6 +31,13 @@ def _env(name: str, default: str = "") -> str:
     return "" if value in _PLACEHOLDERS else value
 
 
+def _flag(name: str, default: bool = False) -> bool:
+    value = _env(name, "1" if default else "0").lower()
+    if value not in ("0", "1", "true", "false", "yes", "no"):
+        raise RuntimeError(f"{name} must be 0/1/true/false")
+    return value in ("1", "true", "yes")
+
+
 @dataclass(frozen=True)
 class Settings:
     environment: str
@@ -44,6 +51,21 @@ class Settings:
     azure_openai_endpoint: str
     azure_openai_deployment_name: str
     azure_openai_api_version: str
+    # Phase 4 voice (docs/12). Every component is off unless explicitly enabled; a disabled component
+    # is never imported, loaded or called.
+    voice_enabled: bool = False
+    voice_vad_enabled: bool = True
+    voice_local_asr_enabled: bool = False
+    voice_local_model_dir: Path = REPO_ROOT / "models" / "voice"
+    voice_cloud_stt_enabled: bool = False
+    voice_tts_enabled: bool = False
+    sarvam_api_key: str = field(default="", repr=False)  # never printed
+    sarvam_timeout_s: float = 20.0
+    voice_max_seconds: int = 30
+
+    @property
+    def sarvam_configured(self) -> bool:
+        return bool(self.sarvam_api_key)
 
     @property
     def azure_openai_configured(self) -> bool:
@@ -66,9 +88,7 @@ def get_settings() -> Settings:
         jwt_secret = secrets.token_urlsafe(48)
         logger.warning("JWT_SECRET_KEY not set; using an ephemeral development secret")
 
-    db_path = Path(_env("DATABASE_PATH", "./sehat.db"))
-    if not db_path.is_absolute():
-        db_path = REPO_ROOT / db_path
+    db_path = _path(_env("DATABASE_PATH", "./sehat.db"))
 
     return Settings(
         environment=environment,
@@ -82,4 +102,18 @@ def get_settings() -> Settings:
         azure_openai_endpoint=_env("AZURE_OPENAI_ENDPOINT"),
         azure_openai_deployment_name=_env("AZURE_OPENAI_DEPLOYMENT_NAME"),
         azure_openai_api_version=_env("AZURE_OPENAI_API_VERSION"),
+        voice_enabled=_flag("VOICE_ENABLED"),
+        voice_vad_enabled=_flag("VOICE_VAD_ENABLED", True),
+        voice_local_asr_enabled=_flag("VOICE_LOCAL_ASR_ENABLED"),
+        voice_local_model_dir=_path(_env("VOICE_LOCAL_MODEL_DIR", "./models/voice")),
+        voice_cloud_stt_enabled=_flag("VOICE_CLOUD_STT_ENABLED"),
+        voice_tts_enabled=_flag("VOICE_TTS_ENABLED"),
+        sarvam_api_key=_env("SARVAM_API_KEY"),
+        sarvam_timeout_s=float(_env("SARVAM_TIMEOUT_S", "20")),
+        voice_max_seconds=min(int(_env("VOICE_MAX_SECONDS", "30")), 30),  # Sarvam REST limit is <30 s
     )
+
+
+def _path(value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else REPO_ROOT / path

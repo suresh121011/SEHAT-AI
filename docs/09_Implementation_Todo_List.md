@@ -297,63 +297,53 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Multimodal (15%)
 > **Features:** #8, #9, #10
 
+> **Phase 4 as implemented:** see [docs/12](12_Voice_Pipeline.md). Items changed after research and
+> council review are marked ~~struck~~ with the reason.
+
 #### 4.1 Audio Recording UI Component
 
-- [ ] Create `frontend/src/components/VoiceRecorder.tsx`
-- [ ] Implement MediaRecorder API for audio capture
-- [ ] Add record/stop button with visual state indicator
-- [ ] Add waveform visualisation (canvas or Web Audio API)
-- [ ] Enforce max 2-minute recording limit
-- [ ] Export audio as WAV or WebM blob
+- [x] `frontend/src/components/VoiceRecorder.tsx` (MediaRecorder → 16 kHz mono PCM16 WAV via OfflineAudioContext)
+- [x] Record/stop with state indicator; level meter (AnalyserNode) instead of a waveform
+- [x] Max 30 s per clip (Sarvam REST limit; was 2 min)
+- [x] "Sample clip" demo fallback (synthetic audio, same backend path)
 
 #### 4.2 Silero VAD Integration
 
-- [ ] Install/configure Silero VAD (ONNX runtime)
-- [ ] Create `backend/app/services/vad.py`
-- [ ] Process audio → detect speech segments → trim silence
-- [ ] Return speech-only audio with segment timestamps
-- [ ] Verify: silent audio → no speech detected
+- [x] `backend/app/voice/vad.py` (silero-vad 6.2.3, ONNX, lazy-loaded)
+- [x] Speech segments returned; no speech → `no_speech`, engine not called
+- [x] Verified on synthetic speech, silence, noise and a clipped recording (real inference)
 
 #### 4.3 STT Transcription
 
-- [ ] Create `backend/app/services/stt.py`
-- [ ] Integrate Silero STT for primary transcription
-- [ ] Add Saaras V4 API as online fallback (if API key available)
-- [ ] Add Presear Dakshini route for Odia detection
-- [ ] Return transcript with per-segment timestamps
+- [x] `backend/app/voice/engines.py` — explicit `local` | `cloud`, no fallback
+- [ ] ~~Silero STT primary~~ — dropped: CC BY-NC licence, no Hindi/Odia
+- [x] Saaras v4 (`cloud`) behind flag + `voice_cloud` consent (mock-tested; real run: docs/12 §9.2)
+- [x] IndicConformer-600M (`local`, hi/or) — explicit download script, Hub forced offline (real run: docs/12 §9.2)
+- [ ] ~~Presear Dakshini route~~ — not integrated: no verifiable API, model or licence (docs/12 §1)
+- [ ] ~~Per-segment timestamps per word~~ — engines give none reliably; evidence is transcript char offsets + clip VAD span
 
 #### 4.4 IndicTrans2 Translation
 
-- [ ] Create `backend/app/services/translation.py`
-- [ ] Integrate IndicTrans2 for non-English → English translation
-- [ ] Detect source language (Odia/Hindi/English)
-- [ ] Return both original and English transcript
-- [ ] Handle code-mixing gracefully
+- [ ] Deferred to Phase 6 (with the LLM path). Original-language transcripts are kept.
 
 #### 4.5 TTS Read-Back Confirmation
 
-- [ ] Create read-back text: "I heard [extracted values]. Is that correct?"
-- [ ] Integrate TTS engine (Indic Parler-TTS or browser Web Speech API fallback)
-- [ ] Play read-back audio in patient's language
-- [ ] Frontend: confirm/re-record buttons after read-back
-- [ ] Log confirmation status in source reference
+- [x] Server-built read-back text (en; hi/or unreviewed drafts), °F shown with exact °C
+- [x] Sarvam Bulbul v3 (flag + `voice_cloud` consent) → browser matching voice → "unavailable" text
+- [x] Confirm / Correct / Not sure / Wrong-not-said — reviewer (ANM creator / MO) only
+- [x] Append-only read-back events; audit without values
 
 #### 4.6 Source Reference Linking
 
-- [ ] Create SourceRef model: { type: "audio", start_sec, end_sec, file_ref }
-- [ ] Attach source refs to each extracted entity from transcript
-- [ ] Store audio file reference for later playback
-- [ ] API returns source_ref with each extracted field
+- [x] Candidate char offsets into the raw transcript; clip speech span; outcome and reviewer role
+- [ ] ~~Store audio file reference for playback~~ — no audio is stored (consent notice)
 
 #### 4.7 Voice Intake API
 
-- [ ] Create `POST /api/v1/intake/voice` endpoint
-- [ ] Accept: audio file (multipart) + case_id + language hint
-- [ ] Pipeline: VAD → STT → translate → extract entities → source-link
-- [ ] Return: transcript_raw, transcript_english, extracted_entities, source_refs
-- [ ] Error handling: if STT fails → return error with fallback suggestion
+- [x] `POST /api/v1/cases/{id}/voice/transcriptions` (raw `audio/wav`; not multipart)
+- [x] Explicit error codes for every failure; nothing inferred from a failure
+- [x] `GET .../voice/prefill` — confirmed values for the existing triage endpoint (never auto-submits)
 
-**✅ Phase 4 Definition of Done:** Audio records in browser. VAD trims silence. STT transcribes Odia/Hindi/English. TTS reads back extracted numbers. Source references link to timestamps.
 
 ---
 

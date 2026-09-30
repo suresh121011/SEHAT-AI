@@ -4,6 +4,7 @@ These tests use distinct synthetic principals to validate the authorization code
 establish security when real people share one demo account (docs/11: demo-only limitation).
 """
 
+from app.consent_notice import NOTICE_VERSION
 import uuid
 
 import pytest
@@ -54,7 +55,7 @@ def test_other_account_gets_same_404_as_unknown_case(client, owned, op):
 def test_decline_by_other_account_is_404(client, owned):
     _, cid = owned
     other = token_for(client, "anm_other")
-    body = {"decision": "decline", "language": "en", "notice_version": "2026-09-30.1"}
+    body = {"decision": "decline", "language": "en", "notice_version": NOTICE_VERSION}
     assert client.post(f"/api/v1/cases/{cid}/consent", json=body, headers=auth(other)).status_code == 404
 
 
