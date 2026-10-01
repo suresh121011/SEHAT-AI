@@ -219,3 +219,11 @@ All data is synthetic. The 250 Phase 1–2 tests still pass. Browser read-aloud 
 - **Consent before egress**: checked before any cloud upload; the post-call re-check only discards the result — audio already sent cannot be recalled.
 - **Audit**: `voice_transcription_started` (committed before any engine runs), `voice_transcribed`, `voice_transcription_failed`, `voice_readback_resolved`, `voice_tts_generated` — ids, categories and counts only.
 - **Bystanders**: a live microphone may capture other people; no speaker separation.
+
+## Phase 5 addendum — documents (see [docs/14](14_OCR_Pipeline.md))
+
+- **No new consent purpose**: OCR runs only on this server (PaddleOCR in-process; Surya OCR 2 and Chandra OCR 2 in a local worker on a 0600 Unix socket). Triage consent is required **and** must have been given under notice `2026-10-01.2` or later, which says a picture of each page and the text read from it are kept with the visit's record, read on this system only, and may show the patient's name. Older consent → `403 CONSENT_NOTICE_UPDATE_REQUIRED`, re-consent.
+- **Stored**: re-encoded page PNGs (metadata stripped) under `data/documents/` (git-ignored), OCR text, boxes, fields and decisions. The original upload is never stored (SHA-256 only). **Not redacted**: identifiers printed on the page. **Not deleted**: all `ocr_*` tables are append-only; retention/erasure is not implemented.
+- **Access**: content visible to the case creator and MOs, only while triage consent is in effect; supervisors get 404. Upload is ANM-only in Phase 5.
+- **Audit**: `ocr_document_started/processed/failed`, `ocr_attestation_recorded`, `ocr_review_resolved` — ids, enums, counts, size buckets only (canary-tested).
+- **Logging fix (affects every phase)**: `aiosqlite` logged SQL statements with their parameters at DEBUG, which would include case data, voice transcripts and OCR values whenever `LOG_LEVEL=DEBUG`. It is now held at WARNING with `rapidocr`, `httpx`, `python_multipart` and `PIL` (`app/main.py`).

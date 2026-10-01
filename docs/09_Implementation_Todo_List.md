@@ -375,77 +375,94 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Multimodal (15%), Extraction (20%)
 > **Features:** #11, #12, #13
 
+> **Phase 5 as implemented:** see [docs/14](14_OCR_Pipeline.md). Boxes are ticked only with test evidence
+> (docs/14 §9); synthetic documents only. Items changed after research and council review are marked
+> ~~struck~~ with the reason. All engines run **locally** on the M5: PaddleOCR (ONNX), Surya OCR 2
+> (llama.cpp), Chandra OCR 2 (official weights, quantized locally to 8-bit with MLX).
+
 #### 5.1 Document Upload UI
 
-- [ ] Create `frontend/src/components/DocumentUpload.tsx`
-- [ ] Add camera capture option (mobile) and file picker
-- [ ] Add document type selector (Lab Report, Prescription, X-ray, Discharge Summary)
-- [ ] Show upload progress and processing animation
-- [ ] Display extracted values after processing
+- [x] `frontend/src/components/DocumentUpload.tsx` (page `frontend/src/app/intake/documents/page.tsx`)
+- [~] File picker built; camera input shown only on HTTPS pages — **mobile camera BLOCKED** (no HTTPS in dev, as Phase 4)
+- [x] Document type selector (Lab Report, Prescription, Discharge Summary; X-ray/ECG shown "not available")
+- [~] Processing state and explicit errors (retake, consent update, busy, timeout) — built; API/proxy-tested; **UI not rendered in a browser yet**
+- [~] Extracted values with source highlighting, readings, checks and review (`EvidenceViewer.tsx`) — geometry tested (`node --test`, overlays); **on-screen placement not checked in a browser**
 
-#### 5.2 Printed Report OCR (Surya)
+#### 5.2 Printed Report OCR (Surya / PaddleOCR)
 
-- [ ] Create `backend/app/services/ocr.py`
-- [ ] Integrate Surya OCR or PaddleOCR for printed text
-- [ ] Implement table-aware extraction for lab reports
-- [ ] Extract field name + value + unit tuples
-- [ ] Return word-level confidence scores
+- [x] ~~`backend/app/services/ocr.py`~~ → `backend/app/ocr/` package (engine, files, quality, extract, verify, service)
+- [x] Surya OCR 2 **and** PaddleOCR (PP-OCRv6 via RapidOCR ONNX) — real runs, docs/14 §9
+- [x] Table-aware extraction (report header columns; Surya table rows as second reading)
+- [x] Field name + value + unit + printed range + flag, each with its own source region
+- [x] Word-level confidence scores (PaddleOCR), labelled "engine score, not a probability"
 
 #### 5.3 Handwritten Rx OCR (Chandra)
 
-- [ ] Integrate Chandra OCR 2 for handwritten text (if GPU available)
-- [ ] Fallback to Surya for CPU-only environments
-- [ ] Extract drug names and dosage patterns ("1-0-1" format)
-- [ ] Return extracted medications list
+- [x] Chandra OCR 2 for handwritten text — official weights, ~~INT8 QAT~~ **post-training 8-bit (MLX)**: QAT needs ~1K labelled Indian prescriptions, not available
+- [x] ~~Fallback to Surya for CPU-only environments~~ — no silent fallback; Chandra runs on Apple Silicon via MLX
+- [x] Drug names and dosage patterns ("1-0-1") extracted (tested on one synthetic handwriting-style page only)
+- [x] Medications list with RxNorm status and both engines' readings
 
 #### 5.4 Gödel Self-Verification
 
-- [ ] Create `backend/app/services/ocr_verify.py`
-- [ ] Implement word-level confidence check (threshold: 0.7)
-- [ ] Re-OCR low-confidence blocks at 2x zoom
-- [ ] Compare original and re-OCR results → flag disputes
-- [ ] Overall confidence: > 0.85 accept, 0.5-0.85 amber, < 0.5 flag for human
+- [x] `backend/app/ocr/verify.py` (~~`services/ocr_verify.py`~~)
+- [x] Word-level confidence check (threshold 0.7)
+- [x] Re-OCR low-confidence blocks at 2× zoom
+- [x] Compare readings → disputes (also Surya vs PaddleOCR, Chandra vs PaddleOCR)
+- [x] Bands: > 0.85 accept (still needs a reviewer), 0.5–0.85 amber (both readings), < 0.5 human entry; per field, overall = min
+- [ ] MAKER voting on critical values → Phase 6 (reported `not_run`)
 
 #### 5.5 RxNorm Drug Validation
 
-- [ ] Download or connect to RxNorm lookup (subset or API)
-- [ ] Implement fuzzy matching (threshold: 0.8)
-- [ ] Flag unknown drugs (no match)
-- [ ] Flag uncertain drugs (match < 0.95 similarity)
+- [x] Local RxNorm Current Prescribable Content (NLM, no licence; MD5 verified); no network at runtime
+- [x] Fuzzy matching (0.8); exact ingredient + strength = matched; brand / INN synonym / fuzzy = at most uncertain
+- [x] Unknown drugs flagged (Indian brands are often unknown — RxNorm is a US terminology)
+- [x] Uncertain drugs flagged (< 0.95 and every non-exact match)
 
 #### 5.6 Reference Range Checking
 
-- [ ] Create `backend/app/rules/reference_ranges.py`
-- [ ] Define ranges for 12 common Indian tests:
-  - [ ] Hemoglobin (M: 13-17, F: 12-16 g/dL)
-  - [ ] Platelets (150K-400K /μL)
-  - [ ] WBC (4K-11K /μL)
-  - [ ] Creatinine (0.7-1.3 mg/dL)
-  - [ ] Blood glucose fasting (70-100 mg/dL)
-  - [ ] HbA1c (< 5.7%)
-  - [ ] Total cholesterol (< 200 mg/dL)
-  - [ ] Bilirubin (0.1-1.2 mg/dL)
-  - [ ] ALT/SGPT (7-56 U/L)
-  - [ ] TSH (0.4-4.0 mIU/L)
-  - [ ] Uric acid (3.4-7.0 mg/dL)
-  - [ ] Troponin I (< 0.04 ng/mL)
-- [ ] Flag out-of-range values with severity (mild/moderate/critical)
+- [x] `backend/app/rules/reference_ranges.py` — not imported by the triage engine (tested)
+- [x] 11 tests with a cited primary source per number; **6 docs numbers differed and were replaced by the source value** (`DOCS_DIFFERENCE`):
+  - [x] Hemoglobin — WHO 2024 lower cut-offs (M ≥13, non-pregnant F ≥12 g/dL); ~~M 13-17, F 12-16~~
+  - [x] Platelets 150,000–400,000 /µL (MedlinePlus)
+  - [x] WBC 4,500–11,000 /µL (MedlinePlus); ~~4K-11K~~
+  - [x] Creatinine M 0.7–1.3, F 0.5–0.95 mg/dL (MedlinePlus)
+  - [x] Fasting glucose 70–99 mg/dL (MedlinePlus; ADA 2026 / ICMR 2018 bands); ~~70-100~~
+  - [x] HbA1c < 5.7% (ADA 2026, ICMR 2018)
+  - [x] Total cholesterol < 200 mg/dL (NCEP ATP III)
+  - [x] Bilirubin 0.1–1.2 mg/dL (MedlinePlus)
+  - [x] ALT 4–36 U/L (MedlinePlus); ~~7-56 (no source found)~~
+  - [x] TSH 0.4–4.8 mIU/L (MedlinePlus); ~~0.4-4.0~~
+  - [x] Uric acid M 4.0–8.6, F 3.0–7.1 mg/dL (MedlinePlus)
+  - [ ] ~~Troponin I (< 0.04 ng/mL)~~ — no universal limit (Fifth UDMI 2026: assay- and sex-specific); printed range only
+- [x] ~~Severity mild/moderate/critical~~ → only published gradings (WHO Hb bands, CTCAE v5, ADA, NCEP), labelled with source; descriptive, never a diagnosis
+- [x] The report's own printed range is compared too; disagreement goes to the reviewer
 
 #### 5.7 Bounding Box Source Linking
 
-- [ ] Store OCR bounding box coordinates per extracted value
-- [ ] Create SourceRef: { type: "ocr", bbox: [x1, y1, x2, y2], file_ref }
-- [ ] API returns source_ref with each OCR-extracted field
-- [ ] Frontend: click value → show image with highlighted region
+- [x] Boxes stored per field and per role (name, value, unit, range, flag); pixels on the stored page image
+- [x] SourceRef `{type: "ocr" | "ocr_manual_correction", document_id, field_id, page_index, png_sha256, regions}`
+- [x] API returns source regions with each field (and docs/06 `bbox`)
+- [~] Frontend: select a value → page image with highlighted regions (percent geometry, `node --test`); **browser run pending** (docs/14 §9.3)
 
 #### 5.8 Document OCR API
 
-- [ ] Create `POST /api/v1/intake/document` endpoint
-- [ ] Accept: image file (multipart) + case_id + document_type
-- [ ] Pipeline: quality check → classify → OCR → verify → reference range
-- [ ] Return: extracted_values, godel_verification, source_refs
+- [x] `POST /api/v1/intake/document`
+- [x] Multipart: file + case_id + document_type (+ idempotency_key), parsed in memory (no temp files)
+- [x] Pipeline: quality check → document type → OCR → verify → reference range
+- [x] Returns extracted_values, godel_verification, source_ref (docs/06 §3.3) plus source-linked fields
+- [x] Added (safety): notice-version consent gate, patient attestation, per-row review, reviewed view — never a triage input
+- [x] Added (privacy): reviewer deletion of a document (images, text, values, decisions) and configurable retention (`OCR_RETENTION_DAYS`, required) — **duration not yet decided** (product/legal)
+
+#### 5.9 Phase 5 status by evidence (2026-10-01)
+
+- [x] Shipped, tested on synthetic documents with real local engines: 5.1 (API path), 5.2, 5.3, 5.4 (except MAKER), 5.5, 5.6, 5.7, 5.8
+- [ ] Partial: 5.1/5.7 browser rendering, on-screen highlight placement, keyboard/focus — **not run in a browser** (no browser automation in this environment); the same flow was exercised over the real Next.js proxy (docs/14 §9.3)
+- [ ] Deferred: MAKER voting (Phase 6), MedGemma, Azure Document Intelligence, MO review UI (Phase 8), identifier redaction on stored images
+- [ ] Before real patient data: retention duration decision, governed real-document evaluation (docs/14 §13), Hindi/Odia notice review (docs/13)
 
 **✅ Phase 5 Definition of Done:** Photo upload works. OCR extracts values from printed reports. Gödel verification re-checks low confidence. Reference ranges flag abnormal values. Bounding boxes link to source image.
+**Status (2026-10-01):** met at the API level (`[~]` = built, browser rendering not yet checked) on synthetic documents with real local engines (docs/14 §9). Not met yet: an actual browser walkthrough ("photo upload works" is proven over the HTTP path, not in a browser), and any real-document evaluation.
 
 ---
 

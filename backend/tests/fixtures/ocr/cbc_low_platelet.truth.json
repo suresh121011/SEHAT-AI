@@ -1,0 +1,755 @@
+{
+ "fixture": "cbc_low_platelet.png",
+ "media_type": "image/png",
+ "synthetic": true,
+ "coordinate_frame": "pixels on the page image, origin top-left, x1/y1 exclusive, page_index 0-based",
+ "dpi": 150,
+ "pages": [
+  {
+   "page_index": 0,
+   "width": 1240,
+   "height": 1754,
+   "fields": [
+    {
+     "role": "lab_name",
+     "text": "SEHAT Synthetic Diagnostics",
+     "bbox": [
+      90,
+      68,
+      486,
+      97
+     ],
+     "row": null
+    },
+    {
+     "role": "collected_date",
+     "text": "15/09/2026",
+     "bbox": [
+      260,
+      207,
+      397,
+      228
+     ],
+     "row": null
+    },
+    {
+     "role": "report_date",
+     "text": "15/09/2026",
+     "bbox": [
+      860,
+      207,
+      997,
+      228
+     ],
+     "row": null
+    },
+    {
+     "role": "name",
+     "text": "Haemoglobin",
+     "bbox": [
+      90,
+      393,
+      252,
+      418
+     ],
+     "row": 0
+    },
+    {
+     "role": "value",
+     "text": "11.2",
+     "bbox": [
+      520,
+      394,
+      571,
+      413
+     ],
+     "row": 0
+    },
+    {
+     "role": "unit",
+     "text": "g/dL",
+     "bbox": [
+      690,
+      393,
+      747,
+      418
+     ],
+     "row": 0
+    },
+    {
+     "role": "range",
+     "text": "12.0 - 15.0",
+     "bbox": [
+      880,
+      394,
+      1000,
+      413
+     ],
+     "row": 0
+    },
+    {
+     "role": "flag",
+     "text": "L",
+     "bbox": [
+      1110,
+      394,
+      1127,
+      413
+     ],
+     "row": 0
+    },
+    {
+     "role": "name",
+     "text": "Total Leucocyte Count",
+     "bbox": [
+      90,
+      439,
+      365,
+      464
+     ],
+     "row": 1
+    },
+    {
+     "role": "value",
+     "text": "3,400",
+     "bbox": [
+      520,
+      440,
+      587,
+      462
+     ],
+     "row": 1
+    },
+    {
+     "role": "unit",
+     "text": "/cumm",
+     "bbox": [
+      689,
+      439,
+      773,
+      460
+     ],
+     "row": 1
+    },
+    {
+     "role": "range",
+     "text": "4,000 - 11,000",
+     "bbox": [
+      880,
+      440,
+      1047,
+      462
+     ],
+     "row": 1
+    },
+    {
+     "role": "flag",
+     "text": "L",
+     "bbox": [
+      1110,
+      440,
+      1127,
+      459
+     ],
+     "row": 1
+    },
+    {
+     "role": "name",
+     "text": "Platelet Count",
+     "bbox": [
+      90,
+      485,
+      263,
+      505
+     ],
+     "row": 2
+    },
+    {
+     "role": "value",
+     "text": "85,000",
+     "bbox": [
+      520,
+      486,
+      602,
+      508
+     ],
+     "row": 2
+    },
+    {
+     "role": "unit",
+     "text": "/cumm",
+     "bbox": [
+      689,
+      485,
+      773,
+      506
+     ],
+     "row": 2
+    },
+    {
+     "role": "range",
+     "text": "1,50,000 - 4,10,000",
+     "bbox": [
+      880,
+      486,
+      1104,
+      508
+     ],
+     "row": 2
+    },
+    {
+     "role": "flag",
+     "text": "L",
+     "bbox": [
+      1110,
+      486,
+      1127,
+      505
+     ],
+     "row": 2
+    },
+    {
+     "role": "name",
+     "text": "RBC Count",
+     "bbox": [
+      90,
+      532,
+      221,
+      551
+     ],
+     "row": 3
+    },
+    {
+     "role": "value",
+     "text": "4.10",
+     "bbox": [
+      520,
+      532,
+      571,
+      551
+     ],
+     "row": 3
+    },
+    {
+     "role": "unit",
+     "text": "mill/cumm",
+     "bbox": [
+      690,
+      531,
+      815,
+      552
+     ],
+     "row": 3
+    },
+    {
+     "role": "range",
+     "text": "3.8 - 4.8",
+     "bbox": [
+      880,
+      532,
+      970,
+      551
+     ],
+     "row": 3
+    },
+    {
+     "role": "name",
+     "text": "Haematocrit (PCV)",
+     "bbox": [
+      90,
+      576,
+      311,
+      599
+     ],
+     "row": 4
+    },
+    {
+     "role": "value",
+     "text": "34.5",
+     "bbox": [
+      520,
+      578,
+      571,
+      597
+     ],
+     "row": 4
+    },
+    {
+     "role": "unit",
+     "text": "%",
+     "bbox": [
+      690,
+      578,
+      711,
+      597
+     ],
+     "row": 4
+    },
+    {
+     "role": "range",
+     "text": "36 - 46",
+     "bbox": [
+      880,
+      578,
+      960,
+      597
+     ],
+     "row": 4
+    },
+    {
+     "role": "flag",
+     "text": "L",
+     "bbox": [
+      1110,
+      578,
+      1127,
+      597
+     ],
+     "row": 4
+    },
+    {
+     "role": "name",
+     "text": "MCV",
+     "bbox": [
+      90,
+      624,
+      149,
+      643
+     ],
+     "row": 5
+    },
+    {
+     "role": "value",
+     "text": "84.0",
+     "bbox": [
+      520,
+      624,
+      571,
+      643
+     ],
+     "row": 5
+    },
+    {
+     "role": "unit",
+     "text": "fL",
+     "bbox": [
+      690,
+      622,
+      716,
+      643
+     ],
+     "row": 5
+    },
+    {
+     "role": "range",
+     "text": "83 - 101",
+     "bbox": [
+      880,
+      624,
+      975,
+      643
+     ],
+     "row": 5
+    }
+   ],
+   "drawn": [
+    {
+     "text": "SEHAT Synthetic Diagnostics",
+     "bbox": [
+      90,
+      68,
+      486,
+      97
+     ]
+    },
+    {
+     "text": "SYNTHETIC TEST REPORT - NOT A REAL PATIENT",
+     "bbox": [
+      90,
+      118,
+      686,
+      137
+     ]
+    },
+    {
+     "text": "Patient: Zzyzx Canary-Testpatient",
+     "bbox": [
+      90,
+      168,
+      489,
+      192
+     ]
+    },
+    {
+     "text": "Ph: +91 90000 00042",
+     "bbox": [
+      700,
+      167,
+      951,
+      187
+     ]
+    },
+    {
+     "text": "Collected:",
+     "bbox": [
+      90,
+      207,
+      212,
+      227
+     ]
+    },
+    {
+     "text": "15/09/2026",
+     "bbox": [
+      260,
+      207,
+      397,
+      228
+     ]
+    },
+    {
+     "text": "Reported:",
+     "bbox": [
+      700,
+      207,
+      817,
+      232
+     ]
+    },
+    {
+     "text": "15/09/2026",
+     "bbox": [
+      860,
+      207,
+      997,
+      228
+     ]
+    },
+    {
+     "text": "Complete Blood Count",
+     "bbox": [
+      90,
+      279,
+      399,
+      307
+     ]
+    },
+    {
+     "text": "Test Name",
+     "bbox": [
+      90,
+      338,
+      219,
+      357
+     ]
+    },
+    {
+     "text": "Result",
+     "bbox": [
+      520,
+      337,
+      596,
+      357
+     ]
+    },
+    {
+     "text": "Unit",
+     "bbox": [
+      690,
+      338,
+      739,
+      357
+     ]
+    },
+    {
+     "text": "Reference Range",
+     "bbox": [
+      880,
+      336,
+      1088,
+      362
+     ]
+    },
+    {
+     "text": "Flag",
+     "bbox": [
+      1110,
+      337,
+      1163,
+      362
+     ]
+    },
+    {
+     "text": "Haemoglobin",
+     "bbox": [
+      90,
+      393,
+      252,
+      418
+     ]
+    },
+    {
+     "text": "11.2",
+     "bbox": [
+      520,
+      394,
+      571,
+      413
+     ]
+    },
+    {
+     "text": "g/dL",
+     "bbox": [
+      690,
+      393,
+      747,
+      418
+     ]
+    },
+    {
+     "text": "12.0 - 15.0",
+     "bbox": [
+      880,
+      394,
+      1000,
+      413
+     ]
+    },
+    {
+     "text": "L",
+     "bbox": [
+      1110,
+      394,
+      1127,
+      413
+     ]
+    },
+    {
+     "text": "Total Leucocyte Count",
+     "bbox": [
+      90,
+      439,
+      365,
+      464
+     ]
+    },
+    {
+     "text": "3,400",
+     "bbox": [
+      520,
+      440,
+      587,
+      462
+     ]
+    },
+    {
+     "text": "/cumm",
+     "bbox": [
+      689,
+      439,
+      773,
+      460
+     ]
+    },
+    {
+     "text": "4,000 - 11,000",
+     "bbox": [
+      880,
+      440,
+      1047,
+      462
+     ]
+    },
+    {
+     "text": "L",
+     "bbox": [
+      1110,
+      440,
+      1127,
+      459
+     ]
+    },
+    {
+     "text": "Platelet Count",
+     "bbox": [
+      90,
+      485,
+      263,
+      505
+     ]
+    },
+    {
+     "text": "85,000",
+     "bbox": [
+      520,
+      486,
+      602,
+      508
+     ]
+    },
+    {
+     "text": "/cumm",
+     "bbox": [
+      689,
+      485,
+      773,
+      506
+     ]
+    },
+    {
+     "text": "1,50,000 - 4,10,000",
+     "bbox": [
+      880,
+      486,
+      1104,
+      508
+     ]
+    },
+    {
+     "text": "L",
+     "bbox": [
+      1110,
+      486,
+      1127,
+      505
+     ]
+    },
+    {
+     "text": "RBC Count",
+     "bbox": [
+      90,
+      532,
+      221,
+      551
+     ]
+    },
+    {
+     "text": "4.10",
+     "bbox": [
+      520,
+      532,
+      571,
+      551
+     ]
+    },
+    {
+     "text": "mill/cumm",
+     "bbox": [
+      690,
+      531,
+      815,
+      552
+     ]
+    },
+    {
+     "text": "3.8 - 4.8",
+     "bbox": [
+      880,
+      532,
+      970,
+      551
+     ]
+    },
+    {
+     "text": "Haematocrit (PCV)",
+     "bbox": [
+      90,
+      576,
+      311,
+      599
+     ]
+    },
+    {
+     "text": "34.5",
+     "bbox": [
+      520,
+      578,
+      571,
+      597
+     ]
+    },
+    {
+     "text": "%",
+     "bbox": [
+      690,
+      578,
+      711,
+      597
+     ]
+    },
+    {
+     "text": "36 - 46",
+     "bbox": [
+      880,
+      578,
+      960,
+      597
+     ]
+    },
+    {
+     "text": "L",
+     "bbox": [
+      1110,
+      578,
+      1127,
+      597
+     ]
+    },
+    {
+     "text": "MCV",
+     "bbox": [
+      90,
+      624,
+      149,
+      643
+     ]
+    },
+    {
+     "text": "84.0",
+     "bbox": [
+      520,
+      624,
+      571,
+      643
+     ]
+    },
+    {
+     "text": "fL",
+     "bbox": [
+      690,
+      622,
+      716,
+      643
+     ]
+    },
+    {
+     "text": "83 - 101",
+     "bbox": [
+      880,
+      624,
+      975,
+      643
+     ]
+    },
+    {
+     "text": "End of report section. Values are synthetic.",
+     "bbox": [
+      90,
+      1650,
+      597,
+      1676
+     ]
+    },
+    {
+     "text": "Page 1 of 1",
+     "bbox": [
+      980,
+      1650,
+      1114,
+      1676
+     ]
+    }
+   ]
+  }
+ ]
+}

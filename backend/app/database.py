@@ -212,7 +212,134 @@ VOICE_STATEMENTS: tuple[str, ...] = (
     *_append_only("voice_readback_events"),
 )
 
-MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS)
+# ── Step 4: OCR documents (Phase 5, docs/14). Additive only (new tables; nothing rebuilt). Page images
+# live on the local filesystem (architecture: "local filesystem (documents)"); rows hold path + hash.
+# Everything is append-only; a document row may be finalised exactly once. Deletion/retention is not
+# implemented in Phase 5 (docs/14 §10), consistent with voice transcripts.
+OCR_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE ocr_documents (
+    document_id        TEXT PRIMARY KEY,
+    case_id            TEXT NOT NULL REFERENCES cases(case_id),
+    created_by         TEXT NOT NULL,
+    idempotency_key    TEXT NOT NULL,
+    upload_sha256      TEXT NOT NULL,
+    media_type         TEXT NOT NULL CHECK (media_type IN ('image/png', 'image/jpeg', 'application/pdf')),
+    document_type      TEXT NOT NULL CHECK (document_type IN ('lab_report', 'prescription', 'discharge_summary')),
+    byte_size          INTEGER NOT NULL,
+    status             TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'quality_rejected', 'no_text', 'failed')),
+    failure_code       TEXT,
+    page_count         INTEGER,
+    quality_json       TEXT,
+    engines_json       TEXT,
+    pipeline_version   TEXT NOT NULL,
+    overall_confidence REAL,
+    dates_json         TEXT,
+    consent_seq        INTEGER NOT NULL REFERENCES consent_events(seq),
+    created_at         TEXT NOT NULL,
+    completed_at       TEXT,
+    UNIQUE (case_id, idempotency_key)
+)""",
+    "CREATE TRIGGER ocr_documents_final BEFORE UPDATE ON ocr_documents WHEN OLD.status != 'pending' "
+    "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    "CREATE TRIGGER ocr_documents_no_delete BEFORE DELETE ON ocr_documents BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    """CREATE TABLE ocr_pages (
+    document_id     TEXT NOT NULL REFERENCES ocr_documents(document_id),
+    page_index      INTEGER NOT NULL,
+    file_ref        TEXT NOT NULL,
+    png_sha256      TEXT NOT NULL,
+    width           INTEGER NOT NULL,
+    height          INTEGER NOT NULL,
+    transform_json  TEXT NOT NULL,
+    PRIMARY KEY (document_id, page_index)
+)""",
+    """CREATE TABLE ocr_fields (
+    field_id              TEXT PRIMARY KEY,
+    document_id           TEXT NOT NULL REFERENCES ocr_documents(document_id),
+    case_id               TEXT NOT NULL REFERENCES cases(case_id),
+    ordinal               INTEGER NOT NULL,
+    kind                  TEXT NOT NULL CHECK (kind IN ('lab', 'medication')),
+    page_index            INTEGER NOT NULL,
+    payload_json          TEXT NOT NULL,
+    regions_json          TEXT NOT NULL,
+    readings_json         TEXT NOT NULL,
+    checks_json           TEXT NOT NULL,
+    band                  TEXT NOT NULL CHECK (band IN ('accept', 'amber', 'human_entry')),
+    field_confidence      REAL,
+    disputed              INTEGER NOT NULL,
+    created_at            TEXT NOT NULL
+)""",
+    """CREATE TABLE ocr_attestation_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    document_id  TEXT NOT NULL REFERENCES ocr_documents(document_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    answer       TEXT NOT NULL CHECK (answer IN ('matches', 'does_not_match', 'unsure')),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+)""",
+    """CREATE TABLE ocr_review_events (
+    seq                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id              TEXT NOT NULL UNIQUE,
+    field_id              TEXT NOT NULL REFERENCES ocr_fields(field_id),
+    case_id               TEXT NOT NULL REFERENCES cases(case_id),
+    outcome               TEXT NOT NULL CHECK (outcome IN ('confirmed', 'corrected', 'rejected', 'unsure')),
+    corrected_json        TEXT,
+    shown_png_sha256      TEXT,
+    shown_regions_sha256  TEXT,
+    actor_id              TEXT NOT NULL,
+    actor_role            TEXT NOT NULL,
+    created_at            TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_ocr_documents_case ON ocr_documents(case_id)",
+    "CREATE INDEX idx_ocr_fields_document ON ocr_fields(document_id, ordinal)",
+    "CREATE INDEX idx_ocr_attestation_document ON ocr_attestation_events(document_id, seq)",
+    "CREATE INDEX idx_ocr_review_field ON ocr_review_events(field_id, seq)",
+    *_append_only("ocr_pages"),
+    *_append_only("ocr_fields"),
+    *_append_only("ocr_attestation_events"),
+    *_append_only("ocr_review_events"),
+)
+
+# ── Step 5: OCR document deletion and retention (Phase 5, docs/14 §3). A document's content may be deleted
+# only after an append-only purge event is recorded for it (reviewer request or retention expiry). The purge
+# event, the document's id row and the audit log remain as evidence that it existed and was deleted.
+_PURGED = "EXISTS (SELECT 1 FROM ocr_purge_events p WHERE p.document_id = OLD.document_id)"
+OCR_PURGE_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE ocr_purge_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    document_id  TEXT NOT NULL UNIQUE REFERENCES ocr_documents(document_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    reason       TEXT NOT NULL CHECK (reason IN ('reviewer_request', 'retention_expired')),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+)""",
+    *_append_only("ocr_purge_events"),
+    "DROP TRIGGER ocr_pages_no_delete",
+    f"CREATE TRIGGER ocr_pages_no_delete BEFORE DELETE ON ocr_pages WHEN NOT {_PURGED} BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    "DROP TRIGGER ocr_fields_no_delete",
+    f"CREATE TRIGGER ocr_fields_no_delete BEFORE DELETE ON ocr_fields WHEN NOT {_PURGED} BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    "DROP TRIGGER ocr_attestation_events_no_delete",
+    f"CREATE TRIGGER ocr_attestation_events_no_delete BEFORE DELETE ON ocr_attestation_events WHEN NOT {_PURGED} BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    "DROP TRIGGER ocr_review_events_no_delete",
+    "CREATE TRIGGER ocr_review_events_no_delete BEFORE DELETE ON ocr_review_events WHEN NOT EXISTS "
+    "(SELECT 1 FROM ocr_purge_events p JOIN ocr_fields f ON f.document_id = p.document_id WHERE f.field_id = OLD.field_id) "
+    "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    # A finalised document row may change once more, only to clear its content columns after a purge event;
+    # identity, type, status and hashes never change.
+    "DROP TRIGGER ocr_documents_final",
+    "CREATE TRIGGER ocr_documents_final BEFORE UPDATE ON ocr_documents WHEN OLD.status != 'pending' AND ("
+    f"NOT {_PURGED} OR "
+    + " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in (
+        "document_id", "case_id", "created_by", "idempotency_key", "upload_sha256", "media_type", "document_type", "byte_size",
+        "status", "failure_code", "page_count", "pipeline_version", "consent_seq", "created_at", "completed_at"))
+    + " OR NEW.dates_json IS NOT NULL OR NEW.quality_json IS NOT NULL OR NEW.overall_confidence IS NOT NULL OR NEW.engines_json IS NOT NULL) "
+    "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+)
+
+MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
@@ -222,6 +349,7 @@ FK_OFF_STEPS = frozenset({3})
 TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
 VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
+OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")
 
 
 class MigrationError(RuntimeError):

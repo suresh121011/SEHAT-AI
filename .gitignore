@@ -16,6 +16,7 @@ __pycache__/
 *$py.class
 *.so
 .venv/
+.venv-ocr/
 venv/
 env/
 .Python
@@ -65,6 +66,9 @@ Thumbs.db
 # ── OS ───────────────────────────────────────────────────────
 .DS_Store
 *.DS_Store
+
+# ── Patient documents (Phase 5 OCR page images; never committed) ──
+/data/
 
 # ── Model Files (too large for git) ─────────────────────────
 *.onnx

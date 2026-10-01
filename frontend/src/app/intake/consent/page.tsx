@@ -232,6 +232,9 @@ function ConsentScreen() {
           <Link href={`/intake/voice?case=${caseId}`} className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
             Next: describe symptoms by voice →
           </Link>
+          <Link href={`/intake/documents?case=${caseId}`} className="rounded border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+            Add a lab report or prescription →
+          </Link>
           {voiceCloudState === "granted" && (
             <button type="button" disabled={busy} onClick={() => withdraw("voice_cloud")} className="rounded border border-black/20 px-4 py-2 text-sm dark:border-white/20">
               Stop online speech processing (keep triage consent)

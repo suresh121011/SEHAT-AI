@@ -101,6 +101,11 @@
 
 ### Beat 3: Lab Report OCR + Verification (1:45–2:30)
 
+> **As implemented (Phase 5, docs/14 §14):** say "checks passed / engines agree — still needs your
+> confirmation", never "✅ Verified"; MAKER voting is Phase 6 and is not shown. Use the synthetic
+> `cbc_low_platelet.png`; the platelet value is flagged against the lab's printed range and the cited range,
+> and a reviewer must attest the report and confirm each row. Nothing changes triage.
+
 **[Screen: Document Upload]**
 
 > **Narrator:** *"The patient has a blood report from yesterday. Watch the OCR pipeline with self-verification."*

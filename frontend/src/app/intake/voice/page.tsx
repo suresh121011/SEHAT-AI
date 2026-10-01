@@ -472,6 +472,9 @@ function VoiceScreen() {
       <DemoBanner />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Describe symptoms by voice</h1>
+        <Link href={`/intake/documents?case=${caseId}`} className="text-sm text-blue-600 underline">
+          Lab reports and prescriptions →
+        </Link>
         <p className="w-full text-sm opacity-80">Measurements that are heard (temperature, pulse, oxygen…) are picked out for checking. Symptoms stay in the transcript for the reviewer to read.</p>
         <span className="font-mono text-xs opacity-70">Case {caseView?.patient_token ?? "…"}</span>
       </div>

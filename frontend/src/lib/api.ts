@@ -51,6 +51,14 @@ async function postAudio<T>(path: string, wav: Blob, signal?: AbortSignal): Prom
   return (await res.json()) as T;
 }
 
+// Multipart upload (document OCR, docs/06 POST /intake/document). The browser sets the multipart
+// boundary itself, so no Content-Type header is set here.
+async function postForm<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, { method: "POST", body: form, cache: "no-store", signal });
+  if (!res.ok) return throwApiError(res);
+  return (await res.json()) as T;
+}
+
 // POST that returns binary (spoken read-back audio).
 async function postForBlob(path: string): Promise<Blob> {
   const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, { method: "POST", cache: "no-store" });
@@ -60,6 +68,7 @@ async function postForBlob(path: string): Promise<Blob> {
 
 export const api = {
   postAudio,
+  postForm,
   postForBlob,
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),

@@ -1,0 +1,156 @@
+{
+ "fixture": "rx_handwritten.png",
+ "media_type": "image/png",
+ "synthetic": true,
+ "coordinate_frame": "pixels on the page image, origin top-left, x1/y1 exclusive, page_index 0-based",
+ "dpi": 150,
+ "pages": [
+  {
+   "page_index": 0,
+   "width": 1240,
+   "height": 1754,
+   "fields": [
+    {
+     "role": "rx_line",
+     "text": "Rx",
+     "bbox": [
+      111,
+      245,
+      152,
+      280
+     ],
+     "row": 0
+    },
+    {
+     "role": "rx_line",
+     "text": "1. Tab. Paracetamol 650 mg 1-0-1 x 5 days",
+     "bbox": [
+      121,
+      331,
+      804,
+      374
+     ],
+     "row": 1
+    },
+    {
+     "role": "rx_line",
+     "text": "2. Cap. Amoxycillin 500 mg 1-1-1 x 7 days",
+     "bbox": [
+      110,
+      432,
+      770,
+      480
+     ],
+     "row": 2
+    },
+    {
+     "role": "rx_line",
+     "text": "3. Tab. Pantoprazole 40 mg 1-0-0 before food",
+     "bbox": [
+      111,
+      526,
+      823,
+      572
+     ],
+     "row": 3
+    },
+    {
+     "role": "rx_line",
+     "text": "4. Syp. Ambroxol 10 ml TDS",
+     "bbox": [
+      115,
+      619,
+      552,
+      662
+     ],
+     "row": 4
+    },
+    {
+     "role": "rx_line",
+     "text": "Advice: plenty of oral fluids, review after 5 days",
+     "bbox": [
+      113,
+      712,
+      850,
+      763
+     ],
+     "row": 5
+    }
+   ],
+   "drawn": [
+    {
+     "text": "SEHAT Synthetic Clinic - SYNTHETIC PRESCRIPTION, NOT REAL",
+     "bbox": [
+      90,
+      68,
+      950,
+      97
+     ]
+    },
+    {
+     "text": "Patient: Zzyzx Canary-Testpatient    Date: 15/09/2026",
+     "bbox": [
+      90,
+      127,
+      717,
+      152
+     ]
+    },
+    {
+     "text": "Rx",
+     "bbox": [
+      111,
+      245,
+      152,
+      280
+     ]
+    },
+    {
+     "text": "1. Tab. Paracetamol 650 mg 1-0-1 x 5 days",
+     "bbox": [
+      121,
+      331,
+      804,
+      374
+     ]
+    },
+    {
+     "text": "2. Cap. Amoxycillin 500 mg 1-1-1 x 7 days",
+     "bbox": [
+      110,
+      432,
+      770,
+      480
+     ]
+    },
+    {
+     "text": "3. Tab. Pantoprazole 40 mg 1-0-0 before food",
+     "bbox": [
+      111,
+      526,
+      823,
+      572
+     ]
+    },
+    {
+     "text": "4. Syp. Ambroxol 10 ml TDS",
+     "bbox": [
+      115,
+      619,
+      552,
+      662
+     ]
+    },
+    {
+     "text": "Advice: plenty of oral fluids, review after 5 days",
+     "bbox": [
+      113,
+      712,
+      850,
+      763
+     ]
+    }
+   ]
+  }
+ ]
+}
