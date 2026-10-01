@@ -148,4 +148,4 @@ def test_notice_mentions_sarvam_retention_plainly(client, anm):
     en = client.get("/api/v1/consent/notice?language=en", headers=auth(anm)).json()
     assert "No voice recording is stored" not in " ".join(en["paragraphs"])
     assert any("does not store the voice recording" in p for p in en["paragraphs"])
-    assert "improve its models" in en["purposes"]["voice_cloud"] and "read back" in en["purposes"]["voice_cloud"]
+    assert "train its models" in en["purposes"]["voice_cloud"] and "read back" in en["purposes"]["voice_cloud"]  # wording per Sarvam privacy policy (2026-10-01)

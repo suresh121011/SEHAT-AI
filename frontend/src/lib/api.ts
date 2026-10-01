@@ -39,12 +39,13 @@ async function throwApiError(res: Response): Promise<never> {
 }
 
 // Raw audio upload (the backend accepts only a raw audio/wav body — no multipart form).
-async function postAudio<T>(path: string, wav: Blob): Promise<T> {
+async function postAudio<T>(path: string, wav: Blob, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, {
     method: "POST",
     headers: { "Content-Type": "audio/wav" },
     body: wav,
     cache: "no-store",
+    signal,
   });
   if (!res.ok) return throwApiError(res);
   return (await res.json()) as T;

@@ -24,6 +24,9 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   const stream = useRef<MediaStream | null>(null);
   const timers = useRef<{ tick?: number; stop?: number; raf?: number }>({});
   const audioCtx = useRef<AudioContext | null>(null);
+  // False once the page is left. Stopping the tracks on unmount ends the MediaRecorder, whose `onstop`
+  // would otherwise still hand the audio to `onRecorded` and upload it after the user has gone.
+  const mounted = useRef(true);
 
   // Decided after mount: the page is prerendered without `window`, so computing this during render
   // would make server and client markup differ.
@@ -41,43 +44,68 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
     setLevel(0);
   }
 
-  useEffect(() => cleanup, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (recorder.current?.state === "recording") recorder.current.stop();
+      cleanup();
+    };
+  }, []);
 
   async function start() {
     setError(null);
+    let media: MediaStream;
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      media = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch {
       setError("Microphone permission was not granted. You can use a sample clip or type instead.");
       return;
     }
+    if (!mounted.current) {
+      media.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    stream.current = media;
     const chunks: Blob[] = [];
-    const rec = new MediaRecorder(stream.current);
-    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    rec.onstop = async () => {
-      cleanup();
-      setRecording(false);
-      try {
-        onRecorded(await blobToWav16k(new Blob(chunks, { type: rec.mimeType })), "microphone");
-      } catch {
-        setError("The recording could not be converted. Please try again.");
-      }
-    };
-    // Level meter only (AnalyserNode); nothing is sent anywhere until the user stops recording.
-    audioCtx.current = new AudioContext();
-    const analyser = audioCtx.current.createAnalyser();
-    audioCtx.current.createMediaStreamSource(stream.current).connect(analyser);
-    const buf = new Uint8Array(analyser.fftSize);
-    const draw = () => {
-      analyser.getByteTimeDomainData(buf);
-      let peak = 0;
-      for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
-      setLevel(peak / 128);
-      timers.current.raf = requestAnimationFrame(draw);
-    };
-    draw();
+    let rec: MediaRecorder;
+    try {
+      rec = new MediaRecorder(media);
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = async () => {
+        cleanup();
+        if (!mounted.current) return; // page left while recording: discard, never upload
+        setRecording(false);
+        if (chunks.length === 0) {
+          setError("Nothing was recorded. Please try again.");
+          return;
+        }
+        try {
+          onRecorded(await blobToWav16k(new Blob(chunks, { type: rec.mimeType })), "microphone");
+        } catch {
+          setError("The recording could not be converted. Please try again.");
+        }
+      };
+      // Level meter only (AnalyserNode); nothing is sent anywhere until the user stops recording.
+      audioCtx.current = new AudioContext();
+      const analyser = audioCtx.current.createAnalyser();
+      audioCtx.current.createMediaStreamSource(media).connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+      const draw = () => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        setLevel(peak / 128);
+        timers.current.raf = requestAnimationFrame(draw);
+      };
+      draw();
+      rec.start();
+    } catch {
+      cleanup(); // release the microphone if the recorder could not be set up
+      setError("Recording could not start in this browser. You can use a sample clip or type instead.");
+      return;
+    }
     recorder.current = rec;
-    rec.start();
     setRecording(true);
     setElapsed(0);
     const began = Date.now();
@@ -91,8 +119,13 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
 
   async function playSample(url: string) {
     setError(null);
-    const res = await fetch(url);
-    onRecorded(new Blob([await res.arrayBuffer()], { type: "audio/wav" }), "sample");
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(String(res.status));
+      onRecorded(new Blob([await res.arrayBuffer()], { type: "audio/wav" }), "sample");
+    } catch {
+      setError("The sample clip could not be loaded.");
+    }
   }
 
   return (

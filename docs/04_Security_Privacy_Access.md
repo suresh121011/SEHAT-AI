@@ -105,7 +105,8 @@ flowchart TD
 
 | Data Type | Retention | Trigger for Deletion |
 |:---|:---|:---|
-| **Raw audio recordings** | Until reviewer sign-off | Deleted after MO approves triage note |
+| **Raw audio recordings** | Not stored by SEHAT AI (Phase 4: held in process memory for the request only) | Nothing to delete in SEHAT AI. If `voice_cloud` consent is granted, the audio sent to Sarvam AI is retained under Sarvam's own policy, not by this system (see [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md) §3) |
+| **Voice transcripts** | Target policy as for triage notes (not enforced) | Deletion deferred; rows kept after withdrawal, reads refused |
 | **Document images** | Until reviewer sign-off | Deleted after extraction is verified and signed |
 | **Triage notes** | 1 year | Automatic purge after retention period |
 | **Audit log entries** | 1 year (CERT-In Directions) | No deletion — retained for compliance |
@@ -238,7 +239,7 @@ PRESCRIPTION_PATTERNS = [
 | Audit log (1 year) | Tamper-evident, hash-chained (SHA-256) | CERT-In Directions |
 | Breach notification (72h) | Sentry alerting → DPO notification pipeline | DPDP Rule 7 |
 | Emergency bypass | **Deferred** — not implemented | DPDP §7(f) |
-| Retention countdown | Raw audio + images deleted after reviewer sign-off | DPDP Rule 6 |
+| Retention countdown | **Deferred.** Raw audio is not stored by SEHAT AI (Phase 4); image and transcript deletion is not implemented | DPDP Rule 6 |
 | Disclaimers | "AI-drafted, pending review" on every note | ICMR 2023, CDSCO |
 
 ### Additional Compliance Frameworks

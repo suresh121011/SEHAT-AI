@@ -9,8 +9,9 @@ Design rules (council-reviewed):
 - Offsets index the raw transcript exactly, so the reviewer can see the highlighted span. Only a
   length-preserving normalisation is applied (Unicode digits → ASCII digits, per-character lowercase).
 - Numbers are digit tokens (any script), English number words, and Hindi/Odia number words from a
-  closed table (Hindi 0–100 with सौ; Odia 0–20, tens and ଶହ). The Hindi/Odia tables are
-  `draft_unreviewed`. Any number word outside the tables is not parsed: that value stays missing and
+  closed table (Hindi 0–100 with सौ; Odia 0–99 with ଶହ and a leading ଶହେ = 100; 21–99 and the alternate
+  spellings are copied from Unicode CLDR RBNF, see _OR_CLDR). The Hindi/Odia tables are
+  `draft_unreviewed`: CLDR is a written standard, not a native-speaker review of what an ASR model writes. Any number word outside the tables is not parsed: that value stays missing and
   needs human review. Candidates built from Indic number words carry the `number_words` flag.
 - Keyword lists for Hindi/Odia are `draft_unreviewed` (not reviewed by native speakers).
 - Units follow the rules engine: temperature in °C only. °F is converted exactly, (f − 32) × 5/9,
@@ -47,6 +48,7 @@ Flag = Literal[
     "number_modifier_unparsed",
     "number_sequence_ambiguous",
     "unit_unclear",
+    "number_word_homograph",
 ]
 
 KEYWORD_REVIEW_STATUS = {"en": "project_draft", "hi": "draft_unreviewed", "or": "draft_unreviewed"}
@@ -268,12 +270,42 @@ _HI_WORDS = (
     "छिहत्तर सतहत्तर अठहत्तर उन्यासी अस्सी इक्यासी बयासी तिरासी चौरासी पचासी छियासी सत्तासी अट्ठासी "
     "नवासी नब्बे इक्यानवे बानवे तिरानवे चौरानवे पचानवे छियानवे सत्तानवे अट्ठानवे निन्यानवे"
 ).split()
-_HI_VARIANTS = {"पाँच": 5, "छः": 6, "छे": 6, "पन्द्रह": 15, "अड़तीस": 38, "छियालिस": 46}
+_HI_VARIANTS = {"पाँच": 5, "छः": 6, "छे": 6, "पन्द्रह": 15, "अड़तीस": 38, "छियालिस": 46,
+                # Alternate spellings from Unicode CLDR common/rbnf/hi.xml (accessed 2026-10-01)
+                "चौवालीस": 44, "उनासी": 79, "इक्यानबे": 91, "बानबे": 92, "तिरानबे": 93, "चौरानबे": 94,
+                "पंचानबे": 95, "छियानबे": 96, "सत्तानबे": 97, "अट्ठानबे": 98, "निन्यानबे": 99}
 _OR_WORDS = {"ଶୂନ": 0, "ଶୂନ୍ୟ": 0, "ଏକ": 1, "ଦୁଇ": 2, "ତିନି": 3, "ଚାରି": 4, "ପାଞ୍ଚ": 5, "ଛଅ": 6, "ସାତ": 7, "ଆଠ": 8,
              "ନଅ": 9, "ଦଶ": 10, "ଏଗାର": 11, "ବାର": 12, "ତେର": 13, "ଚଉଦ": 14, "ପନ୍ଦର": 15, "ଷୋହଳ": 16, "ସତର": 17,
              "ଅଠର": 18, "ଊଣେଇଶି": 19, "କୋଡ଼ିଏ": 20, "କୋଡିଏ": 20, "ତିରିଶ": 30, "ଚାଳିଶ": 40, "ପଚାଶ": 50, "ଷାଠିଏ": 60,
              "ସତୁରି": 70, "ଅଶୀ": 80, "ନବେ": 90}
-INDIC_NUMBER_WORDS: dict[str, int] = {**{w: i for i, w in enumerate(_HI_WORDS)}, **_HI_VARIANTS, **_OR_WORDS}
+# Odia 16–99 exactly as spelled in Unicode CLDR common/rbnf/or.xml, %spellout-cardinal (accessed
+# 2026-10-01; Unicode-DFS-2016 licence). Adds 21–99 and the CLDR spellings of 16, 19 and 70 next to the
+# forms above. Spellings an ASR model writes differently are not guessed: they stay unparsed.
+_OR_CLDR = {
+    "ଷୋଳ": 16, "ଊଣେଇଶ": 19, "ଏକୋଇଶ": 21, "ବାଇଶ": 22, "ତେଇଶ": 23, "ଚଉବିଶ": 24, "ପଚିଶ": 25, "ଛବିଶ": 26,
+    "ସତାଇଶ": 27, "ଅଠାଇଶ": 28, "ଊଣାତିରିଶ": 29, "ଏକତିରିଶ": 31, "ବତିଶ": 32, "ତେତିଶ": 33, "ଚଉତିରିଶ": 34,
+    "ପଞ୍ଚତିରିଶ": 35, "ଛତିଶ": 36, "ସତତିରିଶ": 37, "ଅଠତିରିଶ": 38, "ଊଣଚାଳିଶ": 39, "ଏକଚାଳିଶ": 41, "ବୟାଳିଶ": 42,
+    "ତେତାଳିଶ": 43, "ଚଉରାଳିଶ": 44, "ପଞ୍ଚଚାଳିଶ": 45, "ଛେଚାଳିଶ": 46, "ସତଚାଳିଶ": 47, "ଅଠଚାଳିଶ": 48, "ଊଣପଚାଶ": 49,
+    "ଏକାବନ": 51, "ବାବନ": 52, "ତେପନ": 53, "ଚଉବନ": 54, "ପଞ୍ଚାବନ": 55, "ଛପନ": 56, "ସତାବନ": 57, "ଅଠାବନ": 58,
+    "ଊଣଷାଠିଏ": 59, "ଏକଷଠି": 61, "ବାଷଠି": 62, "ତେଷଠି": 63, "ଚଉଷଠି": 64, "ପଞ୍ଚଷଠି": 65, "ଛଅଷଠି": 66,
+    "ସତଷଠି": 67, "ଅଠଷଠି": 68, "ଊଣସତୁରୀ": 69, "ସତୁରୀ": 70, "ଏକସତୁରୀ": 71, "ବାସତୁରୀ": 72, "ତେସତୁରୀ": 73,
+    "ଚଉସତୁରୀ": 74, "ପଞ୍ଚସତୁରୀ": 75, "ଛଅସତୁରୀ": 76, "ସତସତୁରୀ": 77, "ଅଠସତୁରୀ": 78, "ଊଣାଶୀ": 79, "ଏକାଶୀ": 81,
+    "ବୟାଶୀ": 82, "ତେରାଶୀ": 83, "ଚଉରାଶୀ": 84, "ପଞ୍ଚାଶୀ": 85, "ଛିଆଶୀ": 86, "ସତାଶୀ": 87, "ଅଠାଶୀ": 88,
+    "ଊଣାନବେ": 89, "ଏକାନବେ": 91, "ବୟାନବେ": 92, "ତେରାନବେ": 93, "ଚଉରାନବେ": 94, "ପଞ୍ଚାନବେ": 95, "ଛିଆନବେ": 96,
+    "ସତାନବେ": 97, "ଅଠାନବେ": 98, "ନିଆଁନବେ": 99,
+}
+INDIC_NUMBER_WORDS: dict[str, int] = {**{w: i for i, w in enumerate(_HI_WORDS)}, **_HI_VARIANTS, **_OR_WORDS, **_OR_CLDR}
+# CLDR: "100: ଶହେ[ >>]" — ଶହେ alone means one hundred and only starts a number (ଶହେ ଦୁଇ = 102). After a
+# multiplier CLDR uses ଶହ (ଦୁଇ ଶହ). "ଦୁଇ ଶହେ" is therefore not parsed as 200: the units word is
+# blocked as incomplete instead (number_modifier_unparsed), and ଶହେ there yields no number.
+_OR_LEADING_HUNDRED = "ଶହେ"
+# Table words that also mean something else in ordinary speech (ବାର: "twelve", but also "time(s)" as in
+# ଅନେକ ବାର "many times"), and count words that turn the number before them into a count (एक बार "once").
+# Either makes a value unsafe to accept with one click.
+_HOMOGRAPH_NUMBER_WORDS = {"ବାର"}
+# A lone "one" word is also the article "a" (ନାଡ଼ି ଏକ ଟିକେ ବେଶୀ "pulse a little high", "pulse is one of …").
+_LONE_ONE_WORDS = {"ଏକ", "एक", "one"}
+_COUNT_WORDS = ("बार", "ବାର", "ଥର", "दफा", "दफ़ा", "times", "time")
 _INDIC_HUNDRED = {"सौ", "ଶହ"}
 _INDIC_POINT = {"दशमलव", "पॉइंट", "प्वाइंट", "ଦଶମିକ", "ପଏଣ୍ଟ"}
 # Fraction/quantity modifiers that change a following number (साढ़े उनतालीस = 39.5). They are NOT
@@ -312,12 +344,18 @@ def _indic_word_numbers(text: str) -> list[_Num]:
     while i < len(tokens):
         word = _indic_key(tokens[i][0])
         joined = _joined_hundred(word)
-        if word not in INDIC_NUMBER_WORDS and word not in _INDIC_HUNDRED and joined is None:
+        if word == _OR_LEADING_HUNDRED:
+            follows_number = i > 0 and tokens[i - 1][0] in INDIC_NUMBER_WORDS and tokens[i][1] - tokens[i - 1][2] <= 2
+            joined = None if follows_number else 100  # "ଦୁଇ ଶହେ": no number from ଶହେ (see _OR_LEADING_HUNDRED)
+            if joined is None:
+                i += 1
+                continue
+        elif word not in INDIC_NUMBER_WORDS and word not in _INDIC_HUNDRED and joined is None:
             i += 1
             continue
         j, value, seen, last_end = i, 0, False, tokens[i][2]
         decimals: list[int] = []
-        # leading units, or a joined hundred (ଦୁଇଶହ) that is followed by optional units
+        # leading units, or a joined hundred (ଦୁଇଶହ) / leading ଶହେ that is followed by optional units
         if joined is not None:
             value, seen, j, last_end = joined, True, i + 1, tokens[i][2]
             if j < len(tokens) and tokens[j][0] in INDIC_NUMBER_WORDS and tokens[j][1] - last_end <= 2:
@@ -569,6 +607,14 @@ def extract(transcript: str) -> list[Candidate]:
             after and any(h in after[0] for h in _HUNDRED_SUFFIXES) and _joined_hundred(after[0]) is None and after[0] not in _INDIC_HUNDRED
         ):
             c.add("number_modifier_unparsed")
+            c.normalized = None
+        # A number word that is also an ordinary word (ବାର "times"), or a number used as a count (एक बार
+        # "once", ଦୁଇ ଥର "twice"): may not be a measurement at all.
+        in_span = _INDIC_TOKEN.findall(text[c.char_start:c.char_end])
+        span_words = text[c.char_start:c.char_end].split()
+        lone_one = c.raw_value == 1 and c.field not in ("bp", "symptom_duration") and span_words[:1] and span_words[0] in _LONE_ONE_WORDS
+        if any(w in _HOMOGRAPH_NUMBER_WORDS for w in in_span) or (after and after[0] in _COUNT_WORDS) or lone_one:
+            c.add("number_word_homograph")
             c.normalized = None
         # A unit word that starts like "degree" but is not recognised (ASR garble, e.g. डिग्रलियस for
         # "degree Celsius"): the unit is unclear, so it must not be inferred.

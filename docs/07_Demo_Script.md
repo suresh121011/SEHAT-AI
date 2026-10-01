@@ -60,7 +60,7 @@
 2. Select facility: "PHC Khurda, Odisha"
 3. Select scenario: "OPD Triage"
 4. Consent screen appears — in **Odia**
-5. Click **"Read Aloud"** → TTS reads consent in Odia
+5. Click **"Read Aloud"**. Chrome on the demo Mac has **no Odia voice** (checked 2026-10-01), so the screen says read-aloud is unavailable: the presenter reads the notice to the patient. (Another device may have one; check with the pre-demo checklist.) The Odia notice is a **draft translation not yet reviewed by an Odia speaker** (banner shown). Sarvam TTS is **not** used here, and the cloud path is unreachable from the demo network (docs/12 §9).
 6. Patient says **"haan"**; the ANM ticks the attestation box and records the agreement (no audio stored — docs/11)
 
 > **Talking Point:** *"Consent is layered — read aloud in the patient's language where a matching voice exists, and the ANM attests the patient's verbal agreement (no audio stored). DPDP-ready by design — built around DPDP Act Section 6 consent ahead of substantive duties starting May 2027."*
