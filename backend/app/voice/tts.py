@@ -19,8 +19,6 @@ from app.config import Settings
 from app.database import transaction
 from app.errors import ApiError, not_found
 from app.voice import readback
-
-SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 SARVAM_TTS_MODEL = "bulbul:v3"
 SARVAM_LANGUAGE = {"en": "en-IN", "hi": "hi-IN", "or": "od-IN"}
 
@@ -29,11 +27,11 @@ def _unavailable(reason: str) -> ApiError:
     return ApiError(503, "TTS_UNAVAILABLE", "Spoken read-back is unavailable; use the on-screen read-back", {"reason": reason})
 
 
-def synthesize(text: str, language: str, *, api_key: str, timeout_s: float, transport: httpx.BaseTransport | None = None) -> bytes:
+def synthesize(text: str, language: str, *, base_url: str, api_key: str, timeout_s: float, transport: httpx.BaseTransport | None = None) -> bytes:
     try:
         with httpx.Client(timeout=timeout_s, transport=transport, follow_redirects=False) as client:
             resp = client.post(
-                SARVAM_TTS_URL,
+                f"{base_url.rstrip('/')}/text-to-speech",
                 headers={"api-subscription-key": api_key},
                 json={"text": text, "language_code": SARVAM_LANGUAGE[language], "model": SARVAM_TTS_MODEL, "speech_sample_rate": 16000, "output_audio_codec": "wav"},
             )
@@ -75,7 +73,7 @@ async def readback_audio(conn, principal, case_id: str, candidate_id: str, setti
     text = readback.readback_text(row["field"], row["raw_value"], row["raw_value2"], row["unit"], normalized, row["language"], heard=heard, flags=json.loads(row["flags_json"]))
     error: ApiError | None = None
     try:
-        audio = await anyio.to_thread.run_sync(lambda: synthesize(text, row["language"], api_key=settings.sarvam_api_key, timeout_s=settings.sarvam_timeout_s, transport=transport))
+        audio = await anyio.to_thread.run_sync(lambda: synthesize(text, row["language"], base_url=settings.sarvam_base_url, api_key=settings.sarvam_api_key, timeout_s=settings.sarvam_timeout_s, transport=transport))
     except ApiError as exc:
         error = exc
     async with transaction(conn):  # audited either way; an audit failure surfaces as a 500, never as silent success

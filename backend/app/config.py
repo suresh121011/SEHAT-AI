@@ -6,6 +6,7 @@ import secrets
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -24,6 +25,10 @@ logger = logging.getLogger("sehat.config")
 
 # Environments where the password-less demo accounts may run. Anything else refuses to start.
 DEMO_AUTH_ENVIRONMENTS = frozenset({"development", "test"})
+
+# Hosts that may receive the Sarvam API key, patient audio and read-back text (docs/12 §2, §8). Kept in code
+# on purpose: widening it is a reviewed change, not an environment edit.
+SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
 
 
 def _env(name: str, default: str = "") -> str:
@@ -60,6 +65,7 @@ class Settings:
     voice_cloud_stt_enabled: bool = False
     voice_tts_enabled: bool = False
     sarvam_api_key: str = field(default="", repr=False)  # never printed
+    sarvam_base_url: str = "https://api.sarvam.ai"
     sarvam_timeout_s: float = 20.0
     voice_max_seconds: int = 30
 
@@ -109,9 +115,38 @@ def get_settings() -> Settings:
         voice_cloud_stt_enabled=_flag("VOICE_CLOUD_STT_ENABLED"),
         voice_tts_enabled=_flag("VOICE_TTS_ENABLED"),
         sarvam_api_key=_env("SARVAM_API_KEY"),
+        sarvam_base_url=_sarvam_base_url(_env("SARVAM_BASE_URL", "https://api.sarvam.ai")),
         sarvam_timeout_s=float(_env("SARVAM_TIMEOUT_S", "20")),
         voice_max_seconds=min(int(_env("VOICE_MAX_SECONDS", "30")), 30),  # Sarvam REST limit is <30 s
     )
+
+
+def _sarvam_base_url(value: str) -> str:
+    """`SARVAM_BASE_URL` must be plain `https://<allowed host>` (optionally `:443` or a trailing `/`).
+    Returns the normalised URL, so nothing else from the variable reaches a request. Refuses to start
+    otherwise; the value itself is not echoed (it could hold credentials)."""
+    allowed = ", ".join(sorted(SARVAM_ALLOWED_HOSTS))
+    error = RuntimeError(f"SARVAM_BASE_URL must be https://<host> with host in: {allowed} (no path, port, credentials, query)")
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise error
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise error from None
+    host = (parts.hostname or "").lower()
+    if (
+        parts.scheme.lower() != "https"
+        or host not in SARVAM_ALLOWED_HOSTS
+        or parts.username is not None
+        or parts.password is not None
+        or port not in (None, 443)
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+    ):
+        raise error
+    return f"https://{host}"
 
 
 def _path(value: str) -> Path:

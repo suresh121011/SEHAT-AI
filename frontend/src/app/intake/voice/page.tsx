@@ -74,7 +74,7 @@ const FLAG_TEXT: Record<string, string> = {
   uncertainty: "Said with 'maybe/about'",
   temporal_reference: "May refer to an earlier time (e.g. yesterday)",
   multiple_values: "More than one value heard for this",
-  oxygen_context: "Oxygen support mentioned — record it separately",
+  oxygen_context: "Oxygen support mentioned — enter the value yourself and record the oxygen support in triage",
   bp_order_invalid: "Blood pressure numbers look reversed",
   age_unit_months: "Age in months — enter years if needed",
   needs_assignment: "Number without a label — choose what it measures or leave blank",
@@ -83,6 +83,8 @@ const FLAG_TEXT: Record<string, string> = {
   unit_unclear: "The unit word was not clear (°C or °F?) — enter the value and unit yourself",
   number_words: "Heard as number words — check the value",
   number_word_homograph: "This word can also mean 'times' or 'a' (e.g. 'once', 'a little') — enter the value yourself",
+  context_unclear: "Other words around this value (e.g. 'below', 'to', 'in 30 seconds', someone else's age) — enter the value yourself",
+  bp_shorthand_possible: "Looks like shorthand (e.g. '13 by 9' for 130/90) — enter the full blood pressure yourself",
 };
 
 // Plain-language reasons for a failed online (Sarvam) transcription; the code is still shown for support.
@@ -149,10 +151,10 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
   const [value, setValue] = useState("");
   const [value2, setValue2] = useState("");
   const [unit, setUnit] = useState<"" | "c" | "f">("");
-  const [pregnant, setPregnant] = useState<"1" | "0">("1");
+  const [pregnant, setPregnant] = useState<"" | "1" | "0">("");
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!field || (field === "temp" && !unit)) return;
+    if (!field || (field === "temp" && !unit) || (field === "pregnancy" && !pregnant)) return;
     const body: Record<string, unknown> = { outcome: "corrected", field };
     if (field === "pregnancy") body.value = Number(pregnant);
     else body.value = value === "" ? null : Number(value);
@@ -179,7 +181,10 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
       {field === "pregnancy" ? (
         <label className="flex flex-col">
           Value
-          <select value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className="rounded border px-2 py-1 dark:bg-black">
+          <select required value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className="rounded border px-2 py-1 dark:bg-black">
+            <option value="" disabled>
+              Choose…
+            </option>
             <option value="1">Pregnant</option>
             <option value="0">Not pregnant</option>
           </select>
@@ -218,6 +223,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
 function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId }: { c: Candidate; language: Language; reviewer: boolean; ttsReady: boolean; busy: boolean; caseId: string; onDecide: (id: string, body: Record<string, unknown>) => void }) {
   const [correcting, setCorrecting] = useState(false);
   const [speech, setSpeech] = useState<string | null>(null);
+  const playing = speech === "Playing…"; // no decision while the read-back is still being spoken
   const { voice } = useMatchingVoice(LANGUAGES.find((l) => l.code === language)!.speech);
 
   async function listen() {
@@ -276,7 +282,7 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
       )}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={listen} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
-          🔊 Listen
+          🔊 {ttsReady ? "Listen (online voice — sends this text to Sarvam AI)" : "Listen (this device's voice)"}
         </button>
         {speech && <span className="text-xs opacity-80" aria-live="polite">{speech}</span>}
       </div>
@@ -292,16 +298,16 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
       {reviewer && (
         <div className="space-y-1">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Read-back decision">
-            <button type="button" disabled={busy || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className="rounded bg-green-700 px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
+            <button type="button" disabled={busy || playing || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className="rounded bg-green-700 px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
               ✓ Yes, that&apos;s right
             </button>
-            <button type="button" disabled={busy} onClick={() => setCorrecting((v) => !v)} className="rounded border border-blue-600 px-3 py-1 text-sm">
+            <button type="button" disabled={busy || playing} onClick={() => setCorrecting((v) => !v)} className="rounded border border-blue-600 px-3 py-1 text-sm">
               ✎ Change value
             </button>
-            <button type="button" disabled={busy} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
               ? Not sure
             </button>
-            <button type="button" disabled={busy} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-red-600 px-3 py-1 text-sm">
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-red-600 px-3 py-1 text-sm">
               ✗ Wrong / not said
             </button>
           </div>
@@ -342,6 +348,9 @@ function VoiceScreen() {
       if (cv.consent.triage === "granted") {
         setItems((await api.get<{ transcriptions: Transcription[] }>(`cases/${caseId}/voice/transcriptions`)).transcriptions.reverse());
         if (reviewer) setPrefill(await api.get<Prefill>(`cases/${caseId}/voice/prefill`));
+      } else {
+        setItems([]); // consent withdrawn: stop showing transcripts and values
+        setPrefill(null);
       }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 404 || err.status === 400) && err.code !== "FEATURE_DISABLED") setNotFound(true);
@@ -370,10 +379,11 @@ function VoiceScreen() {
     if (!ec.languages[language]) return { usable: false, why: "does not support this language" };
     if (!ec.ready) return { usable: false, why: e === "local" ? "speech model not installed" : "not configured" };
     if (e === "cloud" && !cloudConsent) return { usable: false, why: "patient has not agreed to online speech processing" };
-    return { usable: true, why: caps.verification[e][language] === "tested_real" ? "checked on one synthetic clip only" : "not yet checked on real speech in this language" };
+    return { usable: true, why: caps.verification[e][language] === "tested_real" ? "tried on a few test clips only" : "not yet checked on real speech in this language" };
   }
   const usable = (["local", "cloud"] as Engine[]).filter((e) => engineStatus(e).usable);
-  const selected = engine && usable.includes(engine) ? engine : usable[0] ?? null;
+  // Sending audio to Sarvam must be an explicit choice: only the on-device engine is ever the default.
+  const selected = engine && usable.includes(engine) ? engine : usable.includes("local") ? "local" : null;
 
   function explain(err: unknown): string {
     if (!(err instanceof ApiError)) return "Something went wrong. Your recording was not saved; you can retry.";
@@ -418,9 +428,11 @@ function VoiceScreen() {
       await refresh();
     } catch (err) {
       setMessage(explain(err));
-      if (err instanceof ApiError && err.status < 500 && err.status !== 429 && err.code !== "IN_PROGRESS") setPending(null);
-      // A finished failure is stored under this key; a retry must be a new attempt (new key).
-      else if (!(err instanceof ApiError && err.code === "IN_PROGRESS")) setPending({ wav, key: crypto.randomUUID() });
+      const fromBackend = err instanceof ApiError && err.code !== "HTTP_ERROR";
+      if (fromBackend && err.status < 500 && err.status !== 429 && err.code !== "IN_PROGRESS") setPending(null);
+      // A failure the backend stored under this key needs a new key to retry. A network or proxy error may
+      // hide a run that finished: keep the key, so a retry returns that result instead of sending again.
+      else if (fromBackend && err.code !== "IN_PROGRESS") setPending({ wav, key: crypto.randomUUID() });
     } finally {
       setBusy(false);
     }
@@ -501,7 +513,13 @@ function VoiceScreen() {
                 </label>
               );
             })}
-            {!selected && <p>No speech-to-text option is available for this language right now. Please type the symptoms instead.</p>}
+            {!selected && usable.includes("cloud") && <p>Choose “online” above to send this recording to Sarvam AI, or type the symptoms instead.</p>}
+            {!selected && !usable.includes("cloud") && <p>No speech-to-text option is available for this language right now. Please type the symptoms instead.</p>}
+            {selected && (
+              <p className="font-medium">
+                {selected === "cloud" ? "Recordings will be sent over the internet to Sarvam AI." : "Recordings are processed on this server; nothing is sent to Sarvam."}
+              </p>
+            )}
           </fieldset>
 
           {canRecord && (
@@ -538,7 +556,7 @@ function VoiceScreen() {
             <span className="opacity-60"> · {t.model_id ?? "—"} · {new Date(t.created_at).toLocaleTimeString()}</span>
             {caps && (
               <span className="ml-2 rounded border border-black/20 px-1.5 text-xs dark:border-white/20">
-                {caps.verification[t.engine][t.language] === "tested_real" ? "checked on a synthetic clip" : caps.verification[t.engine][t.language] === "tested_mock" ? "not checked on real speech" : "unverified"}
+                {caps.verification[t.engine][t.language] === "tested_real" ? "tried on a few test clips only" : caps.verification[t.engine][t.language] === "tested_mock" ? "not checked on real speech" : "unverified"}
               </span>
             )}
           </p>

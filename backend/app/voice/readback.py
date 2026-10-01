@@ -95,6 +95,10 @@ BLOCKING_FLAGS = frozenset({
     "number_modifier_unparsed", "number_sequence_ambiguous", "unit_unknown",
     "out_of_domain_range", "non_integer", "bp_order_invalid", "age_unit_months", "needs_assignment",
     "unit_unclear", "number_word_homograph",
+    # SpO2 said with oxygen support: confirming only the number would drop the oxygen context, and a
+    # reading on oxygen read as room air can under-triage. The reviewer enters it and records the oxygen.
+    "oxygen_context",
+    "context_unclear", "bp_shorthand_possible",
 })
 
 

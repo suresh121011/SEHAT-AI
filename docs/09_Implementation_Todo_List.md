@@ -299,6 +299,11 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 
 > **Phase 4 as implemented:** see [docs/12](12_Voice_Pipeline.md). Items changed after research and
 > council review are marked ~~struck~~ with the reason.
+>
+> **Deviations from the architecture doc §9** (evidence in docs/12 §1): Silero STT dropped (CC BY-NC, no
+> Hindi/Odia); Presear Dakshini dropped (no API, weights or licence found); IndicConformer is the 600M model
+> (no "30M" exists); Indic Parler-TTS replaced by Sarvam Bulbul v3 (`od-IN` supported; Parler is 0.9 B and slow
+> on CPU); IndicTrans2 deferred to Phase 6; arXiv:2605.03073 cited as motivation only (it covers Telugu).
 
 #### 4.1 Audio Recording UI Component
 
@@ -356,6 +361,9 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - [x] Manual browser checklist docs/12 §9.4 — Chrome desktop run 2026-10-01, all PASS; no Odia browser voice
 - [ ] Safari desktop — not run; mobile BLOCKED (no HTTPS)
 - [ ] Native-speaker and clinical review of hi/or wording (docs/13)
+- [x] Final council review of the Phase 4 diff: split-decimal and context (allowlist) gates, `oxygen_context` blocking, consent re-check before cloud upload, no implicit cloud engine, abandoned-run 409 (docs/12 §5–§6, §10)
+- [x] Gap 3 HTTP walkthrough 27/27 (consent notice, local hi, blocked confirm, prefill conflict, cloud failure without fallback, withdrawal → 403, audit verify)
+- [ ] Odia synthetic fixture via Bulbul — script ready, **BLOCKED** (Sarvam TLS timeout)
 
 
 ---

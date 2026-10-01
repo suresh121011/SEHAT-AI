@@ -203,10 +203,16 @@ async def _process(conn, principal, case_id, clip, language, engine, settings, r
                 raise engines.EngineError("vad_not_installed") from None
             if not segments:
                 status = "no_speech"
+        if status == "completed" and engine == "cloud":
+            # Re-check consent right before audio leaves the server: a withdrawal during VAD must stop the
+            # upload, not only discard the result. (A withdrawal after this point can only discard it, at T2.)
+            snap = await consent.snapshot(conn, case_id)
+            if snap.authz_seq != authz_seq or not all(snap.is_effective(p) for p in purposes):
+                status = "consent_changed_before_upload"
         if status == "completed":
             if engine == "cloud":
                 result = await anyio.to_thread.run_sync(
-                    lambda: engines.transcribe_cloud(clip, language, api_key=settings.sarvam_api_key, timeout_s=settings.sarvam_timeout_s, transport=cloud_transport)
+                    lambda: engines.transcribe_cloud(clip, language, base_url=settings.sarvam_base_url, api_key=settings.sarvam_api_key, timeout_s=settings.sarvam_timeout_s, transport=cloud_transport)
                 )
             else:
                 result = await anyio.to_thread.run_sync(lambda: engines.transcribe_local(clip, language, model_dir=settings.voice_local_model_dir))
@@ -220,10 +226,16 @@ async def _process(conn, principal, case_id, clip, language, engine, settings, r
     # T2: finalise only if consent is unchanged since T1.
     candidates = extract.extract(result.text) if (result and status == "completed") else []
     consent_changed = False
+    abandoned = False
     async with transaction(conn):
         snap = await consent.snapshot(conn, case_id)
         consent_changed = snap.authz_seq != authz_seq or not all(snap.is_effective(p) for p in purposes)
-        if consent_changed or failure is not None:
+        row = await (await conn.execute("SELECT status FROM voice_transcriptions WHERE transcription_id = ?", (transcription_id,))).fetchone()
+        if row is None or row[0] != "pending":
+            # A retry marked this row abandoned (PENDING_TTL_S) while it was still running. The row is final
+            # (append-only), so this late result is dropped with a clear error instead of a 500.
+            abandoned = True
+        elif consent_changed or failure is not None:
             reason = "consent_changed" if consent_changed else failure.reason  # type: ignore[union-attr]
             await _finalize_failed(conn, principal, case_id, transcription_id, engine, reason, request_id, outcome="denied" if consent_changed else "failure")
         else:
@@ -251,6 +263,8 @@ async def _process(conn, principal, case_id, clip, language, engine, settings, r
                 details=audit.VoiceTranscribedDetails(transcription_id=transcription_id, engine=engine, language=language, status=status,  # type: ignore[arg-type]
                                                       duration_bucket=_bucket(clip.duration_ms), segment_count=len(segments), candidate_count=len(candidates)),  # type: ignore[arg-type]
             )
+    if abandoned:
+        raise ApiError(409, "TRANSCRIPTION_ABANDONED", "This recording took too long and was closed; please record again")
     if consent_changed:
         raise ApiError(409, "CONSENT_WITHDRAWN", "Consent changed while the recording was being processed; the result was discarded")
     if failure is not None:

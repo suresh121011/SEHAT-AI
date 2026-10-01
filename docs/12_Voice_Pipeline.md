@@ -91,6 +91,8 @@ The voice package never imports or calls the rules engine, and never submits tri
   - **Whether an opt-out or a shorter retention is in place is not verified by this software.** It is the deploying organisation's responsibility. Sarvam's product pages and its privacy policy disagree (§1); the notice follows the policy.
 - **Audio:**
   - Audio is held in process memory for the request only and read with a hard byte cap. It is not written to the database or disk by this code, and not logged.
+  - Online speech is never chosen by default: the page defaults to the on-device engine, or to none (when the language has no on-device model) until the reviewer picks "online", and it states where recordings go ("will be sent over the internet to Sarvam AI" / "nothing is sent to Sarvam"). The Listen button says whether it uses the online voice (sends the read-back text to Sarvam) or the device voice. Before 2026-10-01 English with `voice_cloud` granted silently selected the cloud.
+  - Consent is re-checked right before audio is sent to Sarvam (after VAD). A withdrawal during VAD now stops the upload; a withdrawal during the provider call still only discards the result (T2).
   - In the browser, leaving the voice page while recording discards the recording (it is never uploaded), and an upload still in flight is aborted. Aborting stops the browser sending; bytes the server or Sarvam already received cannot be recalled. Code-inspected; browser behaviour is in the §9.4 checklist.
   - Out of scope for this claim: the OS or Python allocator, crash dumps, and the browser tab's memory.
   - The Next.js proxy buffers the body in memory (`request.arrayBuffer()`).
@@ -121,7 +123,8 @@ The voice package never imports or calls the rules engine, and never submits tri
 | cloud | `voice_cloud` not granted | 403 `CONSENT_REQUIRED` — nothing uploaded |
 | cloud | timeout / 429 / 5xx / auth | 504 / 429 / 503 with a fixed `reason`; provider text is discarded |
 | any | engine returns blank text | 200 `status=empty_transcript`, no candidates |
-| any | consent changed while processing | 409 `CONSENT_WITHDRAWN`, result discarded |
+| any | consent changed while processing | 409 `CONSENT_WITHDRAWN`, result discarded (cloud: re-checked before upload too) |
+| any | row already closed as abandoned by a retry when the run finishes | 409 `TRANSCRIPTION_ABANDONED`, late result dropped (was a 500) |
 
 The provider's reported language is recorded as a warning. It is never used to switch language.
 
@@ -137,6 +140,8 @@ The provider's reported language is recorded as a warning. It is never used to s
   - Odia ଶହେ means one hundred and only **starts** a number (ଶହେ ଦୁଇ = 102, ଶହେ କୋଡ଼ିଏ = 120). "ଦୁଇ ଶହେ" is not read as 200: it is blocked.
   - This was added because the real local model writes numbers as words ("तापमान एक सौ दो डिग्री", see §9.2), which the pre-agreed contingency covered.
   - Words outside the table (other spellings, joined or inflected forms such as ଦୁଇଶହେ, ଶହେରୁ) are never guessed. Those values stay missing, which means human review.
+  - **Split decimals.** A decimal word or "." after a parsed number that did not join it ("39 point 5", "बुखार 39 दशमलव 5", "39. 5", "39 and half") blocks the value (`number_modifier_unparsed`); before 2026-10-01 the integer alone (39.0 °C, just below ATP ">39 °C") was confirmable. Read-back quotes the words heard.
+  - **Clean-context gate (allowlist, 2026-10-01).** One-click confirmation is offered only for the plain shape "field word, optional filler (is, rate, है, का, ଅଛି …), number, unit, optional filler (है, ଅଛି …)" or "number unit field-word" (102 डिग्री बुखार). Any other word next to the value, a suffix or hyphen glued to the number (୯୦ରୁ, 110-120), or no field word at all gives the blocking flag `context_unclear`. This replaced adding bad words one by one after the final council found 14 realistic phrasings that still gave confirmable wrong values (comparators "below 90" / "90 से कम", ranges, partial counts "15 in 30 seconds", "ऑक्सीजन लगा दो", "50% of her food", a child's age, …). BP next to a stray number ("one sixty over one ten") is `number_sequence_ambiguous`; both BP numbers under 30 ("13 by 9") is `bp_shorthand_possible`. More "earlier" words: परसों, पिछले, ago, last, ଗତ, ପରଶୁ.
   - **Homographs.** Some number words have an everyday second meaning: ବାର is 12 but also "time(s)" (ଅନେକ ବାର, "many times"), and ଏକ / एक / "one" is also "a" (ନାଡ଼ି ଏକ ଟିକେ ବେଶୀ, "pulse a little high"). Before 2026-10-01 these produced confirmable values (respiratory rate 12, pulse 1). Now a value containing ବାର, a lone "one" word, or a number followed by a count word (बार, ବାର, ଥର, दफा, "times") carries the blocking flag `number_word_homograph`. The reviewer must enter the value. A genuine "ବାର" (12) or age "one year" therefore needs typing; that is the intended trade-off.
 - **Temperature:**
   - °F is converted to °C exactly, and **never rounded**. Rounding could move a value across ATP ">39 °C".
@@ -151,14 +156,15 @@ The provider's reported language is recorded as a warning. It is never used to s
   - `uncertainty`, `temporal_reference` ("yesterday / kal / ଗତକାଲି"), `multiple_values`
   - `oxygen_context`: `on_supplemental_oxygen` is never inferred
   - `bp_order_invalid`, `age_unit_months` (never pre-filled as years), `needs_assignment`
-  - `number_word_homograph` (see Numbers)
+  - `number_word_homograph`, `context_unclear`, `bp_shorthand_possible` (see Numbers)
+  - `oxygen_context` is now **blocking** (2026-10-01): confirming only the number would drop the oxygen support, and a reading on oxygen read as room air can under-triage
 - **Offsets:** candidates keep **character offsets** into the raw transcript, which the reviewer sees highlighted. No engine gives reliable per-word audio timing and no audio is kept, so the evidence link is the transcript span plus the clip's VAD speech span.
 - **Lexicon:** the Hindi and Odia keyword lists are `draft_unreviewed`.
 
 ## 6. Read-back policy (`app/voice/readback.py`)
 
 - **Who decides.** Every candidate needs an explicit decision by the case reviewer: the creator ANM or an MO. The patient can record and listen but cannot confirm.
-  - **Yes, that's right** (`confirmed`): allowed only when the value was normalised **and carries no blocking flag**. The blocking flags are negation, uncertainty, earlier-time reference, several values, an unparsed number modifier (साढ़े / सवा / "and a half"), a number spoken in parts ("one twenty"), a number word that may mean "times" or "a", unknown unit, out of range, reversed BP, age in months, and needs-assignment.
+  - **Yes, that's right** (`confirmed`): allowed only when the value was normalised **and carries no blocking flag**. The blocking flags are negation, uncertainty, earlier-time reference, several values, an unparsed number modifier (साढ़े / सवा / "and a half"), a number spoken in parts ("one twenty"), a number word that may mean "times" or "a", unclear context around the value, oxygen support mentioned, possible BP shorthand, unknown unit, out of range, reversed BP, age in months, and needs-assignment.
   - **Change value** (`corrected`): the reviewer enters the value, with no default field or unit. It is validated against the engine domain and stored as `voice_manual_correction`.
   - **Not sure** (`unsure`): the field stays **missing**, which means human review.
   - **Wrong / not said** (`rejected`): the field also stays **missing**.
@@ -172,6 +178,8 @@ The provider's reported language is recorded as a warning. It is never used to s
 - **Stale decisions.** A decision names the resolution it replaces (`supersedes`). A decision made on an out-of-date screen is refused with 409 `STALE_DECISION`, never silently applied.
 - **Spoken read-back.** It uses Sarvam Bulbul if it is enabled and `voice_cloud` is granted. Otherwise it uses a browser voice matching the language. Otherwise the page says "Spoken read-back is unavailable". The text is built server-side, so the endpoint cannot be used as a general TTS relay.
 - **Limitation.** Read-back reduces mis-transcription. It does not verify that the measurement itself was right.
+- **What one-click confirm means (final council, 2026-10-01).** The extractor proposes candidate vitals from a transcript; it never sets or lowers urgency. One-click confirm is a convenience, not a correctness check: it is offered only when the value matches a narrow allowlist of simple phrasings, and anything else (comparators, ranges, partial counts, past readings, implausible BP, oxygen context, unparsed modifiers) is blocked and must be typed by the reviewer. These gates are pattern lists and are known to be incomplete; they cannot detect speech-recognition errors (e.g. "ninety" heard as "nineteen"), and they have been checked only against a small set of synthetic and test sentences, with Odia coverage weakest. A named reviewer must check every value against the read-back before confirming.
+- **UI (2026-10-01).** Decision buttons are disabled while the read-back is playing. The correction form has no default value for any field, including pregnancy. Adding a synthetic sample clip asks for confirmation, because it is stored on the open case.
 
 ## 7. API
 
@@ -204,6 +212,7 @@ Everything is off by default. A disabled component is never imported, loaded or 
 | `VOICE_CLOUD_STT_ENABLED` | 0 | Sarvam Saaras v4 |
 | `VOICE_TTS_ENABLED` | 0 | Sarvam Bulbul v3 spoken read-back |
 | `SARVAM_API_KEY` | — | never logged; excluded from `Settings` repr |
+| `SARVAM_BASE_URL` | `https://api.sarvam.ai` | must be `https://` + a host in `SARVAM_ALLOWED_HOSTS` (code, `app/config.py`: only `api.sarvam.ai`); no path, port other than 443, credentials, query or fragment. Anything else **refuses to start**; normalised to `https://api.sarvam.ai`. |
 | `SARVAM_TIMEOUT_S` | 20 | provider timeout |
 | `VOICE_MAX_SECONDS` | 30 | clip cap (≤30; Sarvam REST limit) |
 
@@ -230,8 +239,12 @@ Commands run on 2026-10-01, from `backend/` unless stated:
 |---|---|---|
 | Backend suite, before changes | `../.venv/bin/python -m pytest -q` | 530 passed, 9 skipped (opt-in live), 5 xfailed (known PII gaps, docs/11) |
 | Backend suite, after changes | same | 568 passed, 9 skipped, 5 xfailed |
+| Backend suite, after the final council fixes (gate, split decimals, oxygen, consent before upload, abandoned 409) | same | 607 passed, 9 skipped, 5 xfailed; frontend lint, `tsc` and build pass |
 | Local engine, network sockets blocked | `SEHAT_LIVE_LOCAL=1 ../.venv/bin/python -m pytest -m live -k local -v` | hi PASS; English-rejection PASS; or SKIPPED (no Odia fixture) |
 | Sarvam reachability | `curl --max-time 15 https://api.sarvam.ai/`, inside and outside the sandbox | **BLOCKED**: DNS resolves (4.247.234.152), TCP connect times out after 15 s; huggingface.co answers. Key configured (presence checked, never printed). Live cloud tests not run. |
+| Sarvam reachability, later the same day (3rd attempt) | `nc -vz api.sarvam.ai 443`; `curl -4 -v https://api.sarvam.ai/`; Python `httpx` | **BLOCKED**: TCP now connects, but the TLS handshake never completes (`SSL connection timeout`; httpx `ConnectTimeout` at 12 s). `docs.sarvam.ai` answers 200. The user reports a training opt-out set in the Sarvam dashboard (not verifiable by this software). |
+| Live cloud tests | `SEHAT_LIVE_SARVAM=1 SARVAM_TIMEOUT_S=5 ../.venv/bin/python -m pytest -m live -k "cloud or bulbul"` | Fail with `cloud_timeout` (STT) and `tts_unreachable` (TTS): the network, not the code. An uncommitted change in the working tree (a configurable `SARVAM_BASE_URL`, not made in this pass) added a required `base_url` argument to both adapters; the live tests had not been updated and would have failed with a `TypeError`. They now pass `settings.sarvam_base_url`. Odia STT skipped (no fixture). |
+| HTTP walkthrough (Gap 3) | scripted client against `uvicorn` with `VOICE_ENABLED=1 VOICE_LOCAL_ASR_ENABLED=1 VOICE_CLOUD_STT_ENABLED=1 VOICE_TTS_ENABLED=1`, synthetic sample clips | **27/27 PASS**. Notice `2026-10-01.1` in en/hi/or; local hi upload `completed` (labelled "local inference (no provider call)"); a साढ़े value refused one-click confirm (409 `CORRECTION_REQUIRED`), then corrected; prefill shows the temp conflict and the "not sure" pulse as unresolved, no value chosen. Cloud **with** consent: a real attempt, stored as `failed / cloud_timeout` (504 after 20 s), no fallback. TTS: 503 `TTS_UNAVAILABLE`. After `voice_cloud` withdrawal: cloud 403 `CONSENT_REQUIRED` in 0.01 s (before upload), TTS 403, local still 200. Audit trail has no transcript words or values; `POST /audit/verify` → `ok: true`. |
 | Frontend | `npm run lint`, `npx tsc --noEmit`, `npm run build` (in `frontend/`) | all pass before and after (no frontend test framework exists) |
 
 ### 9.1 Results
@@ -243,6 +256,7 @@ Commands run on 2026-10-01, from `backend/` unless stated:
 | Cloud STT contract, consent, idempotency, failures, audit | **tested-mock** | `tests/voice/test_api.py` |
 | Cloud STT against real Sarvam (en/hi/or) | **BLOCKED** (not verified): key configured, but `api.sarvam.ai` is unreachable from this network (TCP timeout, re-checked 2026-10-01 inside and outside the sandbox) | `SEHAT_LIVE_SARVAM=1 ../.venv/bin/python -m pytest -m live -k cloud -v` once the host is reachable |
 | Local IndicConformer, Hindi, network blocked | **tested-real** (synthetic clip) | `tests/voice/test_live.py` (§9.2) |
+| Odia synthetic fixture (`or_fever_102.wav`) | **not generated**: `tests/fixtures/voice/make_odia_fixture.py` (Sarvam Bulbul v3, `od-IN`) is ready but Sarvam is unreachable. When generated, cloud STT results on it are `circular_if_cloud`; the live tests then print CER and numeric hits per clip. | `SEHAT_LIVE_SARVAM=1 ../.venv/bin/python tests/fixtures/voice/make_odia_fixture.py`, then the `local`/`cloud` live tests |
 | Local IndicConformer, Odia | **not verified on real Odia speech.** 2 live-microphone clips (one non-native speaker, numbers only, §9.3) found parser bugs but are not evidence of accuracy. No Odia fixture. The 21–99 number words follow CLDR spellings and have never been seen in model output. | needs consented, scripted clips from fluent speakers |
 | Local English | **unsupported** | model has no English |
 | Bulbul TTS | **tested-mock** only; **BLOCKED** for a real run (same reason as cloud STT) | |
@@ -322,6 +336,7 @@ Run on `http://localhost:3000` (demo accounts, synthetic speech only).
 - Local model memory and latency were measured on one machine only (Apple M5, 16 GB): about 2.8 GB RAM, so it is unlikely to fit budget Android tablets. Server or laptop deployment is assumed.
 - Retention and deletion of transcripts remain deferred, as for all case data.
 - Sarvam's stated data handling conflicts between its product pages and its privacy policy (§1). The account's actual settings are unverified.
+- Known gaps recorded by the final council (2026-10-01), not fixed: read-back decisions are not tied to a consent "epoch" (after withdraw and re-grant, earlier confirmations still prefill); the `voice_tts_generated` audit event has no candidate id; a retry after a backend 5xx uses a new key and can send the same audio to Sarvam again. The Sarvam endpoint is configurable (`SARVAM_BASE_URL`) but limited to an HTTPS allowlist held in code (§8), so the "fixed host" in §2 holds: the key, audio and read-back text can only go to `api.sarvam.ai`. Redirects are not followed.
 
 ## 11. Deferred (not Phase 4)
 

@@ -27,6 +27,7 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   // False once the page is left. Stopping the tracks on unmount ends the MediaRecorder, whose `onstop`
   // would otherwise still hand the audio to `onRecorded` and upload it after the user has gone.
   const mounted = useRef(true);
+  const starting = useRef(false); // a second click during the permission prompt would open a second stream
 
   // Decided after mount: the page is prerendered without `window`, so computing this during render
   // would make server and client markup differ.
@@ -54,6 +55,8 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   }, []);
 
   async function start() {
+    if (starting.current || stream.current) return;
+    starting.current = true;
     setError(null);
     let media: MediaStream;
     try {
@@ -61,6 +64,8 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
     } catch {
       setError("Microphone permission was not granted. You can use a sample clip or type instead.");
       return;
+    } finally {
+      starting.current = false;
     }
     if (!mounted.current) {
       media.getTracks().forEach((t) => t.stop());
@@ -118,6 +123,8 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   }
 
   async function playSample(url: string) {
+    // Samples are synthetic demo audio, but they are processed like a recording and stored on THIS case.
+    if (!window.confirm("Add a synthetic demo clip to this case? Its values would appear as if spoken for this patient.")) return;
     setError(null);
     try {
       const res = await fetch(url);
