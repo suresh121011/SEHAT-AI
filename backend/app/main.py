@@ -20,7 +20,9 @@ from app.services.kernel import build_kernel
 API_PREFIX = "/api/v1"
 
 # Third-party loggers that could emit input text at DEBUG/INFO (docs/11 §G).
-_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel")
+# aiosqlite logs every SQL statement WITH its parameters at DEBUG (case data, transcripts, OCR values);
+# found by the Phase 5 log-canary test. Kept at WARNING whatever LOG_LEVEL is.
+_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel", "aiosqlite", "RapidOCR", "rapidocr", "httpx", "python_multipart", "PIL")
 
 
 def _quiet_third_party_loggers() -> None:
