@@ -553,3 +553,57 @@ def test_noise_only_transcript_is_empty_not_completed(voice_client, anm):
     voice_client.fake.transcript = "े"  # live on-device output for a noisy clip: a lone vowel sign
     cid = _consented_case(voice_client, anm)
     assert _post(voice_client, anm, cid).json()["status"] == "empty_transcript"
+
+
+def test_consent_withdrawn_during_vad_stops_the_cloud_upload(voice_client, anm, monkeypatch):
+    """Final council 2026-10-01: consent is re-checked right before audio leaves the server."""
+    from app.voice import vad
+
+    cid = _consented_case(voice_client, anm)
+    real_detect = vad.detect
+
+    def withdraw_then_detect(clip):
+        with sqlite3.connect(get_settings().database_path) as c:
+            c.execute(
+                "INSERT INTO consent_events (event_id, case_id, purpose, action, notice_version, language, notice_review_status, method, actor_id, actor_role, created_at) "
+                "VALUES (?, ?, 'voice_cloud', 'withdrawn', 'v', 'en', 'r', 'staff_attested_verbal', 'a', 'anm', 't')",
+                (str(uuid.uuid4()), cid),
+            )
+        return real_detect(clip)
+
+    from app.voice import engines
+
+    uploads: list[str] = []
+    real_cloud = engines.transcribe_cloud
+
+    def spy_cloud(*a, **k):
+        uploads.append("cloud")
+        return real_cloud(*a, **k)
+
+    monkeypatch.setattr(vad, "detect", withdraw_then_detect)
+    monkeypatch.setattr(engines, "transcribe_cloud", spy_cloud)
+    resp = _post(voice_client, anm, cid)
+    assert uploads == []  # the engine was never asked to upload
+    assert resp.status_code == 409 and resp.json()["error"]["code"] == "CONSENT_WITHDRAWN"
+    assert voice_client.fake.calls == []  # nothing was sent to the provider
+    assert _row(cid) == ("failed", "consent_changed")
+
+
+def test_late_finish_after_row_was_abandoned_is_a_clear_409(voice_client, anm, monkeypatch):
+    """A slow run whose row a retry already closed as `abandoned` must not crash on the append-only trigger."""
+    from app.voice import vad
+
+    cid = _consented_case(voice_client, anm)
+    real_detect = vad.detect
+
+    def abandon_then_detect(clip):
+        with sqlite3.connect(get_settings().database_path) as c:
+            c.execute("UPDATE voice_transcriptions SET status = 'failed', failure_code = 'abandoned' WHERE case_id = ? AND status = 'pending'", (cid,))
+        return real_detect(clip)
+
+    monkeypatch.setattr(vad, "detect", abandon_then_detect)
+    resp = _post(voice_client, anm, cid)
+    assert resp.status_code == 409 and resp.json()["error"]["code"] == "TRANSCRIPTION_ABANDONED"
+    assert _row(cid) == ("failed", "abandoned")
+    with sqlite3.connect(get_settings().database_path) as c:
+        assert c.execute("SELECT count(*) FROM voice_candidates WHERE case_id = ?", (cid,)).fetchone() == (0,)

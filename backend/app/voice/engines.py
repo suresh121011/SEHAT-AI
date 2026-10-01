@@ -25,8 +25,6 @@ from app.voice.audio import AudioClip
 
 Engine = Literal["local", "cloud"]
 Language = Literal["en", "hi", "or"]
-
-SARVAM_STT_URL = "https://api.sarvam.ai/speech-to-text"
 SARVAM_STT_MODEL = "saaras:v4"
 SARVAM_LANGUAGE = {"en": "en-IN", "hi": "hi-IN", "or": "od-IN"}  # Sarvam uses od-IN for Odia
 
@@ -59,13 +57,13 @@ class EngineError(Exception):
 # ── cloud: Sarvam Saaras v4 ──────────────────────────────────────────────────────────────────────
 
 
-def transcribe_cloud(clip: AudioClip, language: Language, *, api_key: str, timeout_s: float, transport: httpx.BaseTransport | None = None) -> SttResult:
+def transcribe_cloud(clip: AudioClip, language: Language, *, base_url: str, api_key: str, timeout_s: float, transport: httpx.BaseTransport | None = None) -> SttResult:
     if not api_key:
         raise EngineError("cloud_not_configured")
     try:
         with httpx.Client(timeout=timeout_s, transport=transport, follow_redirects=False) as client:
             resp = client.post(
-                SARVAM_STT_URL,
+                f"{base_url.rstrip('/')}/speech-to-text",
                 headers={"api-subscription-key": api_key},
                 files={"file": ("audio.wav", clip.wav_bytes, "audio/wav")},
                 data={"model": SARVAM_STT_MODEL, "mode": "transcribe", "language_code": SARVAM_LANGUAGE[language]},

@@ -434,3 +434,70 @@ def test_one_inside_a_larger_number_or_as_digit_is_unaffected():
     assert only("ଜ୍ୱର ଏକ ଶହ ଦୁଇ ଡିଗ୍ରୀ", "temp").normalized == {"temp_c": (102 - 32) * 5 / 9}
     assert only("pulse one hundred", "pulse").normalized == {"pulse": 100}
     assert "number_word_homograph" not in only("pulse 1", "pulse").flags
+
+
+# ── Final council 2026-10-01: clean-context gate (allowlist) and split decimals ──────────────────────
+# Phrasings that produced a wrong value confirmable with one click before the gate. They must stay blocked.
+LEAKS = [
+    "spo2 below 90", "ऑक्सीजन 90 से कम है", "ଅକ୍ସିଜେନ ୯୦ରୁ କମ", "spo2 92 ish", "breathing 15 in 30 seconds",
+    "pulse 110-120", "spo2 90 to 95", "BP one sixty over one ten", "BP 13 by 9", "ऑक्सीजन लगा दो",
+    "she ate 50% of her food", "पहला बच्चा 3 साल का है", "परसों बुखार 104", "nadi 1 minute mein 90",
+    # split decimals: the integer part alone can sit just below the >39 °C boundary
+    "temperature 39 point 5", "fever 102 point 4", "बुखार 39 दशमलव 5", "temperature 39 पॉइंट 5", "temp 39. 5",
+    "temperature 39 and half",
+    # oxygen support: the number alone would read as room air
+    "oxygen 92 on oxygen mask",
+]
+# Plain phrasings that must stay one-click confirmable (demo sentences included), with the expected value.
+CLEAN = [
+    ("मुझे तीन दिन से बुखार है तापमान एक सौ दो डिग्री है", "temp", {"temp_c": (102 - 32) * 5 / 9}),
+    ("pulse is one hundred and twenty", "pulse", {"pulse": 120}),
+    ("oxygen ninety two percent", "spo2", {"spo2": 92}),
+    ("My temperature is 102 degrees Fahrenheit. I do not have chest pain.", "temp", {"temp_c": (102 - 32) * 5 / 9}),
+    ("BP 120/80", "bp", {"sbp": 120, "dbp": 80}),
+    ("blood pressure 120 over 80", "bp", {"sbp": 120, "dbp": 80}),
+    ("ବୟସ ପଞ୍ଚତିରିଶ ବର୍ଷ", "age", {"age_years": 35}),
+    ("ଅକ୍ସିଜେନ ଚଉରାନବେ ପ୍ରତିଶତ", "spo2", {"spo2": 94}),
+    ("तापमान 102 डिग्री नब्ज़ 120", "pulse", {"pulse": 120}),
+    ("pulse rate 88", "pulse", {"pulse": 88}),
+    ("मुझे 102 डिग्री बुखार है", "temp", {"temp_c": (102 - 32) * 5 / 9}),
+    ("temperature 39.5", "temp", {"temp_c": 39.5}),
+    ("तापमान उनतालीस दशमलव पांच", "temp", {"temp_c": 39.5}),
+]
+
+
+@pytest.mark.parametrize("text", LEAKS)
+def test_known_leaks_are_never_one_click_confirmable(text):
+    from app.voice.readback import can_confirm
+
+    assert not any(can_confirm(c.field, c.normalized, c.flags) for c in extract(text) if c.field != "symptom_duration")
+
+
+@pytest.mark.parametrize("text, field, normalized", CLEAN)
+def test_plain_phrasings_stay_one_click_confirmable(text, field, normalized):
+    from app.voice.readback import can_confirm
+
+    c = only(text, field)
+    assert c.normalized == normalized and can_confirm(c.field, c.normalized, c.flags), c.flags
+
+
+def test_split_decimal_read_back_quotes_the_words():
+    from app.voice.readback import readback_text
+
+    text = "temperature 39 point 5"
+    c = only(text, "temp")
+    assert "number_modifier_unparsed" in c.flags and span(text, c) == "39 point 5"
+    said = readback_text(c.field, c.raw_value, c.raw_value2, c.unit, c.normalized, "en", heard=span(text, c), flags=c.flags)
+    assert "“39 point 5”" in said and "39 °C" not in said
+
+
+def test_sentence_full_stop_is_not_a_decimal():
+    from app.voice.readback import can_confirm
+
+    for text in ("temperature 39. pulse 80", "pulse 80."):
+        assert all(can_confirm(c.field, c.normalized, c.flags) for c in extract(text))
+
+
+def test_bp_shorthand_and_split_pairs_are_flagged():
+    assert "bp_shorthand_possible" in only("BP 13 by 9", "bp").flags
+    assert "number_sequence_ambiguous" in only("BP one sixty over one ten", "bp").flags

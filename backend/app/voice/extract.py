@@ -49,6 +49,8 @@ Flag = Literal[
     "number_sequence_ambiguous",
     "unit_unclear",
     "number_word_homograph",
+    "context_unclear",
+    "bp_shorthand_possible",
 ]
 
 KEYWORD_REVIEW_STATUS = {"en": "project_draft", "hi": "draft_unreviewed", "or": "draft_unreviewed"}
@@ -96,8 +98,9 @@ NEGATION = ("no", "not", "never", "without", "denies", "deny", "don't", "doesn't
             "nahi", "nahin", "nai", "नहीं", "नही", "ना", "न", "ନାହିଁ", "ନାହିଁ", "ନାହି", "ନୁହେଁ", "ନା")
 UNCERTAINTY = ("maybe", "probably", "might", "around", "about", "approximately", "roughly", "not sure",
                "shayad", "lagbhag", "karib", "kareeb", "शायद", "लगभग", "करीब", "क़रीब", "ପ୍ରାୟ", "ବୋଧହୁଏ", "ହୁଏତ")
-TEMPORAL = ("yesterday", "last night", "earlier", "before", "last week", "was", "were", "had been", "used to",
-            "kal", "pehle", "pahle", "tha", "thi", "कल", "पहले", "था", "थी", "थे", "ଗତକାଲି", "କାଲି", "ପୂର୍ବରୁ", "ଆଗରୁ", "ଥିଲା")
+TEMPORAL = ("yesterday", "last night", "earlier", "before", "last week", "was", "were", "had been", "used to", "ago", "last",
+            "kal", "pehle", "pahle", "tha", "thi", "parson", "pichhle", "कल", "पहले", "था", "थी", "थे", "परसों", "पिछले", "पिछली",
+            "ଗତକାଲି", "କାଲି", "ପୂର୍ବରୁ", "ଆଗରୁ", "ଥିଲା", "ଗତ", "ପରଶୁ")
 OXYGEN_CONTEXT = ("on oxygen", "oxygen support", "oxygen mask", "mask", "cylinder", "concentrator", "room air",
                   "without oxygen", "with oxygen", "nasal", "सिलेंडर", "मास्क", "ସିଲିଣ୍ଡର", "ମାସ୍କ")
 AGE_OLD_MARKERS = ("old", "saal ka", "saal ki", "sal ka", "sal ki", "साल का", "साल की", "ବର୍ଷର", "ବର୍ଷ ବୟସ")
@@ -314,6 +317,11 @@ _NUMBER_MODIFIERS = {"साढ़े", "साढे", "सवा", "पौन�
                      "ସାଢ଼େ", "ସାଢେ", "ସୱା", "ସଓା", "ପାଉଣେ", "ଦେଢ଼", "ଦେଢ", "ଅଢ଼େଇ", "ଅଧା",
                      "half", "quarter"}
 _INDIC_TOKEN = re.compile(r"[\u0900-\u097F\u0B00-\u0B7F]+")
+# A decimal point word or "." right after a parsed number that did not become part of it, plus the digit
+# or number word after it (so the reviewer sees the whole span).
+_SPLIT_DECIMAL = re.compile(
+    rf"\s*(?:\.\s*\d+|{_LB}(?:point|dot|दशमलव|पॉइंट|प्वाइंट|ଦଶମିକ|ପଏଣ୍ଟ){_RB}(?:\s*(?:\d+|[a-z\u0900-\u097F\u0B00-\u0B7F]+))?)"
+)
 
 
 _HUNDRED_SUFFIXES = ("ଶହ", "सौ")
@@ -620,7 +628,14 @@ def extract(transcript: str) -> list[Candidate]:
         # "degree Celsius"): the unit is unclear, so it must not be inferred.
         if c.field == "temp" and after and after[0].startswith(("डिग्र", "ଡିଗ୍ର", "degr")) and c.unit_source == "inferred":
             c.add("unit_unclear")
-        half = re.match(r"\s*and a half", text[c.char_end:])
+        half = re.match(r"\s*(?:and\s+(?:a\s+)?half|half)" + _RB, text[c.char_end:])
+        # A decimal that was not parsed together with the number ("39 point 5", "39 दशमलव 5", "39. 5"):
+        # the number heard is only the integer part, which can sit just below a threshold (39 vs 39.5).
+        split_decimal = _SPLIT_DECIMAL.match(text, c.char_end)
+        if split_decimal and c.field != "pregnancy":
+            c.add("number_modifier_unparsed")
+            c.normalized = None
+            c.char_end = split_decimal.end()
         if (before and before[-1] in _NUMBER_MODIFIERS) or (after and after[0] in _NUMBER_MODIFIERS) or half:
             c.add("number_modifier_unparsed")
             c.normalized = None
@@ -639,6 +654,7 @@ def extract(transcript: str) -> list[Candidate]:
             for c in (c1, c2):
                 c.add("number_sequence_ambiguous")
                 c.normalized = None
+    _apply_context_gate(text, clauses, out, nums)
     _apply_context_flags(text, clauses, out)
     for c in out:
         if c.field == "pregnancy" and ("uncertainty" in c.flags or "negation" in c.flags):
@@ -646,6 +662,61 @@ def extract(transcript: str) -> list[Candidate]:
             # tell these apart, so no value is proposed — the reviewer must choose explicitly (Correct).
             c.normalized = None
     return sorted(out, key=lambda c: c.char_start)
+
+
+# ── Clean-context gate (allowlist) ───────────────────────────────────────────────────────────────
+# One-click confirmation is allowed only for the plain shape "<field word> [filler] <number> [unit] [filler]".
+# Any other word next to the value ("below 90", "90 से कम", "15 in 30 seconds", "90 to 95", "ऑक्सीजन लगा दो",
+# "her child is 3") makes it `context_unclear`: the reviewer enters it. This is an allowlist because a list
+# of bad words kept missing new phrasings (final council, 2026-10-01). It is still a word list: it reduces,
+# and does not remove, the chance that a wrong value can be confirmed with one click.
+_FILLER_BEFORE = {"is", "of", "rate", "level", "reading", "count", "at", "was", "are", ":", "=",
+                  "है", "हैं", "का", "की", "के", "दर", "स्तर", "था", "थी", "hai", "ka", "ki", "ke",
+                  "ଅଛି", "ହେଉଛି", "ହେଲା", "ର", "ମାତ୍ରା", "ସ୍ତର", "ଥିଲା"}
+_FILLER_AFTER = {"है", "हैं", "था", "थी", "hai", "ଅଛି", "ହେଉଛି", "ଥିଲା", "now", "अभी", "ଏବେ", "only"}
+_SEP = re.compile(r"[\s:=,]+")
+
+
+def _clean_context(text: str, c: Candidate, lo: int, hi: int) -> bool:
+    nxt = text[c.char_end:c.char_end + 1]
+    if nxt and (nxt.isalnum() or nxt == "-" or 0x0900 <= ord(nxt) <= 0x0B7F):  # 90ରୁ, 110-120
+        return False
+    keywords = [w for fld, ws in KEYWORDS.items() if fld != "pregnancy" for w in ws]
+    before_kw = [e for s_, e in _find_terms(text, tuple(keywords), lo, c.char_start) if e <= c.char_start]
+    tail = re.findall(rf"[{_WORDCH}%/°]+|[:=]", text[c.char_end:hi])
+    if before_kw:
+        between = [w for w in _SEP.split(text[max(before_kw):c.char_start]) if w]
+        if any(w not in _FILLER_BEFORE for w in between):
+            return False
+    else:
+        # No field word before the value: allowed only as "<number> <unit> <field word>" (102 डिग्री बुखार).
+        if not tail or not any(tail[0].startswith(k) or k.startswith(tail[0]) for k in keywords):
+            return False
+        tail = tail[1:]
+    if tail and tail[0] not in _FILLER_AFTER and not any(tail[0] == k or tail[0].startswith(k) for k in keywords):
+        return False
+    return True
+
+
+def _apply_context_gate(text: str, clauses: list[tuple[int, int]], out: list[Candidate], nums: list[_Num]) -> None:
+    for c in out:
+        if c.field in ("pregnancy", "symptom_duration", "unassigned"):
+            continue
+        lo, hi = _clause_of(clauses, c.char_start)
+        if not _clean_context(text, c, lo, hi):
+            c.add("context_unclear")
+            c.normalized = None
+        if c.field == "bp":
+            # "BP one sixty over one ten" parses as 60/1 with the "one"s left over: a number right next to the
+            # pair means it was split. Shorthand such as "13 by 9" (for 130/90) is flagged, never multiplied.
+            if any(n.end <= c.char_start and not text[n.end:c.char_start].strip() for n in nums) or any(
+                n.start >= c.char_end and not text[c.char_end:n.start].strip() for n in nums
+            ):
+                c.add("number_sequence_ambiguous")
+                c.normalized = None
+            if c.raw_value is not None and c.raw_value2 is not None and c.raw_value < 30 and c.raw_value2 < 30:
+                c.add("bp_shorthand_possible")
+                c.normalized = None
 
 
 def _apply_context_flags(text: str, clauses: list[tuple[int, int]], out: list[Candidate]) -> None:
