@@ -344,6 +344,19 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - [x] Explicit error codes for every failure; nothing inferred from a failure
 - [x] `GET .../voice/prefill` — confirmed values for the existing triage endpoint (never auto-submits)
 
+#### 4.8 Gap closure (2026-10-01, docs/12 §9)
+
+- [x] Homograph number words (ବାର "times", ଏକ/एक/"one" as "a", count words) block one-click confirm (`number_word_homograph`)
+- [x] Odia number words 16–99 (Unicode CLDR spellings) and leading ଶହେ; Hindi CLDR alternate spellings — draft, not speech-verified
+- [x] Recorder: mic released on setup failure; no upload after leaving the page; in-flight upload aborted (code-inspected)
+- [x] Consent notice `2026-10-01.1` aligned with Sarvam's privacy policy (retention default, training, outside India); facts test for en/hi/or
+- [x] Language review hand-off list ([docs/13](13_Language_Review_Checklist.md)) — no review done yet
+- [ ] Live Sarvam STT/TTS — **BLOCKED**: `api.sarvam.ai` TCP timeout from this network
+- [ ] Real Odia speech clips (fluent speakers, consented, scripted) — not available
+- [x] Manual browser checklist docs/12 §9.4 — Chrome desktop run 2026-10-01, all PASS; no Odia browser voice
+- [ ] Safari desktop — not run; mobile BLOCKED (no HTTPS)
+- [ ] Native-speaker and clinical review of hi/or wording (docs/13)
+
 
 ---
 

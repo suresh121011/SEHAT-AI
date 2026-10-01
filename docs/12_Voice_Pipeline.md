@@ -29,6 +29,8 @@ All sources were accessed on 2026-09-30.
 | Translation | IndicTrans2 | The models are MIT-licensed, with the `ory_Orya` code. `indic-en-dist-200M` exists. | **Deferred to Phase 6.** Hindi and Odia text is never sent to an LLM here, since the privacy gateway fails closed on non-Latin script (docs/11). Original transcripts are kept. |
 | TTS | Indic Parler-TTS | It is Apache-2.0 and gated, with 0.9 B parameters. It is slow on CPU. Meta MMS-TTS is CC-BY-NC. | **Sarvam Bulbul v3** is used, off by default and needing `voice_cloud` consent. The fallback is the browser's `speechSynthesis`, only with a voice that matches the language. The visible read-back is always shown. |
 | Whisper | — | Whisper has no Odia language code. | Not used. |
+| Odia number words 21–99 | — | Unicode CLDR `common/rbnf/or.xml` (Unicode-DFS-2016) spells 0–99 one by one, `100: ଶହେ[ >>]`, `200: << ଶହ[ >>]`, decimal `ଦଶମିକ` (read 2026-10-01). CLDR `hi.xml` adds spellings such as निन्यानबे. | **Added (2026-10-01)** as a closed table, `draft_unreviewed`. CLDR is a written standard: it does not show what an ASR model writes for Odia speech (§9.3). |
+| Sarvam data handling | — | Sarvam's privacy policy (last updated 2026-07-29, read 2026-10-01): content kept for an account-set period, **default 30 days after last access**; used for training **unless the account opts out**; personal data **may be processed outside India**. Its product pages claim no retention, no training and India-only processing. | The notice states the privacy policy, the less protective of the two (notice `2026-10-01.1`). The earlier wording "up to 30 days" overstated a limit and omitted processing outside India. |
 | arXiv:2605.03073 | "numbers captured 0.027–0.16 of the time" | This is a single-author preprint about **Telugu** entity hit-rate. | Cited as motivation only. The demo script no longer applies the figure to Odia. |
 
 **Final council review of the implementation** (llm-council, 5 advisors, 2026-09-30) found defects that were fixed before hand-over, each with a regression test:
@@ -80,15 +82,16 @@ The voice package never imports or calls the rules engine, and never submits tri
 
 ## 3. Privacy and consent
 
-- **Consent purposes:** `triage`, `ai_assist` and **`voice_cloud`**, with notice version `2026-09-30.3`.
+- **Consent purposes:** `triage`, `ai_assist` and **`voice_cloud`**, with notice version `2026-10-01.1` (earlier consents keep the version they were given under).
   - `voice_cloud` is opt-in. It is effective only while `triage` is granted.
   - A decision that omits it records it as **declined**.
   - Withdrawing `triage` cascades to `voice_cloud` and `ai_assist`, with the method `cascade_from_triage`.
-- **Notice wording (en):** "If you allow it, your voice is sent to Sarvam AI (a company in India) to turn it into text, and the values heard (for example your temperature) may be sent to Sarvam to be read back aloud. Sarvam may keep these for up to 30 days and may use them to improve its models unless the organisation running this system has opted out." The checkbox text states the same, including training.
-  - The hi and or wording is an unreviewed draft, shown with the draft banner.
-  - **Whether an opt-out is in place is not verified by this software.** It is the deploying organisation's responsibility.
+- **Notice wording (en, `2026-10-01.1`):** "If you allow it, your voice is sent over the internet to Sarvam AI, a private company, to turn it into text, and the values heard (for example your temperature) may be sent to Sarvam to be read back aloud. Sarvam's privacy policy (29 July 2026) says it keeps such content for a period the account holder sets (by default 30 days after it was last used), may use it to train its models unless the account has opted out, and may process data outside India. This software does not check whether this system's account has changed those settings." The checkbox states the same facts.
+  - The hi and or wording is an unreviewed draft, shown with the draft banner. The material facts each language must state, and the open questions for reviewers, are in [docs/13](13_Language_Review_Checklist.md). A test checks that the facts' key words appear in every language. It does not check meaning.
+  - **Whether an opt-out or a shorter retention is in place is not verified by this software.** It is the deploying organisation's responsibility. Sarvam's product pages and its privacy policy disagree (§1); the notice follows the policy.
 - **Audio:**
   - Audio is held in process memory for the request only and read with a hard byte cap. It is not written to the database or disk by this code, and not logged.
+  - In the browser, leaving the voice page while recording discards the recording (it is never uploaded), and an upload still in flight is aborted. Aborting stops the browser sending; bytes the server or Sarvam already received cannot be recalled. Code-inspected; browser behaviour is in the §9.4 checklist.
   - Out of scope for this claim: the OS or Python allocator, crash dumps, and the browser tab's memory.
   - The Next.js proxy buffers the body in memory (`request.arrayBuffer()`).
 - **Transcripts:**
@@ -130,9 +133,11 @@ The provider's reported language is recorded as a warning. It is never used to s
   - Symptoms and red flags are **not** inferred. The transcript is shown instead.
 - **Numbers:**
   - Digits in any script (Odia ୧୦୨ and Devanagari १०२ both map to 102) and English number words are recognised.
-  - Hindi and Odia number **words** are parsed from a closed, `draft_unreviewed` table: Hindi 0–100 with सौ, and Odia 0–20, the tens and ଶହ. Such candidates carry the `number_words` flag.
+  - Hindi and Odia number **words** are parsed from a closed, `draft_unreviewed` table: Hindi 0–100 with सौ (plus CLDR spellings such as चौवालीस, उनासी, -नबे), and Odia 0–99 with ଶହ (16–99 as spelled in Unicode CLDR, added 2026-10-01). Such candidates carry the `number_words` flag.
+  - Odia ଶହେ means one hundred and only **starts** a number (ଶହେ ଦୁଇ = 102, ଶହେ କୋଡ଼ିଏ = 120). "ଦୁଇ ଶହେ" is not read as 200: it is blocked.
   - This was added because the real local model writes numbers as words ("तापमान एक सौ दो डिग्री", see §9.2), which the pre-agreed contingency covered.
-  - Words outside the table, such as Odia 21–99 compounds, are never guessed. Those values stay missing, which means human review.
+  - Words outside the table (other spellings, joined or inflected forms such as ଦୁଇଶହେ, ଶହେରୁ) are never guessed. Those values stay missing, which means human review.
+  - **Homographs.** Some number words have an everyday second meaning: ବାର is 12 but also "time(s)" (ଅନେକ ବାର, "many times"), and ଏକ / एक / "one" is also "a" (ନାଡ଼ି ଏକ ଟିକେ ବେଶୀ, "pulse a little high"). Before 2026-10-01 these produced confirmable values (respiratory rate 12, pulse 1). Now a value containing ବାର, a lone "one" word, or a number followed by a count word (बार, ବାର, ଥର, दफा, "times") carries the blocking flag `number_word_homograph`. The reviewer must enter the value. A genuine "ବାର" (12) or age "one year" therefore needs typing; that is the intended trade-off.
 - **Temperature:**
   - °F is converted to °C exactly, and **never rounded**. Rounding could move a value across ATP ">39 °C".
   - Tested: 102.2 °F converts to exactly 39.0 °C (not above 39), and 102.3 °F is above 39.
@@ -146,13 +151,14 @@ The provider's reported language is recorded as a warning. It is never used to s
   - `uncertainty`, `temporal_reference` ("yesterday / kal / ଗତକାଲି"), `multiple_values`
   - `oxygen_context`: `on_supplemental_oxygen` is never inferred
   - `bp_order_invalid`, `age_unit_months` (never pre-filled as years), `needs_assignment`
+  - `number_word_homograph` (see Numbers)
 - **Offsets:** candidates keep **character offsets** into the raw transcript, which the reviewer sees highlighted. No engine gives reliable per-word audio timing and no audio is kept, so the evidence link is the transcript span plus the clip's VAD speech span.
 - **Lexicon:** the Hindi and Odia keyword lists are `draft_unreviewed`.
 
 ## 6. Read-back policy (`app/voice/readback.py`)
 
 - **Who decides.** Every candidate needs an explicit decision by the case reviewer: the creator ANM or an MO. The patient can record and listen but cannot confirm.
-  - **Yes, that's right** (`confirmed`): allowed only when the value was normalised **and carries no blocking flag**. The blocking flags are negation, uncertainty, earlier-time reference, several values, an unparsed number modifier (साढ़े / सवा / "and a half"), a number spoken in parts ("one twenty"), unknown unit, out of range, reversed BP, age in months, and needs-assignment.
+  - **Yes, that's right** (`confirmed`): allowed only when the value was normalised **and carries no blocking flag**. The blocking flags are negation, uncertainty, earlier-time reference, several values, an unparsed number modifier (साढ़े / सवा / "and a half"), a number spoken in parts ("one twenty"), a number word that may mean "times" or "a", unknown unit, out of range, reversed BP, age in months, and needs-assignment.
   - **Change value** (`corrected`): the reviewer enters the value, with no default field or unit. It is validated against the engine domain and stored as `voice_manual_correction`.
   - **Not sure** (`unsure`): the field stays **missing**, which means human review.
   - **Wrong / not said** (`rejected`): the field also stays **missing**.
@@ -216,22 +222,33 @@ VOICE_ENABLED=1 VOICE_LOCAL_ASR_ENABLED=1 ../.venv/bin/uvicorn app.main:app --re
 
 ## 9. Verification status
 
-Status as of 2026-09-30. Re-run the commands in §8 and the opt-in tests in §9.2 to refresh it.
+Status as of 2026-10-01 (gap-closure pass). Re-run the commands in §8 and the opt-in tests in §9.2 to refresh it.
+
+Commands run on 2026-10-01, from `backend/` unless stated:
+
+| Check | Command | Result |
+|---|---|---|
+| Backend suite, before changes | `../.venv/bin/python -m pytest -q` | 530 passed, 9 skipped (opt-in live), 5 xfailed (known PII gaps, docs/11) |
+| Backend suite, after changes | same | 568 passed, 9 skipped, 5 xfailed |
+| Local engine, network sockets blocked | `SEHAT_LIVE_LOCAL=1 ../.venv/bin/python -m pytest -m live -k local -v` | hi PASS; English-rejection PASS; or SKIPPED (no Odia fixture) |
+| Sarvam reachability | `curl --max-time 15 https://api.sarvam.ai/`, inside and outside the sandbox | **BLOCKED**: DNS resolves (4.247.234.152), TCP connect times out after 15 s; huggingface.co answers. Key configured (presence checked, never printed). Live cloud tests not run. |
+| Frontend | `npm run lint`, `npx tsc --noEmit`, `npm run build` (in `frontend/`) | all pass before and after (no frontend test framework exists) |
 
 ### 9.1 Results
 
 | Path | Status | Evidence |
 |---|---|---|
 | Silero VAD (en, hi synthetic speech; silence; noise; clipped) | **tested-real** | `tests/voice/test_audio_vad.py` |
-| Extractor (39 test cases incl. °F boundary pairs, negation, scripts) | **tested-real** (pure code) | `tests/voice/test_extract.py` |
+| Extractor (°F boundary pairs, negation, scripts, homographs, Odia CLDR words in sentences) | **tested-real** (pure code; the number tables are tested against written spellings, not speech) | `tests/voice/test_extract.py` |
 | Cloud STT contract, consent, idempotency, failures, audit | **tested-mock** | `tests/voice/test_api.py` |
-| Cloud STT against real Sarvam (en/hi/or) | **not verified**: key configured, but `api.sarvam.ai` is unreachable from this network (connection timeout, 2026-10-01) | `SEHAT_LIVE_SARVAM=1 pytest -m live -k cloud` |
+| Cloud STT against real Sarvam (en/hi/or) | **BLOCKED** (not verified): key configured, but `api.sarvam.ai` is unreachable from this network (TCP timeout, re-checked 2026-10-01 inside and outside the sandbox) | `SEHAT_LIVE_SARVAM=1 ../.venv/bin/python -m pytest -m live -k cloud -v` once the host is reachable |
 | Local IndicConformer, Hindi, network blocked | **tested-real** (synthetic clip) | `tests/voice/test_live.py` (§9.2) |
-| Local IndicConformer, Odia | **tested-real, minimal**: 2 live-microphone clips (developer's own voice), numbers only | §9.3 |
+| Local IndicConformer, Odia | **not verified on real Odia speech.** 2 live-microphone clips (one non-native speaker, numbers only, §9.3) found parser bugs but are not evidence of accuracy. No Odia fixture. The 21–99 number words follow CLDR spellings and have never been seen in model output. | needs consented, scripted clips from fluent speakers |
 | Local English | **unsupported** | model has no English |
-| Bulbul TTS | **tested-mock** only; real run not done (same reason as cloud STT) | |
+| Bulbul TTS | **tested-mock** only; **BLOCKED** for a real run (same reason as cloud STT) | |
 | Frontend path via Next.js (session cookie → same-origin proxy → raw `audio/wav` upload → real local model → read-back → prefill) | **tested-real** over HTTP (2026-09-30) | scripted HTTP client against `npm run dev` + uvicorn |
-| Browser rendering, microphone capture, WAV conversion in the page | **not automated**: lint and production build pass; needs a manual browser check | no frontend test framework or browser automation in this environment |
+| Browser rendering, microphone capture, WAV conversion in the page | **tested-real (manual), Chrome desktop only**: §9.4 run 2026-10-01, B1–B12 PASS (including the recorder fixes B3/B4; B10 in a separate session); no Odia browser voice; Safari not run. Not automated. | no frontend test framework or browser automation in this environment |
+| Mobile browsers (Chrome Android, Safari iOS) | **BLOCKED**: not run. The microphone needs HTTPS off localhost, and no HTTPS/tunnel setup exists for the dev server. | §9.4 |
 
 ### 9.2 Real-engine runs
 
@@ -266,10 +283,37 @@ The developer recorded 10 clips in the voice page: 8 selected as Hindi and 2 as 
 
 Each fix has a regression test built from the real transcript (`tests/voice/test_extract.py`, "live on-device recordings"). This is one speaker in a quiet room, a handful of clips, and Odia numbers only. It is **not** an accuracy measurement.
 
+### 9.4 Browser and microphone checklist (manual)
+
+Fixes made on 2026-10-01 after reading `frontend/src/components/VoiceRecorder.tsx` and the voice page:
+- The microphone stayed on if `MediaRecorder` or `AudioContext` failed to start after permission was given. It is now released.
+- Leaving the page while recording stopped the tracks, which ended the recorder, whose `onstop` then **uploaded the audio after the user had left**. The recording is now discarded on unmount. An upload in flight is aborted.
+- Other fixes: an empty recording gets its own message, sample-clip load failures are shown, and a 429 from the online service keeps the Retry button. Online failures are explained in plain words, and the page says the engine was not switched. The Listen button no longer calls the reviewer-only TTS endpoint for a patient.
+
+Run on `http://localhost:3000` (demo accounts, synthetic speech only).
+
+**Run 2026-10-01** by the developer: Chrome desktop on macOS, local engine, results as reported (browser version not recorded). Safari not run. The backend log of that session shows 12 transcription uploads (8 hi, 4 or), all HTTP 200, no server errors, and no request to `/triage`. Record PASS / FAIL / NOT RUN with the date and browser version. Rows not run stay NOT RUN.
+
+| # | Check | Chrome (desktop) | Safari (macOS) | Chrome Android / Safari iOS |
+|---|---|---|---|---|
+| B1 | Deny microphone permission → message shown, nothing uploaded | PASS | NOT RUN | BLOCKED (needs HTTPS) |
+| B2 | Record 3 s, Stop → mic indicator turns off; transcript appears | PASS | NOT RUN | BLOCKED |
+| B3 | Start recording, then navigate away (header link) → mic indicator off; **no POST** to `/voice/transcriptions` in the Network tab | PASS | NOT RUN | BLOCKED |
+| B4 | Upload a clip, navigate away before it returns → request shows "(canceled)" | PASS | NOT RUN | BLOCKED |
+| B5 | Record silence → `no_speech` shown, no candidates | PASS | NOT RUN | BLOCKED |
+| B6 | Record until the 30 s cap → recording stops on its own, upload accepted | PASS | NOT RUN | BLOCKED |
+| B7 | Upload's WAV in the Network tab: `Content-Type: audio/wav`, header says 16 kHz mono 16-bit (size ≈ 32 kB per second + 44 bytes) | PASS | NOT RUN | BLOCKED |
+| B8 | Stop the backend, record → error shown and Retry appears; start the backend, Retry → transcript (not stuck "busy") | PASS | NOT RUN | BLOCKED |
+| B9 | Candidate cards: highlight, flags, read-back text; Listen → device voice or "unavailable" message | PASS | NOT RUN | BLOCKED |
+| B10 | Confirm / Change value / Not sure / Wrong on four cards → prefill lists only confirmed and corrected values; the others appear as unresolved | PASS (developer-reported; run in a separate session whose server log was not kept) | NOT RUN | BLOCKED |
+| B11 | Say "ଶ୍ୱାସ ଅନେକ ବାର" or "सांस एक बार" (Odia/Hindi selected) → flag "can also mean 'times' or 'a'", Confirm disabled | PASS | NOT RUN | BLOCKED |
+| B12 | Nothing submits triage automatically (no POST to `/triage`) | PASS (log: no POST to `/triage`) | NOT RUN | BLOCKED |
+| B13 | Does this device have an Odia browser voice? (consent read-aloud, demo Beat 1) | **No Odia voice** (Chrome, macOS): read-aloud shows "unavailable"; the presenter reads the notice | NOT RUN | BLOCKED |
+
 ## 10. Known limitations
 
 - No calibrated transcript confidence (Sarvam gives none; IndicConformer's is not exposed). Confidence never affects urgency.
-- Hindi/Odia number words are parsed only from a closed draft table. Words outside it, such as Odia 21–99 compounds, are not guessed: a number spoken in parts ("ଅଶୀ ପାଞ୍ଚ") is flagged and must be entered by the reviewer. Hindi/Odia keyword lists and read-back wording are unreviewed drafts.
+- Hindi/Odia number words are parsed only from a closed draft table. Odia 21–99 follows CLDR's written spellings; spoken or ASR spellings that differ are not guessed. A number spoken in parts ("ଅଶୀ ପାଞ୍ଚ") is flagged and must be entered by the reviewer. Homograph blocking (ବାର, ଏକ/एक/"one", count words) covers only the words listed; other everyday double meanings may exist (docs/13). Hindi/Odia keyword lists, read-back wording and consent translations are unreviewed drafts (docs/13). Hindi/Odia read-back can contain the English fragment "(unit unclear)".
 - A value heard correctly but measured wrongly cannot be detected: read-back reduces mis-transcription only.
 - Local inference cannot be interrupted once started. Waiting requests give up after 30 s with `local_busy`. A `pending` row older than 180 s is treated as abandoned.
 - Temperature measurement site is not captured, and neither is who is speaking (a caregiver versus the patient).
@@ -277,3 +321,11 @@ Each fix has a regression test built from the real transcript (`tests/voice/test
 - `trust_remote_code` executes code from the model repository. The revision is pinned, the download script writes a SHA-256 manifest, and the code must be reviewed before enabling.
 - Local model memory and latency were measured on one machine only (Apple M5, 16 GB): about 2.8 GB RAM, so it is unlikely to fit budget Android tablets. Server or laptop deployment is assumed.
 - Retention and deletion of transcripts remain deferred, as for all case data.
+- Sarvam's stated data handling conflicts between its product pages and its privacy policy (§1). The account's actual settings are unverified.
+
+## 11. Deferred (not Phase 4)
+
+- **Phase 6:** IndicTrans2 translation of transcripts.
+- **Phase 7:** wiring the prefill response into a triage entry form (no form exists yet; nothing is auto-submitted).
+- **Needs people or access:** live Sarvam STT/TTS (network), real Odia speech clips from fluent speakers, native-speaker and clinical review of docs/13, mobile-browser runs (HTTPS), a decision on whether cloud speech should be offered in hi/or before the translations are reviewed.
+- **Production hardening:** per-user/per-case cloud request limits and cost caps, cancelling provider calls on client disconnect, transcript retention and deletion, resource limits for local inference, a full `trust_remote_code` security audit (§9.2 records the checks done), Presear Dakshini (no verifiable release).

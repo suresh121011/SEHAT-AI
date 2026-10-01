@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { type FormEvent, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { DemoBanner } from "@/components/DemoBanner";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
@@ -82,6 +82,19 @@ const FLAG_TEXT: Record<string, string> = {
   number_sequence_ambiguous: "Numbers spoken in parts (e.g. 'one twenty') — enter the value yourself",
   unit_unclear: "The unit word was not clear (°C or °F?) — enter the value and unit yourself",
   number_words: "Heard as number words — check the value",
+  number_word_homograph: "This word can also mean 'times' or 'a' (e.g. 'once', 'a little') — enter the value yourself",
+};
+
+// Plain-language reasons for a failed online (Sarvam) transcription; the code is still shown for support.
+const CLOUD_REASON_TEXT: Record<string, string> = {
+  cloud_timeout: "The online speech service did not answer in time (it may be unreachable from this network).",
+  cloud_unreachable: "The online speech service could not be reached from this network.",
+  cloud_rate_limited: "The online speech service is busy (too many requests). Wait a moment, then retry.",
+  cloud_auth_failed: "The online speech service rejected this server's credentials.",
+  cloud_not_configured: "Online speech is not configured on this server.",
+  cloud_unavailable: "The online speech service reported an error.",
+  cloud_bad_response: "The online speech service sent a reply that could not be read.",
+  cloud_rejected: "The online speech service refused this recording.",
 };
 
 const OUTCOME_TEXT: Record<Outcome, string> = {
@@ -218,12 +231,16 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
           URL.revokeObjectURL(url);
           setSpeech("Spoken read-back finished (Sarvam voice).");
         };
-        audio.onerror = () => setSpeech("Spoken read-back could not be played. Read the text aloud.");
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          setSpeech("Spoken read-back could not be played. Read the text aloud.");
+        };
         setSpeech("Playing…");
         await audio.play();
         return;
       } catch {
-        // fall through to the device voice, and say so
+        // The online voice failed: fall through to the device voice, and say so in its status line.
+        setSpeech("Online voice unavailable — trying this device's voice.");
       }
     }
     if (voice) {
@@ -307,6 +324,10 @@ function VoiceScreen() {
   const [items, setItems] = useState<Transcription[]>([]);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [busy, setBusy] = useState(false);
+  // Cancels an upload still in flight when the page is left. This stops the browser sending the rest;
+  // bytes the server (or, for the online engine, Sarvam) already received cannot be recalled.
+  const uploadAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadAbort.current?.abort(), []);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<{ wav: Blob; key: string } | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -363,7 +384,7 @@ function VoiceScreen() {
       case "CONSENT_WITHDRAWN":
         return "Consent changed while processing. The result was discarded.";
       case "CLOUD_STT_UNAVAILABLE":
-        return `Online speech-to-text failed (${reason}). No transcript was produced. You can retry${caps?.engines.local.languages[language] ? ", choose on-device," : ""} or type instead.`;
+        return `${CLOUD_REASON_TEXT[reason] ?? "Online speech-to-text failed."} No transcript was produced and the app did not switch engine. You can retry${caps?.engines.local.languages[language] ? ", choose On-device," : ""} or type instead. (code: ${reason || "unknown"})`;
       case "LOCAL_ASR_UNAVAILABLE":
         return `On-device speech-to-text is unavailable (${reason}). Nothing was sent online.`;
       case "LANGUAGE_UNSUPPORTED":
@@ -391,12 +412,13 @@ function VoiceScreen() {
     setMessage(null);
     setPending({ wav, key });
     try {
-      await api.postAudio(`cases/${caseId}/voice/transcriptions?language=${language}&engine=${selected}&idempotency_key=${key}`, wav);
+      uploadAbort.current = new AbortController();
+      await api.postAudio(`cases/${caseId}/voice/transcriptions?language=${language}&engine=${selected}&idempotency_key=${key}`, wav, uploadAbort.current.signal);
       setPending(null);
       await refresh();
     } catch (err) {
       setMessage(explain(err));
-      if (err instanceof ApiError && err.status < 500 && err.code !== "IN_PROGRESS") setPending(null);
+      if (err instanceof ApiError && err.status < 500 && err.status !== 429 && err.code !== "IN_PROGRESS") setPending(null);
       // A finished failure is stored under this key; a retry must be a new attempt (new key).
       else if (!(err instanceof ApiError && err.code === "IN_PROGRESS")) setPending({ wav, key: crypto.randomUUID() });
     } finally {
@@ -539,7 +561,7 @@ function VoiceScreen() {
           {t.candidates.length > 0 && (
             <ul className="space-y-2">
               {t.candidates.map((c) => (
-                <CandidateCard key={c.candidate_id} c={c} language={t.language} reviewer={reviewer} ttsReady={!!caps?.tts.ready && cloudConsent} busy={busy} caseId={caseId} onDecide={decide} />
+                <CandidateCard key={c.candidate_id} c={c} language={t.language} reviewer={reviewer} ttsReady={!!caps?.tts.ready && cloudConsent && reviewer} busy={busy} caseId={caseId} onDecide={decide} />
               ))}
             </ul>
           )}

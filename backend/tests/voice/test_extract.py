@@ -316,3 +316,121 @@ def test_english_spoken_with_hindi_selected_yields_no_values():
     """Live: English speech with Hindi selected is written phonetically; nothing is guessed from it."""
     live = "आई हैव हैड फीवर फॉर थ्री डेज मई टेम्परेचर इज वन हंड्रेड एंड टू डिग्रीज फेरनहााइट"
     assert [c for c in extract(live) if c.normalized] == []
+
+
+# ── Odia 21–99 (Unicode CLDR spellings), leading ଶହେ, Hindi alternate spellings, homographs ─────────
+# Behaviour on triage-style sentences, not a check of the table against itself. The spellings come from
+# a written standard (CLDR), not from real speech: what an ASR model writes may differ (docs/12 §5).
+
+
+@pytest.mark.parametrize(
+    "text, field, normalized",
+    [
+        ("ଅକ୍ସିଜେନ ଚଉରାନବେ ପ୍ରତିଶତ", "spo2", {"spo2": 94}),
+        ("ନାଡ଼ି ଅଠାଶୀ", "pulse", {"pulse": 88}),
+        ("ଶ୍ୱାସ ବାଇଶ", "resp_rate", {"resp_rate": 22}),
+        ("ବୟସ ପଞ୍ଚତିରିଶ ବର୍ଷ", "age", {"age_years": 35}),
+        ("ତାପମାନ ଅଠତିରିଶ ଦଶମିକ ପାଞ୍ଚ ଡିଗ୍ରୀ", "temp", {"temp_c": 38.5}),
+        ("ଜ୍ୱର ଶହେ ଦୁଇ ଡିଗ୍ରୀ", "temp", {"temp_c": (102 - 32) * 5 / 9}),
+        ("ନାଡ଼ି ଶହେ କୋଡ଼ିଏ", "pulse", {"pulse": 120}),
+        ("ନାଡ଼ି ଏକ ଶହ ଦୁଇ", "pulse", {"pulse": 102}),
+        ("ଅକ୍ସିଜେନ ନିଆଁନବେ ପ୍ରତିଶତ", "spo2", {"spo2": 99}),
+        ("ऑक्सीजन चौरानबे प्रतिशत", "spo2", {"spo2": 94}),
+        ("नब्ज़ उनासी", "pulse", {"pulse": 79}),
+        ("ऑक्सीजन चौरानवे प्रतिशत", "spo2", {"spo2": 94}),  # the existing spelling still works
+    ],
+)
+def test_odia_cldr_and_hindi_variant_numbers_in_sentences(text, field, normalized):
+    c = only(text, field)
+    assert c.normalized == normalized and "number_words" in c.flags
+
+
+def test_odia_bp_with_leading_hundred():
+    c = only("ରକ୍ତଚାପ ଶହେ କୋଡ଼ିଏ ବାଇ ଅଶୀ", "bp")
+    assert c.normalized == {"sbp": 120, "dbp": 80}
+
+
+def test_fever_boundary_unchanged_for_odia_words():
+    # 102.2 °F = 39.0 °C exactly (not >39); the word path uses the same exact conversion.
+    c = only("ଜ୍ୱର ଶହେ ଦୁଇ ଦଶମିକ ଦୁଇ ଡିଗ୍ରୀ", "temp")
+    assert c.raw_value == 102.2 and c.unit == "f" and not c.normalized["temp_c"] > 39
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ଶ୍ୱାସ ଅନେକ ବାର ନେଉଛି",  # "breathing many times": ବାର is "times", not 12
+        "ଶ୍ୱାସ ବାର",  # even a lone ବାର could be "time(s)"
+        "ନାଡ଼ି ଏକ ଶହ ବାର",  # 112 or "a hundred times"
+        "सांस एक बार",  # "breath once"
+        "ନାଡ଼ି ଦୁଇ ଥର",  # "twice"
+        "pulse two times",
+    ],
+)
+def test_homographs_and_counts_are_never_one_click_confirmable(text):
+    from app.voice.readback import can_confirm
+
+    cands = extract(text)
+    assert cands and all(not can_confirm(c.field, c.normalized, c.flags) for c in cands)
+    assert any("number_word_homograph" in c.flags for c in cands)
+
+
+@pytest.mark.parametrize("text", ["ନାଡ଼ି ଦୁଇ ଶହେ", "ନାଡ଼ି ଏକ ଶହେ ଦୁଇ"])
+def test_multiplier_before_leading_hundred_is_blocked_not_200(text):
+    from app.voice.readback import can_confirm
+
+    cands = extract(text)
+    assert all(c.raw_value not in (200, 102, 100) or not can_confirm(c.field, c.normalized, c.flags) for c in cands)
+    assert not any(can_confirm(c.field, c.normalized, c.flags) for c in cands)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ନାଡ଼ି ଦୁଇଶହେ",  # joined ଶହେ form: not in the table
+        "ନାଡ଼ି ଅଠାସୀ",  # misspelling of ଅଠାଶୀ: never guessed
+        "ନାଡ଼ି ଶହେରୁ",  # inflected
+    ],
+)
+def test_unknown_odia_spellings_give_no_value(text):
+    assert [c for c in extract(text) if c.normalized] == []
+
+
+def test_tens_and_units_in_parts_still_ambiguous():
+    for c in extract("ଅକ୍ସିଜେନ ନବେ ଚାରି ପ୍ରତିଶତ"):
+        assert "number_sequence_ambiguous" in c.flags and c.normalized is None
+
+
+def test_out_of_range_odia_spo2_is_flagged():
+    c = only("ଅକ୍ସିଜେନ ଶହେ ଦଶ ପ୍ରତିଶତ", "spo2")
+    assert "out_of_domain_range" in c.flags and c.normalized is None
+
+
+def test_negation_and_uncertainty_still_block_new_odia_words():
+    from app.voice.readback import can_confirm
+
+    for text in ("ଜ୍ୱର ଅଠତିରିଶ ଡିଗ୍ରୀ ନାହିଁ", "ନାଡ଼ି ପ୍ରାୟ ଅଠାଶୀ"):
+        c = [c for c in extract(text) if c.field in ("temp", "pulse")][0]
+        assert not can_confirm(c.field, c.normalized, c.flags)
+
+
+def test_number_words_do_not_collide_with_other_lexicons():
+    from app.voice.extract import INDIC_NUMBER_WORDS, KEYWORDS, NEGATION, TEMPORAL, UNCERTAINTY, UNIT_WORDS
+
+    other = {w for ws in KEYWORDS.values() for w in ws} | {w for ws in UNIT_WORDS.values() for w in ws}
+    other |= set(NEGATION) | set(UNCERTAINTY) | set(TEMPORAL)
+    assert not other.intersection(INDIC_NUMBER_WORDS)
+
+
+@pytest.mark.parametrize("text", ["ନାଡ଼ି ଏକ ଟିକେ ବେଶୀ", "नब्ज़ एक दम तेज़", "pulse is one of concern", "ବୟସ ଏକ ବର୍ଷ"])
+def test_lone_one_word_may_be_the_article_a(text):
+    from app.voice.readback import can_confirm
+
+    c = [c for c in extract(text) if c.field in ("pulse", "age")][0]
+    assert "number_word_homograph" in c.flags and not can_confirm(c.field, c.normalized, c.flags)
+
+
+def test_one_inside_a_larger_number_or_as_digit_is_unaffected():
+    assert only("ଜ୍ୱର ଏକ ଶହ ଦୁଇ ଡିଗ୍ରୀ", "temp").normalized == {"temp_c": (102 - 32) * 5 / 9}
+    assert only("pulse one hundred", "pulse").normalized == {"pulse": 100}
+    assert "number_word_homograph" not in only("pulse 1", "pulse").flags

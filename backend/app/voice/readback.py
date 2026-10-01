@@ -94,7 +94,7 @@ BLOCKING_FLAGS = frozenset({
     "negation", "uncertainty", "temporal_reference", "multiple_values",
     "number_modifier_unparsed", "number_sequence_ambiguous", "unit_unknown",
     "out_of_domain_range", "non_integer", "bp_order_invalid", "age_unit_months", "needs_assignment",
-    "unit_unclear",
+    "unit_unclear", "number_word_homograph",
 })
 
 
