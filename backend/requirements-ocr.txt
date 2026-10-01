@@ -1,0 +1,22 @@
+# SEHAT AI — optional OCR components (docs/14). The app starts and all non-OCR features work
+# without these; OCR stays unavailable (and reports so) until installed AND enabled.
+#
+# rapidocr 3.9.2 declares the GUI build `opencv_python`; installing it next to the headless build
+# makes both write the same `cv2` module. So install in two steps (the venv has no pip; use uv):
+#   uv pip install --python .venv/bin/python -r backend/requirements-ocr.txt
+#   uv pip install --python .venv/bin/python --no-deps rapidocr==3.9.2
+# then install the pinned models:  (from backend/)  ../.venv/bin/python scripts/download_ocr_models.py
+# `uv pip check` will report that rapidocr wants opencv-python; that is expected (headless provides cv2).
+-r requirements.txt
+onnxruntime==1.20.1              # already pinned by requirements-voice.txt; same version
+opencv-python-headless==5.0.0.93
+pypdfium2==5.13.0                # Apache-2.0 / BSD-3; PDF rendering + text layer (runs in a subprocess)
+pillow==12.3.0
+pyclipper==1.4.0                 # rapidocr runtime deps, listed explicitly because rapidocr is --no-deps
+shapely==2.1.2
+omegaconf==2.3.1
+colorlog==6.12.0
+pyyaml
+six
+tqdm
+requests

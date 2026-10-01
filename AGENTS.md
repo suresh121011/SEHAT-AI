@@ -27,6 +27,7 @@ All project documentation lives in `docs/`:
 | [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md) | Consent, PII redaction, AI gateway, audit log — implemented controls, threat model, limitations (demo-only) |
 | [`docs/12_Voice_Pipeline.md`](docs/12_Voice_Pipeline.md) | Voice pipeline (Phase 4): technology decisions, consent (`voice_cloud`), read-back policy, flags, verification status |
 | [`docs/13_Language_Review_Checklist.md`](docs/13_Language_Review_Checklist.md) | Hindi/Odia draft wording awaiting native-speaker and clinical review; consent facts every language must state |
+| [`docs/14_OCR_Pipeline.md`](docs/14_OCR_Pipeline.md) | OCR pipeline (Phase 5): Surya/PaddleOCR + Chandra on-device, Gödel verification, RxNorm, sourced reference ranges, source-linked review, verification status |
 
 ## Agent Rules
 

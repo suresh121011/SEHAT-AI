@@ -10,7 +10,7 @@ Created 2026-10-01 (Phase 4 gap closure). Code locations are given by file and s
 
 ## A. Consent notice: material facts every language must state
 
-Source: `backend/app/consent_notice.py`, notice version `2026-10-01.1`. Fact presence in all three languages
+Source: `backend/app/consent_notice.py`, notice version `2026-10-01.2` (adds F11). Fact presence in all three languages
 is tested by `tests/privacy/test_consent_notice_facts.py`. That test checks key words only, not meaning.
 
 | # | Material fact (en wording is the reference) | Basis |
@@ -25,6 +25,7 @@ is tested by `tests/privacy/test_consent_notice_facts.py`. That test checks key 
 | F8 | This software does not check the account's retention or training settings | project fact |
 | F9 | Saying no is possible; on-device speech or typing still work | docs/12 §4 |
 | F10 | Withdrawal stops further processing; data already recorded is kept for now | docs/11 |
+| F11 | A shared lab report, prescription or discharge summary: a **picture of each page and the text read from it are kept**; it is read on this system and **not sent to any outside company**; pages may show the patient's **name**; a health worker checks every value | docs/14 §3 |
 
 **Provider-policy conflict (2026-10-01).** Sarvam's product pages (for example sarvam.ai/apis/speech-to-text/tamil)
 claim no retention, no training on API data and India-only processing. Its privacy policy says F5–F7. The
@@ -46,6 +47,7 @@ written terms from Sarvam and then revise F5–F7 (new notice version).
 | L-num-or | or | `extract.py` `_OR_WORDS`, `_OR_CLDR`, `_OR_LEADING_HUNDRED` | number words 0–99 (Unicode CLDR spellings), ଶହ, ଶହେ | numbers | Spoken forms that differ from CLDR (e.g. final ି: ଏକୋଇଶି vs ଏକୋଇଶ)? Is "ଦୁଇ ଶହେ" ever said for 200 (currently blocked)? |
 | L-homograph | hi, or | `extract.py` `_HOMOGRAPH_NUMBER_WORDS`, `_LONE_ONE_WORDS`, `_COUNT_WORDS` | number words that also mean "times" or "a" | ବାର (12 / times), ଏକ / एक (one / a), बार, ଥର | Other number words with an everyday second meaning? |
 | L-mod | hi, or | `extract.py` `_NUMBER_MODIFIERS` | साढ़े, सवा, ସାଢ଼େ … (never computed, always blocked) | half, quarter | Complete? |
+| C-hi-10, C-or-10 | hi, or | `consent_notice.py` `paragraphs` (document paragraph, Phase 5) | consent screen | en paragraph on documents (F11) | Plain for a low-literacy listener? Is "पर्चा" / "ପ୍ରେସକ୍ରିପସନ୍" the word patients use? Is "कंप्यूटर द्वारा पढ़ा गया पाठ" understood? |
 | UI-banner | en | consent and voice pages | "Draft translation — not reviewed by a native speaker…" | — | Keep until sign-off. |
 
 ## C. Sign-off log

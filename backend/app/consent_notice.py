@@ -21,7 +21,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-NOTICE_VERSION = "2026-10-01.1"  # 2026-09-30.2: voice + cloud speech (Phase 4); .3: read-back text + training in the checkbox; 2026-10-01.1: Sarvam retention default, processing outside India
+NOTICE_VERSION = "2026-10-01.2"  # .2: documents (Phase 5 OCR) — page images and read text kept, read locally; 2026-09-30.2: voice + cloud speech (Phase 4); .3: read-back text + training in the checkbox; 2026-10-01.1: Sarvam retention default, processing outside India
+
+# Notice versions whose text discloses document upload (Phase 5). A document may be uploaded only if the
+# case's latest triage grant was given under one of these (app/ocr/service.py). A set, so a later unrelated
+# notice change does not lock out cases already consented to documents.
+DOCUMENT_NOTICE_VERSIONS = frozenset({"2026-10-01.2"})
 
 Language = Literal["en", "hi", "or"]
 Purpose = Literal["triage", "ai_assist", "voice_cloud"]
@@ -48,6 +53,7 @@ _NOTICES: dict[str, Notice] = {
             "Why: to decide how urgently you need care, and to share this with the health worker and doctor treating you.",
             "Optional AI assistance: a computer program may draft a summary of your symptoms. Names and numbers are removed first, but this removal is not perfect. You can say no to this part.",
             "If you describe your symptoms by speaking, the written text of what was said is kept with this visit's record. SEHAT AI does not store the voice recording itself.",
+            "If you share a lab report, prescription or discharge summary, a picture of each page and the text read from it by computer are kept with this visit's record. The document is read on this system and is not sent to any outside company. The pages may show your name and other details; a health worker checks every value read from them.",
             "Optional online speech processing: if you allow it, your voice is sent over the internet to Sarvam AI, a private company, to turn it into text, and the values heard (for example your temperature) may be sent to Sarvam to be read back aloud. Sarvam's privacy policy (29 July 2026) says it keeps such content for a period the account holder sets (by default 30 days after it was last used), may use it to train its models unless the account has opted out, and may process data outside India. This software does not check whether this system's account has changed those settings. You can say no to this part; you can still speak (if on-device speech processing is available) or type instead.",
             "Your choices are recorded with the date and time.",
             "You can withdraw at any time by telling the health worker. Withdrawing stops further processing; information already recorded is kept for now.",
@@ -70,6 +76,7 @@ _NOTICES: dict[str, Notice] = {
             "क्यों: यह तय करने के लिए कि आपको कितनी जल्दी इलाज चाहिए, और यह जानकारी आपका इलाज करने वाले स्वास्थ्य कर्मी और डॉक्टर के साथ साझा करने के लिए।",
             "वैकल्पिक AI सहायता: एक कंप्यूटर प्रोग्राम आपके लक्षणों का सारांश तैयार कर सकता है। पहले नाम और नंबर हटा दिए जाते हैं, लेकिन यह हटाना पूरी तरह सटीक नहीं है। आप इस भाग के लिए मना कर सकते हैं।",
             "अगर आप बोलकर अपने लक्षण बताते हैं, तो जो कहा गया उसका लिखित पाठ इस बार के रिकॉर्ड के साथ रखा जाता है। SEHAT AI आवाज़ की रिकॉर्डिंग खुद संग्रहीत नहीं करता।",
+            "अगर आप लैब रिपोर्ट, पर्चा या डिस्चार्ज सारांश देते हैं, तो हर पन्ने की तस्वीर और कंप्यूटर द्वारा उससे पढ़ा गया पाठ इस बार के रिकॉर्ड के साथ रखा जाता है। दस्तावेज़ इसी प्रणाली पर पढ़ा जाता है और किसी बाहरी कंपनी को नहीं भेजा जाता। पन्नों पर आपका नाम और अन्य जानकारी हो सकती है; उनसे पढ़े गए हर मान की जाँच स्वास्थ्य कर्मी करते हैं।",
             "वैकल्पिक ऑनलाइन वाणी प्रसंस्करण: अगर आप अनुमति देते हैं, तो आपकी आवाज़ पाठ में बदलने के लिए इंटरनेट से Sarvam AI (एक निजी कंपनी) को भेजी जाती है, और सुने गए मान (जैसे आपका तापमान) पढ़कर सुनाने के लिए Sarvam को भेजे जा सकते हैं। Sarvam की गोपनीयता नीति (29 जुलाई 2026) के अनुसार वह इन्हें खाताधारक द्वारा तय अवधि तक रखता है (सामान्य रूप से आख़िरी उपयोग के 30 दिन बाद तक), खाते ने मना न किया हो तो अपने मॉडल प्रशिक्षित करने के लिए इनका उपयोग कर सकता है, और इन्हें भारत के बाहर भी संसाधित कर सकता है। इस प्रणाली के खाते की ये सेटिंग बदली गई हैं या नहीं, यह सॉफ़्टवेयर जाँच नहीं करता। आप इस भाग के लिए मना कर सकते हैं; फिर भी आप बोल सकते हैं (अगर डिवाइस पर वाणी प्रसंस्करण उपलब्ध है) या लिख सकते हैं।",
             "आपकी पसंद तारीख और समय के साथ दर्ज की जाती है।",
             "आप कभी भी स्वास्थ्य कर्मी को बताकर सहमति वापस ले सकते हैं। वापस लेने पर आगे की प्रक्रिया रुक जाती है; जो जानकारी पहले से दर्ज है वह अभी रखी जाती है।",
@@ -92,6 +99,7 @@ _NOTICES: dict[str, Notice] = {
             "କାହିଁକି: ଆପଣଙ୍କୁ କେତେ ଶୀଘ୍ର ଚିକିତ୍ସା ଦରକାର ତାହା ସ୍ଥିର କରିବା ପାଇଁ, ଏବଂ ଆପଣଙ୍କ ଚିକିତ୍ସା କରୁଥିବା ସ୍ୱାସ୍ଥ୍ୟ କର୍ମୀ ଓ ଡାକ୍ତରଙ୍କ ସହ ଏହା ଅଂଶୀଦାର କରିବା ପାଇଁ।",
             "ଇଚ୍ଛାଧୀନ AI ସହାୟତା: ଏକ କମ୍ପ୍ୟୁଟର ପ୍ରୋଗ୍ରାମ ଆପଣଙ୍କ ଲକ୍ଷଣର ସାରାଂଶ ପ୍ରସ୍ତୁତ କରିପାରେ। ପ୍ରଥମେ ନାମ ଓ ନମ୍ବର ହଟାଯାଏ, କିନ୍ତୁ ଏହା ସମ୍ପୂର୍ଣ୍ଣ ନିର୍ଭୁଲ ନୁହେଁ। ଆପଣ ଏହି ଅଂଶ ପାଇଁ ମନା କରିପାରିବେ।",
             "ଯଦି ଆପଣ କହି ଆପଣଙ୍କ ଲକ୍ଷଣ ବର୍ଣ୍ଣନା କରନ୍ତି, ଯାହା କୁହାଗଲା ତାହାର ଲିଖିତ ପାଠ୍ୟ ଏହି ଥରର ରେକର୍ଡ ସହ ରଖାଯାଏ। SEHAT AI ସ୍ୱର ରେକର୍ଡିଂ ନିଜେ ସଂରକ୍ଷଣ କରେ ନାହିଁ।",
+            "ଯଦି ଆପଣ ଲ୍ୟାବ୍ ରିପୋର୍ଟ, ପ୍ରେସକ୍ରିପସନ୍ କିମ୍ବା ଡିସଚାର୍ଜ ସାରାଂଶ ଦିଅନ୍ତି, ପ୍ରତ୍ୟେକ ପୃଷ୍ଠାର ଛବି ଏବଂ କମ୍ପ୍ୟୁଟର ଦ୍ୱାରା ସେଥିରୁ ପଢ଼ାଯାଇଥିବା ପାଠ୍ୟ ଏହି ଥରର ରେକର୍ଡ ସହ ରଖାଯାଏ। ଦସ୍ତାବିଜ ଏହି ପ୍ରଣାଳୀରେ ହିଁ ପଢ଼ାଯାଏ ଏବଂ କୌଣସି ବାହାର କମ୍ପାନୀକୁ ପଠାଯାଏ ନାହିଁ। ପୃଷ୍ଠାରେ ଆପଣଙ୍କ ନାମ ଓ ଅନ୍ୟ ବିବରଣୀ ଥାଇପାରେ; ସେଥିରୁ ପଢ଼ାଯାଇଥିବା ପ୍ରତ୍ୟେକ ମୂଲ୍ୟ ସ୍ୱାସ୍ଥ୍ୟ କର୍ମୀ ଯାଞ୍ଚ କରନ୍ତି।",
             "ଇଚ୍ଛାଧୀନ ଅନଲାଇନ୍ ସ୍ୱର ପ୍ରକ୍ରିୟାକରଣ: ଯଦି ଆପଣ ଅନୁମତି ଦିଅନ୍ତି, ଆପଣଙ୍କ ସ୍ୱରକୁ ପାଠ୍ୟରେ ପରିଣତ କରିବା ପାଇଁ ଇଣ୍ଟରନେଟ୍ ମାଧ୍ୟମରେ Sarvam AI (ଏକ ଘରୋଇ କମ୍ପାନୀ)କୁ ପଠାଯାଏ, ଏବଂ ଶୁଣାଯାଇଥିବା ମୂଲ୍ୟ (ଯେପରି ଆପଣଙ୍କ ତାପମାତ୍ରା) ପଢ଼ି ଶୁଣାଇବା ପାଇଁ Sarvamକୁ ପଠାଯାଇପାରେ। Sarvamର ଗୋପନୀୟତା ନୀତି (29 ଜୁଲାଇ 2026) ଅନୁସାରେ ଏହା ଏଗୁଡ଼ିକୁ ଖାତାଧାରୀ ସ୍ଥିର କରିଥିବା ସମୟ ପର୍ଯ୍ୟନ୍ତ ରଖେ (ସାଧାରଣତଃ ଶେଷ ବ୍ୟବହାରର 30 ଦିନ ପରେ ପର୍ଯ୍ୟନ୍ତ), ଖାତା ମନା କରିନଥିଲେ ନିଜ ମଡେଲ ତାଲିମ ପାଇଁ ବ୍ୟବହାର କରିପାରେ, ଏବଂ ଭାରତ ବାହାରେ ମଧ୍ୟ ପ୍ରକ୍ରିୟାକରଣ କରିପାରେ। ଏହି ପ୍ରଣାଳୀର ଖାତାରେ ଏହି ସେଟିଂ ବଦଳାଯାଇଛି କି ନାହିଁ, ଏହି ସଫ୍ଟୱେର୍ ଯାଞ୍ଚ କରେ ନାହିଁ। ଆପଣ ଏହି ଅଂଶ ପାଇଁ ମନା କରିପାରିବେ; ତଥାପି ଆପଣ କହିପାରିବେ (ଯଦି ଡିଭାଇସରେ ସ୍ୱର ପ୍ରକ୍ରିୟାକରଣ ଉପଲବ୍ଧ) କିମ୍ବା ଲେଖିପାରିବେ।",
             "ଆପଣଙ୍କ ପସନ୍ଦ ତାରିଖ ଓ ସମୟ ସହ ଲିପିବଦ୍ଧ ହୁଏ।",
             "ଆପଣ ଯେକୌଣସି ସମୟରେ ସ୍ୱାସ୍ଥ୍ୟ କର୍ମୀଙ୍କୁ କହି ସମ୍ମତି ପ୍ରତ୍ୟାହାର କରିପାରିବେ। ପ୍ରତ୍ୟାହାର କଲେ ଆଗକୁ ପ୍ରକ୍ରିୟା ବନ୍ଦ ହୁଏ; ପୂର୍ବରୁ ଲିପିବଦ୍ଧ ତଥ୍ୟ ବର୍ତ୍ତମାନ ପାଇଁ ରଖାଯାଏ।",

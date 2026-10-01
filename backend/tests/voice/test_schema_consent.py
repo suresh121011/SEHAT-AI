@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from app.database import MIGRATIONS, VOICE_TABLES, _connect, run_migrations
+from app.database import SCHEMA_VERSION, MIGRATIONS, VOICE_TABLES, _connect, run_migrations
 from tests.privacy.helpers import audit_rows, auth, new_case, token_for, triage, withdraw
 from tests.privacy.helpers import grant as grant_consent
 
@@ -36,7 +36,7 @@ def _populated_v2(tmp_path):
 
 def test_v2_database_with_data_upgrades_preserving_seq_and_references(tmp_path):
     db = _populated_v2(tmp_path)
-    assert asyncio.run(_migrate(db)) == 3
+    assert asyncio.run(_migrate(db)) == SCHEMA_VERSION  # v2 data migrates through every later step
     c = sqlite3.connect(db, isolation_level=None)
     c.execute("PRAGMA foreign_keys = ON")
     assert c.execute("SELECT seq, event_id, purpose FROM consent_events ORDER BY seq").fetchall() == [(1, "e0", "triage"), (2, "e1", "ai_assist"), (3, "e2", "triage")]

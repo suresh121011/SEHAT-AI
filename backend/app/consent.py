@@ -139,6 +139,16 @@ async def snapshot(conn: aiosqlite.Connection, case_id: str) -> ConsentSnapshot:
     return ConsentSnapshot(raw=raw, latest_seq=latest, authz_seq=authz)
 
 
+async def granted_notice_version(conn: aiosqlite.Connection, case_id: str, purpose: Purpose = "triage") -> str | None:
+    """Notice version of the latest event for `purpose` if that event is a grant, else None (Phase 5 upload
+    gate: a document may be uploaded only under a notice that discloses documents)."""
+    async with conn.execute(
+        "SELECT action, notice_version FROM consent_events WHERE case_id = ? AND purpose = ? ORDER BY seq DESC LIMIT 1", (case_id, purpose)
+    ) as cur:
+        row = await cur.fetchone()
+    return row["notice_version"] if row and row["action"] == "granted" else None
+
+
 DeniedState = Literal["not_provided", "declined", "withdrawn"]
 
 

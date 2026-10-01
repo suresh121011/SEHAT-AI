@@ -107,7 +107,7 @@ flowchart TD
 |:---|:---|:---|
 | **Raw audio recordings** | Not stored by SEHAT AI (Phase 4: held in process memory for the request only) | Nothing to delete in SEHAT AI. If `voice_cloud` consent is granted, the audio sent to Sarvam AI is retained under Sarvam's own policy, not by this system (see [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md) §3) |
 | **Voice transcripts** | Target policy as for triage notes (not enforced) | Deletion deferred; rows kept after withdrawal, reads refused |
-| **Document images** | Until reviewer sign-off | Deleted after extraction is verified and signed |
+| **Document images** | Until reviewer sign-off | Deleted after extraction is verified and signed. **Phase 5 (docs/14 §3): stored as re-encoded page PNGs; deletion not implemented yet — this target is not enforced.** |
 | **Triage notes** | 1 year | Automatic purge after retention period |
 | **Audit log entries** | 1 year (CERT-In Directions) | No deletion — retained for compliance |
 | **Consent records** | Duration of data retention + 1 year | Retained as proof of lawful processing |

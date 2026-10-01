@@ -1,0 +1,17 @@
+# SEHAT AI — Surya OCR 2 and Chandra OCR 2 for the LOCAL OCR WORKER (docs/14 §4). A separate environment,
+# because these need transformers 5.x while the voice model (requirements-voice.txt) needs transformers <5.
+#   uv venv --python 3.11 .venv-ocr
+#   uv pip install --python .venv-ocr/bin/python -r backend/requirements-ocr-engines.txt
+#   brew install llama.cpp          # Surya 2 on Apple Silicon runs through llama-server (Surya README)
+#   .venv-ocr/bin/python backend/scripts/download_ocr_engine_models.py
+# Versions as installed and tested on 2026-10-01 (Apple M5, 16 GB, macOS):
+surya-ocr==0.22.1          # code Apache-2.0; weights modified OpenRAIL-M (free for research / startups < $5M)
+chandra-ocr[hf]==0.2.0     # code Apache-2.0; weights modified OpenRAIL-M (free for research / startups < $2M)
+mlx-vlm==0.7.4             # Apple MLX runtime for the local 8-bit Chandra build
+mlx==0.32.3
+transformers==5.18.0
+torch==2.14.1
+torchvision==0.29.1
+huggingface-hub==1.33.0    # used only by the download script; runtime is forced offline
+psutil==7.2.2              # worker stops its llama-server child
+# llama.cpp (Homebrew) 0.5.0, build 11146 — `llama-server --version`

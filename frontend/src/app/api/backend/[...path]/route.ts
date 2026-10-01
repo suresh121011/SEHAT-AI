@@ -23,10 +23,13 @@ async function proxy(request: Request, { params }: { params: Promise<{ path: str
     cache: "no-store",
   });
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" },
-  });
+  const out = new Headers({ "Content-Type": upstream.headers.get("content-type") ?? "application/json" });
+  // Keep the backend's privacy headers on document page images (no caching, no MIME sniffing).
+  for (const name of ["cache-control", "x-content-type-options"]) {
+    const value = upstream.headers.get(name);
+    if (value) out.set(name, value);
+  }
+  return new NextResponse(upstream.body, { status: upstream.status, headers: out });
 }
 
 export { proxy as GET, proxy as POST, proxy as PUT, proxy as PATCH, proxy as DELETE };

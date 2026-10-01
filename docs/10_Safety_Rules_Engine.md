@@ -163,6 +163,6 @@ The result contains no patient identifiers or free text, so it is safe to put in
 - `SEHAT_POLICY` mappings (score → colour, fever cut-off, maternal YELLOW floor, safety floor) are project conventions.
 - The maternal age advisory is taken from the architecture doc and still needs a primary source.
 - The occupational STS definition is from US OSHA.
-- Imaging and lab signals (ST elevation, troponin) arrive with the Phase 5 OCR/imaging pipeline.
+- Imaging and lab signals (ST elevation, troponin) are **not** rule inputs. Phase 5 OCR (docs/14) reads lab values for display and flagging only: the `app.ocr` package may not import the engine (tested), no OCR value reaches `evaluate_triage`, and a lab-derived input (e.g. `maternal.hb_g_dl`) still has to be entered on the triage form by a person. The sourced lab-reference table (`app/rules/reference_ranges.py`) is not a rule and is never imported by the engine (tested).
 - Results are not yet persisted to `triage_notes`. That happens with the intake flow.
 - **Dengue gap:** a febrile patient whose abdominal pain is not recorded as severe or sudden-onset, with normal vitals, is GREEN. ATP's generic red flags do not capture dengue warning signs such as abdominal tenderness, persistent vomiting or a haematocrit rise with falling platelets. The deferred dengue pack closes this; `test_demo_vignette.py` pins the current behaviour so the change is visible when the pack lands.

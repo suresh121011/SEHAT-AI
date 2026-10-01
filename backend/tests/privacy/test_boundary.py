@@ -84,15 +84,16 @@ def test_rules_engine_has_no_privacy_or_consent_imports():
                 assert not node.module.startswith(("app.privacy", "app.consent", "app.audit", "app.database", "presidio", "spacy")), path
 
 
-def test_only_non_json_body_is_constrained_voice_audio():
-    """Phase 4: the voice upload is the only non-JSON request body. It is raw audio/wav (no multipart
-    form fields that could carry free text), and its query parameters are enums or UUIDs."""
+def test_only_non_json_bodies_are_constrained_voice_audio_and_ocr_document():
+    """Phase 4: the voice upload is raw audio/wav. Phase 5: the document upload is multipart (docs/06) whose
+    only parts are a binary file and UUID/enum fields — no part could carry free text. Query parameters of
+    such routes are enums or UUIDs."""
     spec = create_app().openapi()
     non_json = []
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             content = op.get("requestBody", {}).get("content", {})
-            for ctype in content:
+            for ctype, media in content.items():
                 if ctype != "application/json":
                     non_json.append((method.upper(), path, ctype))
                     for param in op.get("parameters", []):
@@ -100,4 +101,30 @@ def test_only_non_json_body_is_constrained_voice_audio():
                             continue  # auth cross-check headers (app/auth.py), common to every route
                         schema = param.get("schema", {})
                         assert "enum" in schema or schema.get("format") == "uuid", (path, param["name"])
-    assert non_json == [("POST", "/api/v1/cases/{case_id}/voice/transcriptions", "audio/wav")]
+                    if ctype == "multipart/form-data":
+                        props = media["schema"]["properties"]
+                        assert media["schema"].get("additionalProperties") is False
+                        for name, sch in props.items():
+                            assert sch.get("format") in ("binary", "uuid") or "enum" in sch, (path, name)
+    assert sorted(non_json) == [
+        ("POST", "/api/v1/cases/{case_id}/voice/transcriptions", "audio/wav"),
+        ("POST", "/api/v1/intake/document", "multipart/form-data"),
+    ]
+
+
+def test_ocr_package_never_imports_the_triage_engine():
+    """OCR may use only the pure reference-range table from app.rules; never the engine, urgency, triage
+    service or case-triage code (docs/14 §4: OCR values never set urgency)."""
+    for path in list((APP_DIR / "ocr").rglob("*.py")) + [APP_DIR / "routes" / "ocr.py"]:
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            for n in names:
+                if n.startswith("app.rules"):
+                    assert n in ("app.rules", "app.rules.reference_ranges"), (path, n)
+                    if n == "app.rules":
+                        assert all(a.name == "reference_ranges" for a in node.names), (path, n)
+                assert not n.startswith(("app.case_triage", "app.services", "app.routes.triage", "app.rules.engine", "app.rules.urgency")), (path, n)

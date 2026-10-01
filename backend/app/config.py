@@ -68,6 +68,20 @@ class Settings:
     sarvam_base_url: str = "https://api.sarvam.ai"
     sarvam_timeout_s: float = 20.0
     voice_max_seconds: int = 30
+    # Phase 5 OCR (docs/14). Off unless enabled. Local only: no document leaves this machine.
+    ocr_enabled: bool = False
+    ocr_model_dir: Path = REPO_ROOT / "models" / "ocr"
+    ocr_document_dir: Path = REPO_ROOT / "data" / "documents"
+    ocr_worker_python: Path = REPO_ROOT / ".venv-ocr" / "bin" / "python"
+    ocr_surya_enabled: bool = False  # Surya OCR 2 via the local worker (printed, table-aware)
+    ocr_chandra_enabled: bool = False  # Chandra OCR 2 via the local worker (handwritten / discharge)
+    ocr_max_bytes: int = 10 * 1024 * 1024
+    ocr_page_timeout_s: float = 180.0  # per worker call; on expiry the worker is killed
+    ocr_rxnorm_db: Path = REPO_ROOT / "models" / "rxnorm" / "rxnorm.sqlite"
+    # Retention of stored document content (docs/14 §3). Must be set explicitly when OCR is enabled:
+    # a number of days, or "none" = kept until a reviewer deletes it. The duration itself is a product/legal
+    # decision that is NOT made in code; there is no silent default.
+    ocr_retention_days: int | None = None
 
     @property
     def sarvam_configured(self) -> bool:
@@ -118,7 +132,31 @@ def get_settings() -> Settings:
         sarvam_base_url=_sarvam_base_url(_env("SARVAM_BASE_URL", "https://api.sarvam.ai")),
         sarvam_timeout_s=float(_env("SARVAM_TIMEOUT_S", "20")),
         voice_max_seconds=min(int(_env("VOICE_MAX_SECONDS", "30")), 30),  # Sarvam REST limit is <30 s
+        ocr_enabled=_flag("OCR_ENABLED"),
+        ocr_model_dir=_path(_env("OCR_MODEL_DIR", "./models/ocr")),
+        ocr_document_dir=_path(_env("OCR_DOCUMENT_DIR", "./data/documents")),
+        ocr_worker_python=_path(_env("OCR_WORKER_PYTHON", "./.venv-ocr/bin/python")),
+        ocr_surya_enabled=_flag("OCR_SURYA_ENABLED"),
+        ocr_chandra_enabled=_flag("OCR_CHANDRA_ENABLED"),
+        ocr_max_bytes=min(int(_env("OCR_MAX_BYTES", str(10 * 1024 * 1024))), 20 * 1024 * 1024),
+        ocr_page_timeout_s=float(_env("OCR_PAGE_TIMEOUT_S", "180")),
+        ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
+        ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
     )
+
+
+def _retention_days(ocr_enabled: bool, value: str) -> int | None:
+    """OCR_RETENTION_DAYS: a positive integer, or `none` (keep until deleted). Required when OCR is enabled."""
+    v = value.strip().lower()
+    if not v:
+        if ocr_enabled:
+            raise RuntimeError("OCR_RETENTION_DAYS must be set when OCR_ENABLED=1: a number of days, or 'none' to keep documents until a reviewer deletes them")
+        return None
+    if v == "none":
+        return None
+    if not v.isdigit() or int(v) < 1:
+        raise RuntimeError("OCR_RETENTION_DAYS must be a positive whole number of days, or 'none'")
+    return int(v)
 
 
 def _sarvam_base_url(value: str) -> str:

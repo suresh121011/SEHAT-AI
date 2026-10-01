@@ -34,6 +34,7 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | [`docs/09_Implementation_Todo_List.md`](docs/09_Implementation_Todo_List.md) | Granular checkbox task list for each phase |
 | [`docs/10_Safety_Rules_Engine.md`](docs/10_Safety_Rules_Engine.md) | Deterministic triage rules engine: clinical sources, decisions, tests |
 | [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md) | Consent, PII redaction, AI gateway, audit log — implemented controls, threat model, limitations (demo-only) |
+| [`docs/14_OCR_Pipeline.md`](docs/14_OCR_Pipeline.md) | OCR pipeline (Phase 5): on-device Surya/PaddleOCR + Chandra, Gödel verification, RxNorm, sourced reference ranges, source-linked review |
 
 ---
 

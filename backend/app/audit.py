@@ -41,6 +41,12 @@ AuditAction = Literal[
     "voice_transcription_failed",
     "voice_readback_resolved",
     "voice_tts_generated",
+    "ocr_document_started",
+    "ocr_document_processed",
+    "ocr_document_failed",
+    "ocr_attestation_recorded",
+    "ocr_review_resolved",
+    "ocr_document_deleted",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -117,6 +123,51 @@ class VoiceReadbackDetails(_Details):
 class VoiceTtsDetails(_Details):
     language: Literal["en", "hi", "or"]
     ok: bool
+
+
+OcrDocType = Literal["lab_report", "prescription", "discharge_summary"]
+
+
+class OcrStartedDetails(_Details):
+    """Ids, enums and size buckets only: never document text, values or images."""
+
+    document_id: str
+    document_type: OcrDocType
+    media_type: Literal["image/png", "image/jpeg", "application/pdf"]
+    size_bucket: Literal["lt_1mb", "1_5mb", "5_20mb"]
+
+
+class OcrProcessedDetails(_Details):
+    document_id: str
+    document_type: OcrDocType
+    status: Literal["completed", "quality_rejected", "no_text"]
+    page_count: int = Field(ge=0)
+    field_count: int = Field(ge=0)
+    disputed_count: int = Field(ge=0)
+    engines: list[Literal["paddleocr", "surya", "chandra"]]
+
+
+class OcrFailedDetails(_Details):
+    document_id: str
+    reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+
+
+class OcrAttestationDetails(_Details):
+    document_id: str
+    answer: Literal["matches", "does_not_match", "unsure"]
+
+
+class OcrReviewDetails(_Details):
+    field_id: str
+    kind: Literal["lab", "medication"]
+    outcome: Literal["confirmed", "corrected", "rejected", "unsure"]
+
+
+class OcrDeletedDetails(_Details):
+    document_id: str
+    reason: Literal["reviewer_request", "retention_expired"]
+    files_removed: int = Field(ge=0)
+    files_failed: int = Field(ge=0)
 
 
 class AuditVerifiedDetails(_Details):

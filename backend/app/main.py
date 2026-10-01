@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
-from app.routes import audit, auth, cases, health, triage, voice
+from app.routes import audit, auth, cases, health, ocr, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -46,8 +46,20 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=settings.log_level)
     _quiet_third_party_loggers()
     await init_db(settings.database_path)
+    if settings.ocr_enabled:
+        from app.database import _connect
+        from app.ocr.service import startup_sweep
+
+        conn = await _connect(settings.database_path)
+        try:
+            await startup_sweep(conn, settings)  # abandoned pending rows; orphaned page files
+        finally:
+            await conn.close()
     app.state.kernel = build_kernel(settings)
     yield
+    from app.ocr.worker_client import shutdown_all
+
+    shutdown_all()  # the local OCR worker (and its llama-server) never outlives the API
 
 
 def create_app() -> FastAPI:
@@ -79,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(cases.router, prefix=API_PREFIX)
     app.include_router(audit.router, prefix=API_PREFIX)
     app.include_router(voice.router, prefix=API_PREFIX)
+    app.include_router(ocr.router, prefix=API_PREFIX)
     return app
 
 

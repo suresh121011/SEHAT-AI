@@ -53,8 +53,8 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | POST | `/cases/{case_id}/voice/transcriptions` | Submit a raw `audio/wav` clip for STT (Phase 4, [docs/12](12_Voice_Pipeline.md) §7) | patient, anm (case creator) |
 | POST | `/cases/{case_id}/voice/candidates/{candidate_id}/readback` | Reviewer confirms/corrects/rejects a heard value | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/voice/prefill` | Reviewer-confirmed values shaped for `TriageInput` | anm (creator), medical_officer |
-| POST | `/intake/document` | Upload document for OCR | patient, anm |
-| POST | `/intake/image` | Upload medical image for MedGemma | patient, anm |
+| POST | `/intake/document` | Upload document for OCR (multipart: file, case_id, document_type, idempotency_key). **Implemented Phase 5 — ANM only, local engines; contract, review and DELETE endpoints in [docs/14 §7](14_OCR_Pipeline.md)** | anm |
+| POST | `/intake/image` | Upload medical image for MedGemma (**deferred**, docs/14 §11) | patient, anm |
 | POST | `/intake/body-map` | Submit body map selections | patient, anm |
 | POST | `/intake/text` | Submit text/form input | patient, anm |
 | POST | `/intake/vitals` | Submit vital signs | anm, medical_officer |

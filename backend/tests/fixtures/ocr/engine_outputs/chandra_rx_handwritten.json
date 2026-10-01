@@ -1,0 +1,11 @@
+{"engine": "chandra-ocr-2-mlx-8bit", "recorded": "2026-10-01, local MLX 8-bit from datalab-to/chandra-ocr-2@af93b47, rx_handwritten.png", "truncated": false,
+ "blocks": [
+  {"label": "Page-Header", "bbox": [84, 59, 951, 96], "html": "<p>SEHAT Synthetic Clinic - SYNTHETIC PRESCRIPTION, NOT REAL</p>"},
+  {"label": "Page-Header", "bbox": [84, 117, 717, 152], "html": "<p>Patient: Zzyzx Canary-Testpatient Date: 15/09/2026</p><hr/>"},
+  {"label": "Text", "bbox": [105, 240, 157, 280], "html": "<p><i>Rx</i></p>"},
+  {"label": "Text", "bbox": [105, 327, 807, 375], "html": "<p>1. Tab. Paracetamol 650 mg 1-0-1 x 5 days</p>"},
+  {"label": "Text", "bbox": [104, 426, 772, 477], "html": "<p>2. Cap. Amoxicillin 500 mg 1-1-1 x 7 days</p>"},
+  {"label": "Text", "bbox": [104, 519, 825, 568], "html": "<p>3. Tab. Pantoprazole 40 mg 1-0-0 before food</p>"},
+  {"label": "Text", "bbox": [105, 610, 554, 659], "html": "<p>4. Syp. Ambroxol 10 ml TDS</p>"},
+  {"label": "Text", "bbox": [105, 703, 853, 759], "html": "<p>Advice: plenty of oral fluids, review after 5 days</p>"}
+ ]}
