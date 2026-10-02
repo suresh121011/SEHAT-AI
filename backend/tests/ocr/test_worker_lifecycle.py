@@ -6,6 +6,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -181,3 +182,36 @@ def test_engine_files_with_wrong_hash_are_refused(tmp_path, engine):
            f"try:\n    worker._verify_engine({engine!r})\nexcept worker.IntegrityError:\n    print('refused')\n"
     out = subprocess.run([sys.executable, "-c", code], env={**os.environ, "SEHAT_OCR_MODELS": str(models)}, capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "refused", out.stderr[-500:]
+
+
+def test_worker_exits_when_its_backend_dies(tmp_path):
+    """A backend that is killed (no graceful shutdown) must not leave the worker resident (seen 2026-10-02)."""
+    worker = Path(__file__).parents[2] / "ocr_worker" / "worker.py"
+    pid_file = tmp_path / "worker.pid"
+    # an intermediate "backend" spawns a process running worker.watch_parent, then dies without cleanup
+    child = textwrap.dedent(f'''
+        import os, sys, threading, time, importlib.util
+        spec = importlib.util.spec_from_file_location("w", {str(worker)!r}); w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
+        open({str(pid_file)!r}, "w").write(str(os.getpid()))
+        w.watch_parent(os.getppid(), lambda: os._exit(0), interval_s=0.1)
+        time.sleep(60)
+    ''')
+    backend = subprocess.Popen([sys.executable, "-c", f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}], start_new_session=True); time.sleep(60)"])
+    deadline = time.monotonic() + 10
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    pid = int(pid_file.read_text())
+    backend.kill()
+    backend.wait()
+    deadline = time.monotonic() + 5
+    alive = True
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+            time.sleep(0.1)
+        except ProcessLookupError:
+            alive = False
+            break
+    if alive:
+        os.kill(pid, 9)
+    assert not alive, "worker outlived its backend"

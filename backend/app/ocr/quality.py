@@ -51,6 +51,22 @@ def _skew(grey: np.ndarray) -> float | None:
     return float(np.median(angles)) if angles else None
 
 
+# Text too small to read reliably. assess() works on a 1000-px-wide copy, so a low-resolution page looks sharp
+# there; this check uses the PaddleOCR line boxes on the stored page instead. Calibrated 2026-10-02 on the
+# images we have: two pages with a median line box of 12 px gave wrong digits (132 read as 152) and a
+# vision-model hallucination; the smallest page that read well had 14 px. The margin is narrow — revisit with
+# more samples. Line boxes include a few pixels of padding, so 13 px is roughly 9 px glyphs.
+MIN_MEDIAN_LINE_PX = 13
+MIN_LINES_FOR_TEXT_SIZE = 5
+
+
+def text_size_reason(line_heights: list[int]) -> str | None:
+    """'text_too_small' when the page's median OCR line is below MIN_MEDIAN_LINE_PX (needs ≥5 lines to judge)."""
+    if len(line_heights) < MIN_LINES_FOR_TEXT_SIZE:
+        return None
+    return "text_too_small" if float(np.median(line_heights)) < MIN_MEDIAN_LINE_PX else None
+
+
 def assess(rgb: np.ndarray) -> Quality:
     import cv2
 

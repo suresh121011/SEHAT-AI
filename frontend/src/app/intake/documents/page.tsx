@@ -9,6 +9,7 @@ import { type DocType, DOC_TYPE_LABEL, DocumentUpload } from "@/components/Docum
 import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { ApiError, api } from "@/lib/api";
 import { instruction, RANGE_TEXT, type Region, REVIEW_TEXT } from "@/lib/evidence";
+import { retakeAdvice } from "@/lib/retake";
 
 type Check = { check: string; status: string; reason: string };
 type Reading = { engine: string; text: string; score: number | null };
@@ -32,6 +33,7 @@ type Doc = {
   dates: { collected_date: string | null; report_date: string | null } | null;
   attestation: { event_id: string; answer: string; actor_role: string } | null; fields: Field[]; status_note: string; created_at: string;
   deleted?: { reason: string; at: string; by_role: string };
+  quality?: { ok: boolean; reasons: string[] }[] | null;
 };
 type Caps = { ocr_enabled: boolean; document_types: Record<string, boolean>; max_bytes: number; retention_days: number | null; engines: Record<string, { enabled: boolean; ready: boolean }> };
 type CaseView = { patient_token: string; is_creator: boolean; consent: { triage: string } };
@@ -46,7 +48,7 @@ function explain(err: unknown): string {
   const reasons = (err.details?.reasons as string[] | undefined) ?? [];
   switch (err.code) {
     case "DOCUMENT_QUALITY_LOW":
-      return `The photo is not clear enough to read (${reasons.join(", ").replaceAll("_", " ")}). Please retake it: flat page, good light, in focus.`;
+      return `This document was not read. ${retakeAdvice(reasons).join(" ")}`;
     case "CONSENT_NOTICE_UPDATE_REQUIRED":
       return "The consent notice now explains document upload. Please read it to the patient and record consent again before uploading.";
     case "CONSENT_REQUIRED":
@@ -367,7 +369,17 @@ function DocumentsScreen() {
                 text and decisions were removed from this server.
               </p>
             )}
-            {d.status !== "completed" && d.status !== "deleted" && <p role="alert">This document was not read ({d.status.replaceAll("_", " ")}). Nothing was extracted.</p>}
+            {d.status === "quality_rejected" && (
+              <div role="alert" className="space-y-1 rounded border border-red-600/50 p-3 text-sm">
+                <p><strong>Not read — please upload a better copy.</strong> Nothing was extracted.</p>
+                <ul className="list-disc pl-5">
+                  {retakeAdvice((d.quality ?? []).flatMap((q) => q.reasons)).map((a) => <li key={a}>{a}</li>)}
+                </ul>
+              </div>
+            )}
+            {d.status !== "completed" && d.status !== "deleted" && d.status !== "quality_rejected" && (
+              <p role="alert">This document was not read ({d.status.replaceAll("_", " ")}). Nothing was extracted.</p>
+            )}
             {reviewer && d.status !== "deleted" && d.status !== "pending" && (
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 {confirmDelete === d.document_id ? (

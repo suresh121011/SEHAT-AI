@@ -29,3 +29,41 @@ def test_dosage_pattern_spacing_and_dashes_normalised_raw_kept():
 
 def test_non_medication_lines_skipped():
     assert _rx("Name: Zzyzx Canary", "Date: 15/09/2026", "Diagnosis: (not extracted)") == []
+
+
+def test_numbered_handwritten_items_with_form_after_name_and_continuation_lines():
+    """Layout of a handwritten ENT prescription read by Chandra (2026-10-02): circled item numbers after
+    "Plan →", frequency in words, form written after the name, duration on the next line."""
+    meds = _rx("O/E - vesicles over left pinna & over the", "Plan → ① Acyclovir 800mg 5 Times a day", "× 7 DAYS",
+               "② SOPRADERM OINTMENT BID ×", "7 DAYS.", "BP : 120/80 Temp.: 98.2° Pulse : 70 min SPO2 : 99%")
+    assert [m.drug_raw for m in meds] == ["Acyclovir", "SOPRADERM"]
+    a, o = meds
+    assert (a.strength_raw, a.frequency_raw, a.duration_raw, a.form) == ("800mg", "5 Times a day", "7 DAYS", None)
+    assert a.line_text == "Plan → ① Acyclovir 800mg 5 Times a day\n× 7 DAYS" and "dosage_pattern_missing" not in a.flags
+    assert (o.form, o.frequency_raw, o.duration_raw) == ("ointment", "BID", "7 DAYS")
+
+
+def test_numbered_lines_without_any_dosing_signal_are_not_medications():
+    assert _rx("1. Pain in left ear 2-3 days", "(2) Review after a week", "Ointment applied by patient yesterday") == []
+    # a continuation line never stands alone
+    assert _rx("× 7 DAYS") == []
+
+
+def _verify(chandra_line, paddle_lines):
+    from app.ocr.service import _verify_meds
+    from app.ocr.types import Line, PageOCR
+
+    page = PageOCR(0, 1200, 400, [Line(f"l{i}", t, (20, 20 + 40 * i, 1100, 50 + 40 * i), 0.9, ()) for i, t in enumerate(paddle_lines)])
+    meds = extract_rx([RxLine(chandra_line, (10, 10, 1150, 200), 0, "c0")])
+    return _verify_meds(meds, {0: page}, None)[0]
+
+
+def test_strength_disagreement_between_engines_is_a_dispute():
+    v = _verify("① Acyclovir 500mg 5 Times a day", ["①ACyCLOVIR SoOma", "5 Times a day"])
+    assert v["disputed"] and "dispute" in v["caps"] and v["band"] != "accept"
+    assert any(c.reason == "strength_differs" and c.status == "fail" for c in v["checks"])
+
+
+def test_strength_agreement_passes():
+    v = _verify("Tab. Paracetamol 650 mg 1-0-1", ["Tab. Paracetamol 650mg 1-0-1"])
+    assert not v["disputed"] and any(c.reason == "strength_agreement" and c.status == "pass" for c in v["checks"])

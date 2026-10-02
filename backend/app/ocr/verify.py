@@ -131,7 +131,7 @@ def verify_lab(
         signals: list[float] = []
         region = _value_region(c)
         unreadable = c.value.kind in ("unreadable", "empty")
-        v.readings.append(Reading("paddleocr", c.value.raw, region.bbox if region else None, c.value_score))
+        v.readings.append(Reading(c.source_engine, c.value.raw, region.bbox if region else None, c.value_score))
 
         # geometry / source support
         if region is None:
@@ -179,6 +179,8 @@ def verify_lab(
             # Each structure-aware engine (Surya; for discharge summaries also Chandra) is checked on its own.
             by_engine: dict[str, list] = {}
             for r in rows:
+                if r.engine == c.source_engine:
+                    continue  # an engine never confirms its own reading
                 if (c.analyte_key and r.analyte_key == c.analyte_key) or norm_key(r.cells.get("name", "")) == norm_key(c.name_raw):
                     by_engine.setdefault(r.engine, []).append(r)
             if not by_engine:
