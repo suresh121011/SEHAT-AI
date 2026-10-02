@@ -48,7 +48,8 @@ class OcrWorker:
         os.chmod(self.run_dir, 0o700)
         self._token = secrets.token_hex(32)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("SARVAM", "AZURE", "OPENAI", "JWT"))}
-        env.update({"SEHAT_OCR_WORKER_TOKEN": self._token, "SEHAT_OCR_SOCKET": str(self.socket_path), "SEHAT_OCR_MODELS": str(self.models_dir)})
+        env.update({"SEHAT_OCR_WORKER_TOKEN": self._token, "SEHAT_OCR_SOCKET": str(self.socket_path), "SEHAT_OCR_MODELS": str(self.models_dir),
+                    "SEHAT_OCR_PARENT_PID": str(os.getpid())})  # the worker exits if this process dies
         self._proc = subprocess.Popen([str(self.python), str(self.script)], env=env, stdin=subprocess.DEVNULL,
                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                                       start_new_session=True)  # own process group: llama-server dies with it

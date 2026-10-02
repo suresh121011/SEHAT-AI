@@ -305,6 +305,24 @@ class Server(ThreadingMixIn, UnixStreamServer):
     daemon_threads = True
 
 
+def watch_parent(parent_pid: int, on_orphaned, interval_s: float = 2.0) -> threading.Thread:
+    """Exit when the backend that spawned us is gone. The worker runs in its own session (so it can take
+    llama-server down with it), which means a backend that is killed or crashes cannot stop it; without this
+    an orphaned worker kept the socket and stayed resident for good (seen 2026-10-02)."""
+    import time
+
+    def _loop() -> None:
+        while True:
+            if os.getppid() != parent_pid:
+                on_orphaned()
+                return
+            time.sleep(interval_s)
+
+    t = threading.Thread(target=_loop, name="parent-watch", daemon=True)
+    t.start()
+    return t
+
+
 def main() -> int:
     if len(TOKEN) < 32:
         print("SEHAT_OCR_WORKER_TOKEN missing or too short", file=sys.stderr)
@@ -326,6 +344,9 @@ def main() -> int:
         os._exit(0)
 
     signal.signal(signal.SIGTERM, _term)
+    parent = int(os.environ.get("SEHAT_OCR_PARENT_PID") or 0)
+    if parent:
+        watch_parent(parent, _term)
     print("ready", flush=True)
     try:
         server.serve_forever()

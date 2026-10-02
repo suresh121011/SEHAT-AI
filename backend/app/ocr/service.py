@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import statistics
 import threading
 import uuid
 from dataclasses import asdict
@@ -43,12 +44,12 @@ from app.database import read_transaction, transaction
 from app.errors import ApiError, not_found
 from app.ocr import engine as paddle
 from app.ocr import files, quality
-from app.ocr.extract import LabCandidate, Region, extract_dates, extract_lab
+from app.ocr.extract import LabCandidate, Region, extract_dates, extract_lab, extract_lab_prose, prose_pairs
 from app.ocr.lexicon import QUALITATIVE, UNITS
 from app.ocr.parse import ParsedRange, ParsedValue, compare_to_range, parse_range
 from app.ocr.rx import MedCandidate, RxLine, extract_rx
 from app.ocr.rxnorm import load_index
-from app.ocr.surya_parse import table_rows
+from app.ocr.surya_parse import TableRow, table_rows
 from app.ocr.types import PageOCR, valid_bbox
 from app.ocr.verify import Check, Verified, band_for, overall_confidence, verify_lab
 from app.rules import reference_ranges
@@ -125,6 +126,20 @@ class _Rejected(Exception):
         self.status, self.reasons, self.quality_json = status, reasons, quality_json
 
 
+def chandra_degenerate(blocks: list[dict]) -> bool:
+    """A vision-language reader on a page it cannot read can loop, repeating a few labels and inventing the rest
+    (2026-10-02: ~90 copies of "Admission Date :"/"Diagnosis :" plus an invented diagnosis on a 375-px page).
+    Such output is never used: ≥10 text blocks with under half distinct, or one text repeated ≥8 times."""
+    from collections import Counter
+
+    texts = [re.sub(r"\s+", " ", " ".join(_html_lines(b.get("html") or ""))).strip().lower() for b in blocks]
+    texts = [t for t in texts if t]
+    if len(texts) < 10:
+        return False
+    counts = Counter(texts)
+    return len(counts) / len(texts) < 0.5 or max(counts.values()) >= 8
+
+
 def _html_lines(html: str) -> list[str]:
     """Visible text lines of a Chandra/Surya block (tags stripped; <br>, <p>, <li>, <tr> break lines)."""
     t = re.sub(r"(?i)<\s*(br|/p|/li|/tr|/h\d|/div)\s*/?>", "\n", html)
@@ -162,6 +177,15 @@ def _verify_meds(meds: list[MedCandidate], pages: dict[int, PageOCR], rx_index) 
                 # e.g. Chandra normalised the printed "Amoxycillin" to "Amoxicillin" (seen 2026-10-01)
                 checks.append(Check("second_engine_agreement", "fail", "drug_name_differs"))
                 disputed = True
+            if m.strength_raw:
+                # The dose matters as much as the name: Chandra read a handwritten "800mg" as "500mg" while
+                # PaddleOCR read something else (2026-10-02). The strength's digits must appear in the second reading.
+                digits = re.sub(r"[^0-9.]", "", m.strength_raw)
+                if digits and digits in re.sub(r"[^0-9.]", " ", paddle_text).split():
+                    checks.append(Check("second_engine_agreement", "pass", "strength_agreement"))
+                else:
+                    checks.append(Check("second_engine_agreement", "fail", "strength_differs"))
+                    disputed = True
         else:
             checks.append(Check("second_engine_agreement", "not_run", "paddleocr_found_no_text"))
             caps.append("single_engine")
@@ -202,13 +226,25 @@ def run_pipeline(data: bytes, document_type: DocType, settings: Settings, engine
     for p in stored:
         pages[p.index] = engines.paddle_page(p.png, p.index)
     engines_status["paddleocr"] = "ok"
+    small = []
+    for p in stored:
+        heights = [ln.bbox[3] - ln.bbox[1] for ln in pages[p.index].lines]
+        if quality.text_size_reason(heights):
+            small.append(p.index)
+            q[p.index]["ok"], q[p.index]["reasons"] = False, list(q[p.index]["reasons"]) + ["text_too_small"]
+        q[p.index]["median_line_px"] = float(statistics.median(heights)) if heights else None
+    if small:
+        raise _Rejected("quality_rejected", ["text_too_small"], q)  # before the slow engines: they misread or invent here
     png_by_index = {p.index: p.png for p in stored}
 
     lab_fields: list[Verified] = []
     med_fields: list[dict] = []
     rx_lines: list[RxLine] = []
     chandra_rows: dict[int, list] = {}
+    prose_cands: list[LabCandidate] = []
+    prose_rows: dict[int, list] = {}
     if document_type in ("prescription", "discharge_summary"):
+        chandra_pages: dict[int, list] = {}
         for p in stored:
             try:
                 blocks = engines.chandra_page(p.png)["blocks"]
@@ -216,14 +252,33 @@ def run_pipeline(data: bytes, document_type: DocType, settings: Settings, engine
                     raise TypeError
             except (KeyError, TypeError, ValueError):
                 raise paddle.EngineError("chandra_bad_response", 500) from None
+            chandra_pages[p.index] = blocks
+        degenerate = any(chandra_degenerate(b) for b in chandra_pages.values())
+        if degenerate and document_type == "prescription":
+            raise paddle.EngineError("chandra_degenerate_output", 500)  # the only medication reader: fail, never guess
+        if degenerate:
+            chandra_pages = {}  # discharge summary: drop every Chandra reading; other engines still run
+        for p in stored:
+            if p.index not in chandra_pages:
+                continue
+            blocks = chandra_pages[p.index]
             chandra_rows[p.index] = table_rows(blocks, engine="chandra-ocr-2")
             for bi, b in enumerate(blocks):
                 if (b.get("label") or "").lower() in ("page-header", "page-footer", "table"):
                     continue
                 bbox = tuple(int(x) for x in b["bbox"])
-                for li, text in enumerate(_html_lines(b.get("html", ""))):
+                block_lines = _html_lines(b.get("html", ""))
+                for li, text in enumerate(block_lines):
                     rx_lines.append(RxLine(text, bbox, p.index, f"p{p.index}c{bi}l{li}"))
-        engines_status["chandra"] = "ok"
+                if document_type == "discharge_summary":
+                    # Investigations written as running text (§10A routes discharge summaries to Chandra). Chandra's
+                    # reading is primary; PaddleOCR's text inside the same block is the independent second reading.
+                    prose_cands += extract_lab_prose(p.index, " ".join(block_lines), bbox, f"p{p.index}c{bi}", "chandra-ocr-2")
+                    paddle_text, paddle_score = _paddle_text_in(pages[p.index], bbox)
+                    prose_rows.setdefault(p.index, []).extend(
+                        TableRow({"name": name, "value": value, "unit": unit}, bbox, paddle_score, "paddleocr")
+                        for _key, name, value, unit in prose_pairs(paddle_text))
+        engines_status["chandra"] = "failed:degenerate_output" if degenerate else "ok"
     if document_type in ("lab_report", "discharge_summary"):
         second = None
         if settings.ocr_surya_enabled:
@@ -247,9 +302,14 @@ def run_pipeline(data: bytes, document_type: DocType, settings: Settings, engine
             if rows:
                 pages[i].table_rows = list(pages[i].table_rows) + rows
                 second = second or "chandra-ocr-2"
+        if prose_cands:
+            for i, rows in prose_rows.items():
+                pages[i].table_rows = list(pages[i].table_rows) + rows
+            second = second or "paddleocr"
         cands: list[LabCandidate] = []
         for i in sorted(pages):
             cands += extract_lab(pages[i])
+        cands += prose_cands
         lab_fields = verify_lab(
             cands, pages, second_engine=second,
             reread=lambda page_index, bbox, zoom: engines.paddle_reread(png_by_index[page_index], bbox, zoom),
@@ -388,6 +448,17 @@ async def upload(conn: aiosqlite.Connection, principal: Principal, case_id: str,
         raise
 
 
+def _log_internal(exc: BaseException) -> None:
+    """Make internal failures diagnosable without patient data: the exception class and the innermost app
+    code location only — never the message or arguments, which can contain document text or values."""
+    import logging
+    import traceback
+
+    app = [f for f in traceback.extract_tb(exc.__traceback__) if "/app/" in f.filename]
+    where = f"{Path(app[-1].filename).name}:{app[-1].lineno} in {app[-1].name}" if app else "unknown"
+    logging.getLogger("sehat.ocr").error("ocr_pipeline_error type=%s at=%s", type(exc).__name__, where)
+
+
 def _acquire_slot() -> None:
     global _waiting
     with _waiting_lock:
@@ -449,8 +520,9 @@ async def _process(conn, principal, case_id, data, document_type, settings, requ
         rejected = exc
     except paddle.EngineError as exc:
         failure = (exc.reason, exc.status)
-    except Exception:  # noqa: BLE001 - never leave the row pending; class name only is never logged here
+    except Exception as exc:  # noqa: BLE001 - never leave the row pending
         failure = ("internal_error", 500)
+        _log_internal(exc)
 
     written = []
     if result is not None:

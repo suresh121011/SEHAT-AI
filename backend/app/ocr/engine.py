@@ -91,12 +91,16 @@ def read_page(png: bytes, page_index: int, *, model_dir: Path) -> PageOCR:
     with _lock:
         eng = _load(model_dir)
         try:
-            res = eng(arr, return_word_box=True)
+            # RapidOCR keeps every argument passed to __call__ as instance state (update_params), so each call
+            # sets all step flags explicitly: a crop re-read must never leave detection switched off.
+            res = eng(arr, use_det=True, use_cls=True, use_rec=True, return_word_box=True)
         except Exception:  # noqa: BLE001
             raise EngineError("inference_failed", 500) from None
     page = PageOCR(page_index, img.width, img.height)
     if res is None or res.txts is None:
         return page
+    if res.boxes is None or res.scores is None:
+        raise EngineError("inference_failed", 500)  # text without geometry is never used
     words_per_line = res.word_results or [()] * len(res.txts)
     for i, (text, quad, score, wr) in enumerate(zip(res.txts, res.boxes.tolist(), res.scores, words_per_line)):
         words = tuple(Word(w[0], _box(w[2]), float(w[1])) for w in (wr or ()) if w and w[0].strip())
@@ -117,7 +121,7 @@ def reread_crop(png: bytes, bbox: tuple[int, int, int, int], zoom: float, *, mod
     with _lock:
         eng = _load(model_dir)
         try:
-            res = eng(np.asarray(crop), use_det=False, use_cls=False, use_rec=True)
+            res = eng(np.asarray(crop), use_det=False, use_cls=False, use_rec=True, return_word_box=False)
         except Exception:  # noqa: BLE001
             return None
     if res is None or not res.txts:

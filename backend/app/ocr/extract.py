@@ -43,6 +43,7 @@ class LabCandidate:
     regions: list[Region]
     value_score: float | None  # min recognizer score over the value's words (None if the engine gives none)
     flags: list[str] = field(default_factory=list)
+    source_engine: str = "paddleocr"  # the engine whose reading this candidate is; others are checked against it
 
 
 @dataclass
@@ -239,6 +240,56 @@ def extract_lab(page: PageOCR) -> list[LabCandidate]:
     return out
 
 
+# ── prose results (discharge summaries) ───────────────────────────────────────────────────────────
+# Discharge summaries list investigations as running text: "Serum Sodium:132 mmol/L, Serum Potassium:3.6
+# mmol/L, ...". A pair is taken only when its name resolves EXACTLY to a known analyte (lexicon); an unknown
+# name ("C-Reactive Protein (CRP)", "Total W.B.C. Count") is skipped, never mapped to the closest test.
+_PROSE_PAIR = re.compile(
+    r"(?:^|[,;])\s*(?P<name>[^:,;=\n]{2,60}?)\s*[:=]\s*(?P<value>[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?)"
+    r"(?:\s*(?P<unit>[A-Za-zµμ%/][^\s,;]*))?",
+    re.MULTILINE,
+)
+_PROSE_PREFIX = re.compile(r"^(?:serum|s|blood|plasma)\.?\s+", re.IGNORECASE)
+
+
+def _prose_analyte(name: str) -> tuple[str | None, str]:
+    """(analyte_key, the printed words that matched). Tries the name as printed, without a parenthetical,
+    the parenthetical itself ("Glycosylated Hb (HbA1c)"), and each without a "Serum"/"Blood" prefix."""
+    forms = [name, re.sub(r"\(.*?\)", " ", name), *re.findall(r"\((.*?)\)", name)]
+    forms += [_PROSE_PREFIX.sub("", f.strip()) for f in forms]
+    for f in forms:
+        f = f.strip(" .-")
+        if f and (k := analyte_key(f)):
+            return k, f
+    return None, ""
+
+
+def prose_pairs(text: str) -> list[tuple[str, str, str, str]]:
+    """(analyte_key, printed name, value text, unit text) for each recognised "Name: value unit" pair."""
+    out = []
+    for m in _PROSE_PAIR.finditer(text):
+        key, matched = _prose_analyte(m.group("name"))
+        if key:
+            out.append((key, matched, m.group("value").strip(), (m.group("unit") or "").rstrip(".")))
+    return out
+
+
+def extract_lab_prose(page_index: int, text: str, bbox: BBox, line_id: str, engine: str) -> list[LabCandidate]:
+    """Candidates from one text block. The source region is the whole block (line-level), so every field is
+    capped at Amber and the reviewer finds the value on the highlighted block."""
+    out = []
+    for i, (key, name, value_raw, unit_raw) in enumerate(prose_pairs(text)):
+        value, unit = parse_value(value_raw), parse_unit(unit_raw)
+        regions = [Region(role, page_index, bbox, line_id, "line") for role, present in (("name", True), ("value", True), ("unit", bool(unit_raw))) if present]
+        flags = {"prose_text", "region_line_level", "range_missing", *value.flags, *unit.flags}
+        out.append(LabCandidate(
+            page_index=page_index, row_index=i, name_raw=name, analyte_key=key, value=value, unit=unit,
+            range=parse_range(""), flag_raw="", printed_flag=None, regions=regions, value_score=None,
+            flags=sorted(flags), source_engine=engine,
+        ))
+    return out
+
+
 def extract_dates(pages: list[PageOCR]) -> DocDates:
     dates = DocDates()
     for page in pages:
@@ -267,4 +318,4 @@ def page_from_lines(page_index: int, width: int, height: int, lines: list[Line])
     return PageOCR(page_index, width, height, lines)
 
 
-__all__ = ["LabCandidate", "Region", "DocDates", "extract_lab", "extract_dates", "Word", "Line", "PageOCR", "page_from_lines"]
+__all__ = ["LabCandidate", "Region", "DocDates", "extract_lab", "extract_lab_prose", "prose_pairs", "extract_dates", "Word", "Line", "PageOCR", "page_from_lines"]
