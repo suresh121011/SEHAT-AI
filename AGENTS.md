@@ -28,6 +28,7 @@ All project documentation lives in `docs/`:
 | [`docs/12_Voice_Pipeline.md`](docs/12_Voice_Pipeline.md) | Voice pipeline (Phase 4): technology decisions, consent (`voice_cloud`), read-back policy, flags, verification status |
 | [`docs/13_Language_Review_Checklist.md`](docs/13_Language_Review_Checklist.md) | Hindi/Odia draft wording awaiting native-speaker and clinical review; consent facts every language must state |
 | [`docs/14_OCR_Pipeline.md`](docs/14_OCR_Pipeline.md) | OCR pipeline (Phase 5): Surya/PaddleOCR + Chandra on-device, Gödel verification, RxNorm, sourced reference ranges, source-linked review, verification status |
+| [`docs/15_OCR_Evaluation_Plan.md`](docs/15_OCR_Evaluation_Plan.md) | Governed real-document OCR evaluation plan (not started; required before real patient data): governance, sampling, annotation, metrics, proposed acceptance criteria |
 
 ## Agent Rules
 

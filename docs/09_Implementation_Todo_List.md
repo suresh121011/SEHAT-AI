@@ -400,7 +400,7 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 
 - [x] Chandra OCR 2 for handwritten text — official weights, ~~INT8 QAT~~ **post-training 8-bit (MLX)**: QAT needs ~1K labelled Indian prescriptions, not available
 - [x] ~~Fallback to Surya for CPU-only environments~~ — no silent fallback; Chandra runs on Apple Silicon via MLX
-- [x] Drug names and dosage patterns ("1-0-1") extracted (tested on one synthetic handwriting-style page only)
+- [~] Drug names and dosage patterns ("1-0-1", numbered items, frequency in words) extracted — **experimental**: one synthetic page plus two real-world-style images (2026-10-02); Chandra misread a dose there, now caught by the strength cross-check (docs/14 §9.5)
 - [x] Medications list with RxNorm status and both engines' readings
 
 #### 5.4 Gödel Self-Verification
@@ -459,7 +459,9 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - [x] Shipped, tested on synthetic documents with real local engines: 5.1 (API path), 5.2, 5.3, 5.4 (except MAKER), 5.5, 5.6, 5.7, 5.8
 - [ ] Partial: 5.1/5.7 browser rendering, on-screen highlight placement, keyboard/focus — **not run in a browser** (no browser automation in this environment); the same flow was exercised over the real Next.js proxy (docs/14 §9.3)
 - [ ] Deferred: MAKER voting (Phase 6), MedGemma, Azure Document Intelligence, MO review UI (Phase 8), identifier redaction on stored images
-- [ ] Before real patient data: retention duration decision, governed real-document evaluation (docs/14 §13), Hindi/Odia notice review (docs/13)
+- [ ] Before real patient data: retention duration decision, governed real-document evaluation (docs/15), Hindi/Odia notice review (docs/13)
+- [x] 2026-10-02 (PR #5): real-image smoke test of 5 owner-supplied images → re-read crash fixed, prescription parser and dose cross-check, prose lab values in discharge summaries, text-too-small retake gate, looping-Chandra guard, worker exits with its backend, rejection reasons kept on screen (docs/14 §9.5)
+- **Path status:** printed lab reports = primary, demo-ready · handwritten prescriptions and discharge summaries = experimental · browser walkthrough = still manual (docs/14 §9.3) · identifier redaction on stored page images = not implemented
 
 **✅ Phase 5 Definition of Done:** Photo upload works. OCR extracts values from printed reports. Gödel verification re-checks low confidence. Reference ranges flag abnormal values. Bounding boxes link to source image.
 **Status (2026-10-01):** met at the API level (`[~]` = built, browser rendering not yet checked) on synthetic documents with real local engines (docs/14 §9). Not met yet: an actual browser walkthrough ("photo upload works" is proven over the HTTP path, not in a browser), and any real-document evaluation.
@@ -467,6 +469,22 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 ---
 
 ### Phase 6: Extraction + Summary (Hours 14–17)
+
+> **Pre-Phase 6 readiness (audit 2026-10-02, `main` @ 672b472).** No code blocker found: backend 828 passed /
+> 10 skipped (opt-in live) / 5 xfailed; live OCR 3/3 offline; frontend lint, tsc, 7 tests, build pass; nothing
+> secret or generated is tracked; triage code imports no OCR module and reviewed OCR values never change urgency
+> (tested). Reusable foundations: `app/privacy/gateway.py` (consent-gated, redacting, audited), `ai_assist`
+> consent, `app/services/kernel.py` (Semantic Kernel + Azure OpenAI), OCR `/documents/reviewed` and voice
+> source refs. Entry checklist — decide or supply **before integrating** the item named:
+>
+> - [ ] **LLM provider** (6.1, 6.3, 6.5, 6.6): `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
+> - [ ] **Adapter contract** (6.1, 6.3): `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
+> - [ ] **Redaction before any cloud call with real text**: 5 known name/DOB misses are pinned as xfail in `tests/privacy/test_pii.py` (lowercase or uncued Indian names). Acceptable for synthetic development; not for real patient text.
+> - [x] **`OCR_RETENTION_DAYS`** chosen and set when OCR is enabled (product/legal; the server refuses to start without it). `.env.example` lists the OCR keys (`OCR_RETENTION_DAYS=none` there and in the local `.env`, 2026-10-02).
+> - [ ] **Browser walkthrough** of docs/14 §9.3 (manual, ~10 min) — UI rendering, highlights, keyboard/focus, rejection card.
+> - [ ] Before real patient use (parallel to Phase 6): retention decision, Hindi/Odia notice review (docs/13), governed real-document evaluation (docs/15), identifier redaction policy for stored page images.
+>
+> Deferred beyond Phase 6 (per architecture/this file): MedGemma, Azure Document Intelligence, MO review UI (Phase 8), Chandra QAT, SNOMED/LOINC mapping.
 
 > **Goal:** Source-linked structured extraction with MAKER voting
 > **Owner:** AI + Backend

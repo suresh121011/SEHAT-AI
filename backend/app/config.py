@@ -82,6 +82,10 @@ class Settings:
     # a number of days, or "none" = kept until a reviewer deletes it. The duration itself is a product/legal
     # decision that is NOT made in code; there is no silent default.
     ocr_retention_days: int | None = None
+    # Reserved for later phases. Neither feature is implemented: enabling one refuses to start, so a switch
+    # can never suggest that a check runs when it does not (MAKER is reported `not_run` in OCR verification).
+    maker_voting_enabled: bool = False  # Phase 6 (docs/09 §6.3)
+    medgemma_enabled: bool = False  # X-ray/ECG description, deferred (docs/14 §11)
 
     @property
     def sarvam_configured(self) -> bool:
@@ -142,7 +146,16 @@ def get_settings() -> Settings:
         ocr_page_timeout_s=float(_env("OCR_PAGE_TIMEOUT_S", "180")),
         ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
+        maker_voting_enabled=_not_implemented("MAKER_VOTING_ENABLED", "MAKER voting (Phase 6)"),
+        medgemma_enabled=_not_implemented("MEDGEMMA_ENABLED", "MedGemma image description (deferred)"),
     )
+
+
+def _not_implemented(name: str, feature: str) -> bool:
+    """Placeholder flag for a later phase: parsed like any flag (so "0" is off), refused if switched on."""
+    if _flag(name):
+        raise RuntimeError(f"{name}=1 but {feature} is not implemented in this build; set {name}=0")
+    return False
 
 
 def _retention_days(ocr_enabled: bool, value: str) -> int | None:

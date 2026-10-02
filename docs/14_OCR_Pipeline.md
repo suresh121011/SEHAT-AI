@@ -140,7 +140,10 @@ recogniser must carry its own character list (otherwise RapidOCR would download 
 GGUF files against the official hashes and Chandra's 8-bit build against its conversion manifest **before**
 loading; a mismatch or missing file returns `503 OCR_UNAVAILABLE (model_integrity_failed / model_not_installed)`
 (tested with substituted files). Nothing is downloaded at runtime (Hugging Face hubs forced offline; explicit
-paths). The 8-bit Chandra build is post-training quantization, **not** QAT; whether MLX conversion is
+paths). **Chandra OCR uses post-training 8-bit quantization (MLX); QAT is deferred** until a CUDA GPU and
+about 1,000 labelled Indian prescriptions are available — it is not part of the docs/09 Phase 6 scope, and no
+official QAT script exists (checked 2026-10-02: no QAT code in `datalab-to/chandra`; the model repository
+ships BF16 weights only). The 8-bit Chandra build is post-training quantization, **not** QAT; whether MLX conversion is
 byte-reproducible has not been checked — the recorded hash protects the build that was tested.
 Disk: the 9.9 GB original BF16 download (`models/ocr/chandra-ocr-2-bf16`) is only needed to re-convert; it is
 kept until the project owner decides (§9.4).
@@ -237,7 +240,12 @@ brew install llama.cpp
 .venv-ocr/bin/python backend/scripts/download_ocr_engine_models.py         # ~12 GB download; 4.8 GB kept
 ```
 
-`.env`: `OCR_ENABLED=1`, `OCR_SURYA_ENABLED=1`, `OCR_CHANDRA_ENABLED=1`; optional `OCR_MODEL_DIR`,
+`.env`: `OCR_ENABLED=1`, `OCR_SURYA_ENABLED=1`, `OCR_CHANDRA_ENABLED=1`, and **`OCR_RETENTION_DAYS`
+(required when OCR is on)**: a whole number of days, or `none` (kept until a health worker deletes the document).
+The server refuses to start with OCR on and no value. No value is chosen in this repository: the duration is a
+product/legal decision for the organisation running the system. For a local synthetic demo use a prototype
+value such as `OCR_RETENTION_DAYS=30` (or `90`) — this is a demo setting, **not a retention policy**.
+Optional: `OCR_MODEL_DIR`,
 `OCR_DOCUMENT_DIR` (default `./data/documents`), `OCR_WORKER_PYTHON` (`./.venv-ocr/bin/python`),
 `OCR_MAX_BYTES` (10 MB, max 20 MB), `OCR_PAGE_TIMEOUT_S` (180), `OCR_RXNORM_DB`.
 Editors pointed at `.venv` will flag `worker.py`'s imports as missing: it runs under `.venv-ocr`.
@@ -253,6 +261,7 @@ Run 2026-10-01 on Apple M5, 16 GB, macOS, Python 3.11; synthetic documents only.
 | Real engines, network blocked | `SEHAT_LIVE_OCR=1 ../.venv/bin/python -m pytest -m live tests/ocr -s` | 3 passed (below) |
 | Real end-to-end over HTTP | scripted client against `uvicorn` with all three engines | PASS (below) |
 | Frontend | `npm run lint`, `npx tsc --noEmit`, `npm test` (node --test, 5 geometry tests), `npm run build` | all pass |
+| Re-run on `main` after PR #5 (2026-10-02) | backend suite; live (`SEHAT_LIVE_OCR=1`, network blocked); frontend lint, tsc, `npm test` (7: geometry + retake advice), build | **828 passed, 10 skipped (opt-in live), 5 xfailed**; live 3 passed; frontend all pass |
 
 ### 9.1 Results
 
@@ -297,7 +306,8 @@ passes 26/26 and is what the live test enforces. The second-reader model (`en_PP
 **No browser was driven**: browser automation was not available in this environment. Instead the whole flow ran
 over the **same path a browser uses** — `POST /api/session` (httpOnly cookie) → Next.js dev server same-origin
 proxy (`/api/backend/*`) → FastAPI → the three real local engines — with a scripted client
-(`backend/scripts/e2e_ocr_proxy_check.py`, 32/32 PASS on 2026-10-01; re-runnable). Page rendering, on-screen highlight placement, keyboard and focus are
+(`backend/scripts/e2e_ocr_proxy_check.py`, 32/32 PASS on 2026-10-01; re-run on `main` @ 672b472 on 2026-10-02 with
+`OCR_RETENTION_DAYS=30` (demo value): **32/32 PASS**, lab 16.7 s, 2-page PDF 23.9 s, prescription 26.4 s). Page rendering, on-screen highlight placement, keyboard and focus are
 therefore **NOT TESTED** in a browser.
 
 | # | Checklist item | Result | Evidence |
@@ -319,6 +329,7 @@ therefore **NOT TESTED** in a browser.
 | 15 | Layout, keyboard, focus, accessibility | NOT TESTED | needs a browser and a screen-reader pass |
 | 16 | UI separates automated findings from reviewer decisions | PASS (API) / NOT TESTED (UI) | `review_status`, `basis`, `checks_apply_to`; UI strings in code review only |
 | — | Delete a document | PASS (proxy) | idempotent; image 404 afterwards |
+| — | Rejected upload explains why and stays explained (2026-10-02) | PASS (proxy) / NOT TESTED (UI) | 422 `DOCUMENT_QUALITY_LOW` + `reasons` through the proxy; the document card keeps `quality.reasons`; advice text unit-tested (`retake.test.ts`) |
 
 **Manual steps still to run in Chrome** (≈10 min): start the backend with `OCR_ENABLED=1 OCR_SURYA_ENABLED=1
 OCR_CHANDRA_ENABLED=1 OCR_RETENTION_DAYS=none` and `npm run dev`; log in as ANM; create a case, record consent;
@@ -332,13 +343,40 @@ prescription — Amoxicillin shows "Two different readings" and confirm is off; 
 controls — every button reachable, focus visible; (h) "Delete this document" asks for confirmation, then shows
 "Deleted"; (i) log in as supervisor and open a document image URL — refused.
 
+### 9.5 Real-image testing and fixes (2026-10-02, PR #5)
+
+Sample images supplied by the project owner (a printed lab report, two handwritten prescriptions, two discharge
+summaries) were uploaded through the running app, processed locally, and deleted afterwards; none is in the
+repository. This is a smoke test of five images, **not an accuracy evaluation** (docs/15 still applies).
+
+| Found | Fix | Evidence |
+|---|---|---|
+| After the first 2× re-read, every later upload failed `500 internal_error`: RapidOCR keeps call arguments as instance state, so detection stayed off | every call sets all step flags; text without boxes is an engine error | `test_engine_state.py` (stand-in with the same state semantics; real-engine read→re-read→read checked) |
+| Internal errors were invisible | the class name and app code location are logged, never message text | `test_engine_state.py` (canary) |
+| Numbered handwritten items (`①`, `(2)`), form after the name, frequency in words, duration on the next line were dropped | parser accepts them, still needing a dosing signal | `test_rx.py` |
+| Chandra read a handwritten 800 mg as 500 mg; RxNorm then reported a strength match | the strength is cross-checked against PaddleOCR; disagreement is a Dispute | `test_rx.py` |
+| Discharge-summary results written as prose ("Serum Sodium:132 mmol/L, …") were not extracted | prose pairs from Chandra's reading, exact lexicon names only, cross-checked against PaddleOCR, line-level region (Amber at most) | `test_prose.py` (synthetic text; **no real full-resolution summary tested yet**) |
+| On 375-px pages PaddleOCR misread digits (132→152) and Chandra looped and invented content (wrong age, a diagnosis not on the page) | pages whose median OCR line box is < 13 px are rejected for retake (`text_too_small`) before the slow engines; a looping Chandra reading is never used (prescription → `chandra_degenerate_output`; discharge summary → Chandra's text dropped) | `test_unreadable_guards.py`; real pages rejected in 1–2 s |
+| A killed backend left the OCR worker running | the worker exits when its parent process is gone | `test_worker_lifecycle.py` |
+| The rejection reason vanished from the screen | plain-language advice per reason, kept on the rejected document's card | `retake.test.ts`; not yet seen in a browser |
+
+Outcome on the five images: printed report → 24 rows for review; full-resolution prescription → both
+medicines, both disputed and Amber; discharge cover card → 0 values (correct: none printed); two low-resolution
+pages → rejected with "text too small". The 13 px threshold rests on few pages (12 px failed, 14 px read well).
+
 ## 10. Known limitations
 
 - Synthetic fixtures prove pipeline behaviour, **not accuracy** on real reports. Any accuracy evaluation needs
   a governed dataset and review process.
 - The lab parser targets single-table printed layouts; method lines under names, units inside the range
   column, multi-panel pages, curved phone photos and Indic-script reports will produce misses or disputes.
-- Chandra (a VLM) can silently normalise spelling; it is never trusted alone (cross-checked, disputes shown).
+- **Printed lab reports are the primary, demo-ready path. Handwriting (prescriptions) and discharge summaries are
+  experimental**: tested on one synthetic page and two real-world-style images; Chandra misread a dose there.
+- Chandra (a VLM) can silently normalise spelling, misread digits, and on unreadable pages loop and invent
+  content; it is never trusted alone (cross-checked, disputes shown) and a looping reading is discarded — the loop
+  detector is a heuristic (repeated blocks), not a guarantee against subtler invention.
+- The text-size gate (median line < 13 px) is calibrated on a handful of pages; it may reject some readable
+  small-print pages or pass some unreadable ones. Prose results are taken only for exact lexicon names.
 - PaddleOCR misreads handwriting digits (1→7); a dispute is shown, but two engines can also agree on a wrong
   value — a human must check every row.
 - Scores are engine outputs, not probabilities. Agreement is not correctness.
@@ -377,33 +415,10 @@ Material findings fixed and tested:
 
 ## 13. Plan for a governed real-document evaluation (not done; required before real patient data)
 
-The 26 synthetic value fields and one synthetic handwriting-style page are a **regression fixture**, not a
-clinical evaluation. No real-world accuracy figure exists for this pipeline, and none may be quoted.
-
-1. **Governance first.** Written authorisation from the data-owning facility; ethics/IRB approval where
-   required; documented consent or a lawful basis for secondary use; a named data steward. Documents are
-   de-identified **before** they reach the evaluation machine where feasible; otherwise processed only on an
-   approved, encrypted, access-logged machine, never uploaded anywhere, deleted at the end with a deletion log.
-2. **Sample.** Stratified by document type (printed lab reports from several lab chains, handwritten
-   prescriptions, discharge summaries), capture mode (flatbed scan, phone photo in good/poor light, PDF from a
-   lab system), language/script on the page, and layout family. Size chosen in advance so each stratum's
-   accuracy has a confidence interval narrow enough to decide (for example ±5 percentage points).
-3. **Ground truth.** Two annotators independently transcribe every field (test name, value incl. sign,
-   decimal, comparator, unit, printed range, flag; medication, strength, pattern) and its page box; a clinical
-   adjudicator resolves disagreements. Annotators never see OCR output first.
-4. **Measures** (per document type and stratum, with confidence intervals):
-   exact-value accuracy; decimal-point and comparator errors (reported separately, they are the dangerous
-   ones); unit accuracy; missed fields and invented fields; range-parse accuracy; engine-disagreement
-   detection (sensitivity: how many true OCR errors were flagged as disputes/Amber; specificity: how many
-   correct values were flagged); band calibration (error rate inside Accept / Amber / human-entry);
-   highlight correctness (region contains the true value and no neighbour); RxNorm status agreement;
-   reviewer correction and rejection rates and time per document in a usability session.
-5. **Acceptance criteria fixed before running**, e.g. zero confirmed decimal/comparator errors reaching the
-   reviewed list in a simulated review, a maximum error rate inside the Accept band, and a minimum dispute
-   sensitivity — set by the clinical lead, not tuned afterwards.
-6. **Failure analysis.** Every error categorised (layout, handwriting, photo quality, unit/range grammar,
-   engine normalisation such as Chandra's "Amoxycillin"→"Amoxicillin", geometry) with examples kept inside the
-   governed environment only. Results reported with their limits; synthetic results never merged into them.
+Moved to **[docs/15 — OCR Evaluation Plan](15_OCR_Evaluation_Plan.md)**: governance checklist, stratified
+sampling, two-annotator protocol with adjudication, metrics, proposed acceptance criteria (pending clinical-lead
+sign-off) and failure analysis. The synthetic fixtures are a regression fixture, not a clinical evaluation; no
+real-world accuracy figure exists for this pipeline, and none may be quoted.
 
 ## 14. Demo guidance
 
@@ -416,6 +431,8 @@ clinical evaluation. No real-world accuracy figure exists for this pipeline, and
 - **OCR never changes triage**: show the banner and the reviewed list; triage urgency comes only from the triage
   form and the deterministic rules engine (docs/10).
 - Say "synthetic test documents"; never quote an accuracy figure; do not say "verified" or "validated".
+- Present handwriting (prescriptions, discharge summaries) as **experimental**. A small or low-resolution photo
+  is refused with "text too small" — that is the intended behaviour, not a failure to hide.
 - First run of the day: the worker loads Surya (~3 s) and Chandra (hash check + load, ~10–30 s).
 
 ### 12.1 Pre-commit council (2026-10-02)
