@@ -101,7 +101,9 @@ def test_retention_must_be_explicit_when_ocr_is_enabled(monkeypatch):
     from app.config import get_settings as gs
 
     monkeypatch.setenv("OCR_ENABLED", "1")
-    monkeypatch.delenv("OCR_RETENTION_DAYS", raising=False)
+    # Empty, not deleted: get_settings() loads the repo's .env without overriding set variables, so deleting
+    # the variable would let a developer's local OCR_RETENTION_DAYS back in. Empty is treated as "not set".
+    monkeypatch.setenv("OCR_RETENTION_DAYS", "")
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("JWT_SECRET_KEY", "x" * 40)
     gs.cache_clear()

@@ -140,7 +140,10 @@ recogniser must carry its own character list (otherwise RapidOCR would download 
 GGUF files against the official hashes and Chandra's 8-bit build against its conversion manifest **before**
 loading; a mismatch or missing file returns `503 OCR_UNAVAILABLE (model_integrity_failed / model_not_installed)`
 (tested with substituted files). Nothing is downloaded at runtime (Hugging Face hubs forced offline; explicit
-paths). The 8-bit Chandra build is post-training quantization, **not** QAT; whether MLX conversion is
+paths). **Chandra OCR uses post-training 8-bit quantization (MLX); QAT is deferred** until a CUDA GPU and
+about 1,000 labelled Indian prescriptions are available — it is not part of the docs/09 Phase 6 scope, and no
+official QAT script exists (checked 2026-10-02: no QAT code in `datalab-to/chandra`; the model repository
+ships BF16 weights only). The 8-bit Chandra build is post-training quantization, **not** QAT; whether MLX conversion is
 byte-reproducible has not been checked — the recorded hash protects the build that was tested.
 Disk: the 9.9 GB original BF16 download (`models/ocr/chandra-ocr-2-bf16`) is only needed to re-convert; it is
 kept until the project owner decides (§9.4).
@@ -344,7 +347,7 @@ controls — every button reachable, focus visible; (h) "Delete this document" a
 
 Sample images supplied by the project owner (a printed lab report, two handwritten prescriptions, two discharge
 summaries) were uploaded through the running app, processed locally, and deleted afterwards; none is in the
-repository. This is a smoke test of five images, **not an accuracy evaluation** (§13 still applies).
+repository. This is a smoke test of five images, **not an accuracy evaluation** (docs/15 still applies).
 
 | Found | Fix | Evidence |
 |---|---|---|
@@ -412,33 +415,10 @@ Material findings fixed and tested:
 
 ## 13. Plan for a governed real-document evaluation (not done; required before real patient data)
 
-The 26 synthetic value fields and one synthetic handwriting-style page are a **regression fixture**, not a
-clinical evaluation. No real-world accuracy figure exists for this pipeline, and none may be quoted.
-
-1. **Governance first.** Written authorisation from the data-owning facility; ethics/IRB approval where
-   required; documented consent or a lawful basis for secondary use; a named data steward. Documents are
-   de-identified **before** they reach the evaluation machine where feasible; otherwise processed only on an
-   approved, encrypted, access-logged machine, never uploaded anywhere, deleted at the end with a deletion log.
-2. **Sample.** Stratified by document type (printed lab reports from several lab chains, handwritten
-   prescriptions, discharge summaries), capture mode (flatbed scan, phone photo in good/poor light, PDF from a
-   lab system), language/script on the page, and layout family. Size chosen in advance so each stratum's
-   accuracy has a confidence interval narrow enough to decide (for example ±5 percentage points).
-3. **Ground truth.** Two annotators independently transcribe every field (test name, value incl. sign,
-   decimal, comparator, unit, printed range, flag; medication, strength, pattern) and its page box; a clinical
-   adjudicator resolves disagreements. Annotators never see OCR output first.
-4. **Measures** (per document type and stratum, with confidence intervals):
-   exact-value accuracy; decimal-point and comparator errors (reported separately, they are the dangerous
-   ones); unit accuracy; missed fields and invented fields; range-parse accuracy; engine-disagreement
-   detection (sensitivity: how many true OCR errors were flagged as disputes/Amber; specificity: how many
-   correct values were flagged); band calibration (error rate inside Accept / Amber / human-entry);
-   highlight correctness (region contains the true value and no neighbour); RxNorm status agreement;
-   reviewer correction and rejection rates and time per document in a usability session.
-5. **Acceptance criteria fixed before running**, e.g. zero confirmed decimal/comparator errors reaching the
-   reviewed list in a simulated review, a maximum error rate inside the Accept band, and a minimum dispute
-   sensitivity — set by the clinical lead, not tuned afterwards.
-6. **Failure analysis.** Every error categorised (layout, handwriting, photo quality, unit/range grammar,
-   engine normalisation such as Chandra's "Amoxycillin"→"Amoxicillin", geometry) with examples kept inside the
-   governed environment only. Results reported with their limits; synthetic results never merged into them.
+Moved to **[docs/15 — OCR Evaluation Plan](15_OCR_Evaluation_Plan.md)**: governance checklist, stratified
+sampling, two-annotator protocol with adjudication, metrics, proposed acceptance criteria (pending clinical-lead
+sign-off) and failure analysis. The synthetic fixtures are a regression fixture, not a clinical evaluation; no
+real-world accuracy figure exists for this pipeline, and none may be quoted.
 
 ## 14. Demo guidance
 
