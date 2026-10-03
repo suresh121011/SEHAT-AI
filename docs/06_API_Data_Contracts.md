@@ -59,6 +59,19 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | POST | `/intake/text` | Submit text/form input | patient, anm |
 | POST | `/intake/vitals` | Submit vital signs | anm, medical_officer |
 
+### 2.3a AI extraction, review and note (Phase 6 — implemented, [docs/16](16_LLM_Extraction_MAKER.md) §11)
+
+| Method | Endpoint | Description | Roles |
+|:---:|:---|:---|:---|
+| GET | `/ai/capabilities` | Provider (`none`/`fake`/`azure`), kind, MAKER passes, translation state | any signed-in role |
+| POST | `/cases/{case_id}/ai/extractions` | `{idempotency_key, intake_text?, include_voice?, include_ocr_reviewed?}` → grounded, MAKER-voted fields (needs `ai_assist` consent) | anm (creator), medical_officer |
+| GET | `/cases/{case_id}/ai/extractions[/{extraction_id}]` | Runs; one run with fields, missing information and follow-up questions | anm (creator), medical_officer |
+| POST | `/cases/{case_id}/ai/fields/{field_id}/review` | `{outcome: accepted\|corrected\|rejected\|unsure, corrected?, supersedes?}` | anm (creator), medical_officer |
+| GET | `/cases/{case_id}/ai/reviewed` | Reviewed values with sources and triage-form hints (view only; never submits) | anm (creator), medical_officer |
+| POST / GET | `/cases/{case_id}/ai/notes` | Source-linked note draft (rules urgency first, raise-only) / list | anm (creator), medical_officer |
+| POST | `/triage/counterfactuals` | Stateless counterfactuals for a `TriageInput` | anm, medical_officer |
+| GET | `/cases/{case_id}/triage/runs/{run_id}/counterfactuals` | Counterfactuals from a recorded run's stored input | anm (creator), medical_officer |
+
 ### 2.4 Triage
 
 | Method | Endpoint | Description | Roles |
@@ -571,7 +584,13 @@ All API errors follow a consistent shape:
 | `NOTHING_TO_WITHDRAW` | 409 | No consent in effect for that purpose |
 | `SCENARIO_MISMATCH` | 409 | Triage scenario differs from the case scenario |
 | `AI_INPUT_UNSUPPORTED_LANGUAGE` | 422 | AI assistance accepts English text only (prototype) |
-| `AI_ADAPTER_ERROR` | 502 | AI adapter failed; no output returned |
+| `AI_ADAPTER_ERROR` | 502 | AI adapter/provider failed; no output returned; no fallback provider |
+| `AI_NOT_CONFIGURED` | 503 | `AI_PROVIDER=none`: no model is called (Phase 6) |
+| `AI_NO_INPUT` | 422 | Nothing to extract (no intake text, English transcript or reviewed OCR value) |
+| `REVIEW_CONFLICT` | 409 | Field reviewed by someone else since the decision being replaced |
+| `ACCEPT_REQUIRES_VALUE` | 422 | A disputed value cannot be accepted; correct or reject it |
+| `CORRECTION_REQUIRED` / `CORRECTION_INVALID` / `CORRECTION_UNEXPECTED` | 422 | Correction missing, of the wrong type for the field, or sent with a non-`corrected` decision |
+| `REVIEWED_AT_SOURCE` | 409 | The value came from the document review; change it there |
 | `PII_REDACTION_UNAVAILABLE` | 503 | Redaction unavailable; request blocked (fail closed) |
 | `INTERNAL_ERROR` | 500 | Generic error; no request values echoed |
 | `UNAUTHORIZED` | 401 | Invalid or expired JWT |

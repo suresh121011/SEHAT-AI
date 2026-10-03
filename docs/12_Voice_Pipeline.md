@@ -340,7 +340,7 @@ Run on `http://localhost:3000` (demo accounts, synthetic speech only).
 
 ## 11. Deferred (not Phase 4)
 
-- **Phase 6:** IndicTrans2 translation of transcripts.
+- **Phase 6:** IndicTrans2 translation of transcripts. A local, flag-gated path is in place (`TRANSLATION_ENABLED`, docs/16 §8). The real model has not been run: it is gated on Hugging Face. With translation off, Hindi and Odia transcripts are skipped, with a reason.
 - **Phase 7:** wiring the prefill response into a triage entry form (no form exists yet; nothing is auto-submitted).
 - **Needs people or access:** live Sarvam STT/TTS (network), real Odia speech clips from fluent speakers, native-speaker and clinical review of docs/13, mobile-browser runs (HTTPS), a decision on whether cloud speech should be offered in hi/or before the translations are reviewed.
 - **Production hardening:** per-user/per-case cloud request limits and cost caps, cancelling provider calls on client disconnect, transcript retention and deletion, resource limits for local inference, a full `trust_remote_code` security audit (§9.2 records the checks done), Presear Dakshini (no verifiable release).

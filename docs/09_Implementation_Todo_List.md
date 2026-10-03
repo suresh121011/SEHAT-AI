@@ -477,8 +477,8 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > consent, `app/services/kernel.py` (Semantic Kernel + Azure OpenAI), OCR `/documents/reviewed` and voice
 > source refs. Entry checklist — decide or supply **before integrating** the item named:
 >
-> - [ ] **LLM provider** (6.1, 6.3, 6.5, 6.6): `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
-> - [ ] **Adapter contract** (6.1, 6.3): `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
+> - [~] **LLM provider** (6.1, 6.3, 6.5, 6.6): Phase 6 built on the fake provider; Azure is env-gated (docs/16 §7) but still has no credentials. `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
+> - [x] **Adapter contract** (6.1, 6.3) — done: `StructuredProvider` (docs/16 §2). `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
 > - [ ] **Redaction before any cloud call with real text**: 5 known name/DOB misses are pinned as xfail in `tests/privacy/test_pii.py` (lowercase or uncued Indian names). Acceptable for synthetic development; not for real patient text.
 > - [x] **`OCR_RETENTION_DAYS`** chosen and set when OCR is enabled (product/legal; the server refuses to start without it). `.env.example` lists the OCR keys (`OCR_RETENTION_DAYS=none` there and in the local `.env`, 2026-10-02).
 > - [ ] **Browser walkthrough** of docs/14 §9.3 (manual, ~10 min) — UI rendering, highlights, keyboard/focus, rejection card.
@@ -491,62 +491,93 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Extraction (20%)
 > **Features:** #14, #15, #16, #17
 
+> **Phase 6 as implemented** (branch `feat/phase-6-llm-extraction`, 2026-10-03): see [docs/16](16_LLM_Extraction_MAKER.md).
+> Boxes are ticked only with test evidence. **No live LLM:** Azure credentials are not available, so everything
+> runs on the fake provider, a deterministic keyword extractor that is **not an LLM**. The Azure path is
+> config-gated and covered by a mocked contract test. Items changed after research and the council review are
+> ~~struck~~, with the reason. Backend: 929 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 16/16
+> against a live server.
+
 #### 6.1 Structured JSON Extraction
 
-- [ ] Create `backend/app/services/extraction.py`
-- [ ] Define TriageNote JSON schema (TypedDict or Pydantic model)
-- [ ] Create SK prompt template for structured extraction
-- [ ] Extract to schema fields: chief_complaint, vitals, lab_values, medications, duration
-- [ ] Validate output matches schema (reject free-text responses)
+- [x] ~~`backend/app/services/extraction.py`~~ → `backend/app/ai/` package: adapter, fake and Azure providers, schemas, grounding, MAKER, extract, review, note
+- [x] Extraction schema as Pydantic (`app/ai/schemas.py`); strict JSON-schema output for providers
+- [x] Versioned prompt for model providers (`app/ai/prompts.py`; Semantic Kernel `AzureChatCompletion`) — ~~SK prompt template file~~ not needed
+- [x] Fields: chief_complaint, onset, duration, symptoms (negation), vitals, labs (Hb, platelets, creatinine, troponin, glucose), medications, red-flag mentions, urgency suggestion
+- [x] Free text rejected: schema-invalid replies abstain; extra keys are rejected (tested)
+- [x] Provider-agnostic contract (`RedactedPrompt` only; `AI_PROVIDER=none|fake|azure`; no fallback)
+- [~] Azure OpenAI provider — env-gated (`AI_CLOUD_ENABLED`, `AI_CLOUD_SYNTHETIC_DATA_ONLY`, host allowlist); **mocked only, not run live** (no credentials)
 
 #### 6.2 Source-Linked Fields
 
-- [ ] Create SourceLinkedField model (field_name, value, source_type, source_ref, confidence)
-- [ ] Attach source_type: "transcript" | "ocr" | "body_map" | "manual"
-- [ ] Attach source_ref to every extracted field
-- [ ] Merge sources from voice, OCR, body map, and text inputs
+- [x] Every value carries `evidence [{segment_id, quote}]`; **grounding** drops anything not quoted from its source (reason listed)
+- [x] Source types: `manual_text`, `transcript`, `transcript_translated`, `ocr_reviewed`. ~~`body_map`~~: no body-map input exists yet (Phase 7)
+- [x] Redacted→raw offset map: transcript quotes map to raw transcript characters (tested)
+- [x] Merge: typed text + English voice transcripts + reviewed OCR values (deterministic, not sent to a model)
 
 #### 6.3 MAKER Voting on Critical Values
 
-- [ ] Create `backend/app/services/maker.py`
-- [ ] Implement 3-pass extraction at temp 0.1, 0.2, 0.3
-- [ ] Compare extracted values across passes
-- [ ] If 3 agree → accept (confidence 0.95)
-- [ ] If disagreement → flag for human entry (confidence 0.5)
-- [ ] Apply to: hemoglobin, platelets, creatinine, troponin, blood glucose
+- [x] ~~`backend/app/services/maker.py`~~ → `app/ai/maker.py`
+- [x] 3 passes (configurable 3–5) at temperatures 0.1 / 0.2 / 0.3, run concurrently
+- [x] Compare values after grounding; invalid passes abstain; fewer than 2 valid passes → no fields
+- [x] Unanimous → `agreed`. ~~confidence 0.95~~ → agreement count `3/3` (council: passes of one model share errors)
+- [x] Disagreement on a critical value → `disputed`, value null, candidates shown for human entry. ~~confidence 0.5~~
+- [x] Applied to vitals plus Hb, platelets, creatinine, troponin, glucose
+- [x] Red-flag mentions never voted away (one grounded pass → `disputed_raise`); urgency suggestion only if unanimous
+- [~] With the fake provider, voting is exercised only through perturbation and `AI_FAKE_MODE=demo_disagreement` (deterministic passes always agree)
+- [ ] MAKER on OCR critical values — still `not_run`: OCR text is not sent to a model (docs/14)
 
 #### 6.4 Missing Information Detection
 
-- [ ] Define required fields per scenario in `backend/app/rules/required_fields.py`
-- [ ] OPD: chief_complaint, duration, severity, spo2, bp, pulse
-- [ ] Maternal: LMP, EDD, gravida/parity, Hb, BP, danger signs
-- [ ] NCD: 2 BP readings, blood sugar, current drugs, adherence
-- [ ] Compare extracted fields against required → identify gaps
+- [x] `backend/app/rules/required_fields.py` (pure)
+- [x] OPD: chief_complaint, duration, severity, spo2, bp, pulse
+- [x] Maternal: LMP, EDD, gravida/parity, Hb, BP, danger signs — ~~extracted~~ LMP, EDD and G/P are not extracted yet, so they always show as missing
+- [x] NCD: 2 BP readings, blood sugar, current drugs, adherence
+- [x] Gaps listed as `needs_human_review`; the red-flag screen is always asked first and never inferred
 
 #### 6.5 Follow-Up Questions
 
-- [ ] Create SK prompt: given missing fields + language → generate questions
-- [ ] Generate in patient's detected language (Odia/Hindi/English)
-- [ ] Return structured: { field_name, question_text, response_options }
-- [ ] Frontend renders as buttons/dropdowns + voice option
+- [x] ~~SK prompt~~ → deterministic English question bank (`app/ai/question_bank.py`): no model needed, no hallucinated questions
+- [ ] ~~Generate in patient's language~~ — Hindi/Odia return `not_available_pending_review` (needs native-speaker and clinical review, docs/13)
+- [x] Structured: `{field_name, question_text, response_options, is_danger_sign}`, max 5, danger signs first
+- [ ] Frontend rendering — Phase 7/8 (no UI in Phase 6)
 
 #### 6.6 AI Summary Generation
 
-- [ ] Create SK prompt for narrative summary generation
-- [ ] Include: all source-linked fields, urgency, flags, scores
-- [ ] Append mandatory disclaimer: "AI-drafted, pending review by qualified clinician"
-- [ ] Run through non-diagnostic language filter before output
-- [ ] Character limit: 500 chars max
+- [x] Note draft: ~~SK narrative prompt~~ → **server template** (council). Every claim cites a `field_id`; rejected and disputed values make no claim
+- [x] Includes source-linked fields, rules urgency + triggered rules, `enforce_raise_only` result, missing info, questions, counterfactuals
+- [x] Disclaimer: "AI-drafted, pending review by a qualified clinician. Not a diagnosis." `requires_sign_off`, `clinical_use_allowed=false`
+- [x] Non-diagnostic / prescriptive / instruction / identifier output guard (`app/ai/guard.py`) — heuristic, documented
+- [x] Summary ≤ 500 characters
+- [x] Raise-only: a GREEN suggestion on a rules-RED case stays RED; a RED raise is shown as a suggestion, never written to `triage_runs` (tested)
+- [ ] Model-written narrative — not built (template only)
 
 #### 6.7 Counterfactual Generation
 
-- [ ] Create `backend/app/services/counterfactual.py`
-- [ ] For each RED flag: calculate "If [field] were [threshold] → urgency changes to [X]"
-- [ ] Generate 2-3 counterfactuals per triage note
-- [ ] Format: { if_changed, then_urgency }
-- [ ] Include in triage note output
+- [x] ~~`backend/app/services/counterfactual.py`~~ → `app/rules/counterfactual.py` (pure; the engine re-run is the only judge, no new thresholds)
+- [x] Red flags removed, screen incomplete, nearest vital value that changes urgency
+- [x] Up to 3 per note
+- [x] Format `{if_changed, then_urgency, rule_ids}`
+- [x] In the note (latest run), `POST /triage/counterfactuals`, `GET /cases/{id}/triage/runs/{run_id}/counterfactuals`; migration 7 stores `triage_runs.input_json` for new runs (older runs: unavailable)
 
-**✅ Phase 6 Definition of Done:** LLM extracts to JSON schema. Every field has a source link. MAKER voting on critical values. Missing fields detected per scenario. Follow-up questions generated in patient's language. Counterfactuals included.
+#### 6.8 Privacy, consent, audit (Phase 6 additions)
+
+- [x] `gateway.submit_structured`: per-segment redaction (fail closed), consent re-check T1/T1b/T2, persistence inside T2
+- [x] Withdrawal mid-flight → 409, nothing persisted (`ai_assist` and `triage`); every AI read re-checks consent
+- [x] Append-only `ai_*` tables (migration 6); audit with counts and enums only (e2e-checked)
+- [x] No bulk accept; corrections ≤ 200 characters with identifier patterns rejected
+- [ ] Purge/tombstone for AI rows after withdrawal — deferred (deletion deferred since Phase 3)
+
+#### 6.9 IndicTrans2 (deferred from Phase 4)
+
+- [x] Local, flag-gated path (`TRANSLATION_ENABLED=0` default); pinned revision checked at startup; explicit download script
+- [x] Translated fields flagged `machine_translated_unreviewed`, linked to the original sentence
+- [ ] Real model run — **BLOCKED**: `indictrans2-indic-en-dist-200M` is gated on Hugging Face (needs the owner's account); mocked tests only
+- [ ] Translation quality on clinical speech — not evaluated
+
+**✅ Phase 6 Definition of Done (revised):**
+- **Met with the fake provider:** schema-checked extraction with every field source-linked and grounded; basic MAKER voting; missing information per scenario; English follow-up questions; counterfactuals; a template note with raise-only urgency; human review per field.
+- **Not met:** a live LLM, follow-up questions in the patient's language, real IndicTrans2.
 
 ---
 
