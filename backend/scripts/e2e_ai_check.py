@@ -68,7 +68,14 @@ def main() -> int:
 
     n = c.post(f"{BASE}/cases/{cid}/ai/notes", json={"extraction_id": v["extraction_id"]}, headers=anm).json()
     u = n["urgency"]
-    check("8 note: rules urgency first, AI may only raise", u["deterministic_urgency"] == det and (u["final"]["final_urgency"] == det or u["raise_requires_human_action"]), f"{det} -> {u['final']['final_urgency']}")
+    acc = u["if_ai_suggestion_accepted"]["final_urgency"]
+    check("8 note: recorded urgency is the rules engine's; AI may only suggest a raise", u["recorded_urgency"] == det and (acc == det or u["raise_suggested"]), f"recorded {det}, if suggestion accepted {acc}")
+    check("8c a suggested raise is source-linked", not u["raise_suggested"] or bool(u["ai_suggestion_evidence"]))
+    check("8d alarms lead the summary", not n["claims"] or n["claims"][0]["alarm"] or not any(c["alarm"] for c in n["claims"]))
+    print("     evidence:")
+    for f in v["fields"][:6]:
+        e = f["evidence"][0] if f["evidence"] else {}
+        print(f"       {f['field']:<28} {f['status']:<15} {f['agreement'] or '':<5} \"{e.get('quote', '')}\" ({e.get('segment_id', '')})")
     check("8a every claim cites a field", all(cl["field_ids"] for cl in n["claims"]))
     check("8b sign-off required, not for clinical use", n["requires_sign_off"] and not n["clinical_use_allowed"])
 

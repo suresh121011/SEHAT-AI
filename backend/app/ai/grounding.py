@@ -11,10 +11,11 @@ segment (case- and whitespace-insensitive). Then:
 - red flags and the urgency suggestion: only the quotes are checked (their values are closed enums).
 Anything that fails is dropped and listed with a reason; nothing is dropped silently.
 
-Negation is reconciled against the quote, asymmetrically (council amendment): a mention counts as
-negated only if the model says so AND the quote contains a negation cue. A disagreement in either
-direction keeps the mention as present and flags it for human review, so an alarm is never removed by
-a negation the source does not show.
+Negation is reconciled against the quote, asymmetrically (council amendments): a mention counts as negated
+only if the model says so AND a quote is a single clause that opens with a negation cue ("No chest pain",
+"denies chest pain"). A cue elsewhere — "Severe chest pain since morning, no fever" — is not tied to the
+mention, so the mention stays present and is flagged for review. Any disagreement keeps the mention present,
+so a negation can only err toward an extra review, never toward hiding an alarm.
 """
 
 import re
@@ -75,17 +76,29 @@ def _words_ok(value: str, evidence: list[Evidence]) -> bool:
     return all(w in quoted for w in _WORD.findall(norm(value)) if len(w) >= 3)
 
 
+_CLAUSE_BREAK = re.compile(r"[.;:!?,\n]|\b(?:but|and|with|although|though|except)\b")
+_LEADING_CUE_WORDS = 2  # the cue must be among the first words of the clause ("patient denies ...")
+
+
 def has_negation_cue(evidence: list[Evidence]) -> bool:
     return any(_NEGATION_RX.search(norm(e.quote)) for e in evidence)
 
 
+def scoped_negation(quote: str) -> bool:
+    """True only for a single-clause quote whose negation cue opens it, so the cue governs the mention."""
+    q = norm(quote).strip(" .")
+    if _CLAUSE_BREAK.search(q):
+        return False
+    m = _NEGATION_RX.search(q)
+    return m is not None and len(q[: m.start()].split()) <= _LEADING_CUE_WORDS
+
+
 def _negation(model_negated: bool, evidence: list[Evidence]) -> tuple[bool, tuple[str, ...]]:
-    cue = has_negation_cue(evidence)
-    if model_negated and cue:
+    if model_negated and evidence and all(scoped_negation(e.quote) for e in evidence):
         return True, ()
     if model_negated:
-        return False, ("negation_unsupported",)
-    if cue:
+        return False, ("negation_conflict",) if has_negation_cue(evidence) else ("negation_unsupported",)
+    if has_negation_cue(evidence):
         return False, ("negation_conflict",)
     return False, ()
 

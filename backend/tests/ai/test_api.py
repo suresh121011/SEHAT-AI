@@ -65,7 +65,7 @@ def test_extraction_is_source_linked_voted_and_needs_review(ai_client, anm, case
     r = extract(ai_client, anm, case)
     assert r.status_code == 201, r.text
     v = r.json()
-    assert v["provider"] == "fake" and v["synthetic_provider"] is True and v["status"] == "completed"
+    assert v["provider"] == "fake" and v["provider_is_fake"] is True and v["status"] == "completed"
     assert v["maker"] == {"passes_requested": 3, "passes_valid": 3, "abstentions": []}
     f = by_field(v)
     assert f["bp"]["status"] == "agreed" and f["bp"]["agreement"] == "3/3" and f["bp"]["value"]["value"] == 150
@@ -277,8 +277,9 @@ def test_note_without_triage_run_says_not_determined(ai_client, anm, case):
     n = note(ai_client, anm, case, eid)
     assert n.status_code == 201, n.text
     body = n.json()
-    assert body["urgency"]["status"] == "not_determined" and body["urgency"]["final"] is None
+    assert body["urgency"]["status"] == "not_determined" and body["urgency"]["if_ai_suggestion_accepted"] is None and body["urgency"]["recorded_urgency"] is None
     assert body["requires_sign_off"] is True and body["clinical_use_allowed"] is False and "Not a diagnosis" in body["disclaimer"]
+    assert body["disclaimer"].startswith("AI-drafted, pending review") and "not an LLM" in body["provider_notice"]
     assert len(body["summary"]) <= 500
     field_ids = {f["field_id"] for f in extract_view(ai_client, anm, case, eid)["fields"]}
     assert body["claims"] and all(c["field_ids"] and set(c["field_ids"]) <= field_ids for c in body["claims"])
@@ -295,9 +296,10 @@ def test_llm_cannot_lower_rules_urgency(ai_client, anm, case):
     eid = extract(ai_client, anm, case).json()["extraction_id"]
     runs = count("triage_runs")
     u = note(ai_client, anm, case, eid).json()["urgency"]
-    assert u["deterministic_urgency"] == "RED" and u["ai_suggestion"] == "GREEN"
-    assert u["final"]["final_urgency"] == "RED" and u["final"]["override_reason"] == "LLM cannot downgrade deterministic safety classification"
-    assert u["raise_requires_human_action"] is False and count("triage_runs") == runs
+    assert u["recorded_urgency"] == "RED" and u["ai_suggestion"] == "GREEN"
+    accepted = u["if_ai_suggestion_accepted"]
+    assert accepted["final_urgency"] == "RED" and accepted["override_reason"] == "LLM cannot downgrade deterministic safety classification"
+    assert u["raise_suggested"] is False and count("triage_runs") == runs
 
 
 def test_unanimous_raise_is_shown_as_a_suggestion_not_recorded(ai_client, anm, case):
@@ -308,12 +310,15 @@ def test_unanimous_raise_is_shown_as_a_suggestion_not_recorded(ai_client, anm, c
     runs = count("triage_runs")
     body = note(ai_client, anm, case, eid).json()
     u = body["urgency"]
-    assert u["deterministic_urgency"] == "YELLOW" and u["final"]["final_urgency"] == "RED" and u["raise_requires_human_action"] is True
+    assert u["recorded_urgency"] == "YELLOW" and u["if_ai_suggestion_accepted"]["final_urgency"] == "RED" and u["raise_suggested"] is True
+    ev = u["ai_suggestion_evidence"]
+    assert ev and "chest pain" in ev[0]["quote"].lower() and ev[0]["source"]["redacted_chars"]  # the raise is source-linked
+    assert u["warnings"] == ["triage_run_predates_extraction: re-run triage after entering reviewed values"]
     assert count("triage_runs") == runs
     with_runs = ai_client.get(f"/api/v1/cases/{case}", headers=auth(anm))
     assert with_runs.status_code == 200
     details = json.loads([a for a in audit_rows(ai_client) if a["action"] == "ai_note_drafted"][-1]["details_json"])
-    assert details["raise_applied"] is True and details["final_urgency"] == "RED"
+    assert details["raise_suggested"] is True and details["urgency_if_suggestion_accepted"] == "RED" and details["recorded_urgency"] == "YELLOW"
 
 
 def test_split_urgency_vote_is_withheld(ai_client, anm, case):
@@ -321,7 +326,7 @@ def test_split_urgency_vote_is_withheld(ai_client, anm, case):
     set_provider(ai_client, FakeProvider(perturb={0: grounded_suggestion("RED"), 1: grounded_suggestion("RED"), 2: grounded_suggestion("YELLOW")}))
     eid = extract(ai_client, anm, case).json()["extraction_id"]
     u = note(ai_client, anm, case, eid).json()["urgency"]
-    assert u["ai_suggestion"] is None and u["final"]["final_urgency"] == "YELLOW"
+    assert u["ai_suggestion"] is None and u["if_ai_suggestion_accepted"]["final_urgency"] == "YELLOW" and u["recorded_urgency"] == "YELLOW"
     assert {c["level"] for c in u["ai_suggestion_candidates"]} == {"RED", "YELLOW"}
 
 
@@ -388,3 +393,56 @@ def test_correction_with_an_identifier_is_rejected(ai_client, anm, case):
     cc = by_field(extract(ai_client, anm, case).json())["chief_complaint"]
     r = review(ai_client, anm, case, cc["field_id"], "corrected", {"value": "call 9876543210"})
     assert r.status_code == 422 and r.json()["error"]["code"] == "PII_DETECTED"
+
+
+
+# ── Final council fixes (docs/16 §13) ────────────────────────────────────────────────────────────
+
+
+def test_reusing_an_idempotency_key_for_a_different_request_is_409(ai_client, anm, case):
+    set_provider(ai_client, FakeProvider())
+    key = str(uuid.uuid4())
+    assert extract(ai_client, anm, case, key=key).status_code == 201
+    r = extract(ai_client, anm, case, text="SpO2 70%. Severe chest pain.", key=key)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+def test_summary_puts_alarms_first_and_tags_unreviewed_sentences(ai_client, anm, case):
+    set_provider(ai_client, FakeProvider())
+    long_text = ("Fever, cough, headache, vomiting, diarrhoea, rash, dizziness, body ache, joint pain, weakness, swelling for 3 days. "
+                 "BP 150/90, SpO2 91%, pulse 112, temp 39.2 C, resp rate 24, Hb 9.8, glucose 245. Taking paracetamol 500 mg twice daily. "
+                 "Severe chest pain since morning.")
+    v = extract(ai_client, anm, case, text=long_text).json()
+    body = note(ai_client, anm, case, v["extraction_id"]).json()
+    assert body["claims"][0]["alarm"] is True and body["summary"].startswith("Red-flag mention")
+    assert body["summary_omitted_claims"] > 0  # length cap applied, alarms kept
+    assert all(c["alarm"] or c["kind"] != "red_flag" or c["text"].startswith("Source text denies") for c in body["claims"])
+    assert "[unreviewed]" in body["summary"]
+    assert "not implemented" in body["sign_off"]
+
+
+def test_diagnosis_hedged_as_likely_is_blocked(ai_client, anm, case):
+    set_provider(ai_client, FakeProvider())
+    v = extract(ai_client, anm, case).json()
+    cc = by_field(v)["chief_complaint"]
+    review(ai_client, anm, case, cc["field_id"], "corrected", {"value": "likely dengue fever"})
+    body = note(ai_client, anm, case, v["extraction_id"]).json()
+    assert {"field_id": cc["field_id"], "reason": "diagnostic_language"} in body["blocked_claims"]
+
+
+def test_correction_with_a_name_is_rejected(ai_client, anm, case):
+    set_provider(ai_client, FakeProvider())
+    cc = by_field(extract(ai_client, anm, case).json())["chief_complaint"]
+    r = review(ai_client, anm, case, cc["field_id"], "corrected", {"value": "Patient Ramesh Kumar of Bhubaneswar has fever"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "PII_DETECTED"
+    assert "Ramesh" not in dump()
+
+
+def test_differing_repeat_readings_get_no_form_hint(ai_client, anm, case):
+    set_provider(ai_client, FakeProvider())
+    f = by_field(extract(ai_client, anm, case, text="SpO2 91%. Repeat SpO2 85%.").json())
+    for key in ("spo2", "spo2#2"):
+        review(ai_client, anm, case, f[key]["field_id"], "accepted")
+    out = ai_client.get(f"/api/v1/cases/{case}/ai/reviewed", headers=auth(anm)).json()
+    assert out["conflicting_readings"] == ["spo2"]
+    assert all(x["form_hints"] == [] and "form_hint_withheld" in x for x in out["values"] if x["field"].startswith("spo2"))

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 import aiosqlite
+import anyio
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit
@@ -15,7 +16,7 @@ from app.ai.extract import field_view, gate, latest_reviews, still_effective
 from app.auth import Principal
 from app.database import read_transaction, transaction
 from app.errors import ApiError, not_found
-from app.privacy.pii import residual_hit
+from app.privacy.pii import _process_raw, residual_hit
 
 
 class CorrectedValue(BaseModel):
@@ -25,7 +26,6 @@ class CorrectedValue(BaseModel):
     value2: float | None = None
     unit: str | None = Field(default=None, max_length=20)
     negated: bool | None = None
-
 
 
 class ReviewBody(BaseModel):
@@ -55,8 +55,21 @@ def _check(kind: str, body: ReviewBody, row) -> None:
         raise ApiError(422, "ACCEPT_REQUIRES_VALUE", "A disputed value has no single value to accept; correct it or reject it")
 
 
+async def _correction_has_identifier(body: ReviewBody) -> bool:
+    """Run the full redaction pass (Presidio NER + patterns) over correction text: names are rejected too,
+    not only number patterns. Heuristic, like all redaction here (docs/16 §8)."""
+    texts = [x for x in ((body.corrected.value, body.corrected.unit) if body.corrected else ()) if isinstance(x, str)]
+    for t in texts:
+        outcome = await anyio.to_thread.run_sync(_process_raw, t)
+        if outcome.redacted is None or outcome.redacted.redacted_total > 0:
+            return True
+    return False
+
+
 async def review(conn: aiosqlite.Connection, principal: Principal, case_id: str, field_id: str, body: ReviewBody, request_id=None) -> dict:
     await gate(conn, principal, case_id, request_id)
+    if await _correction_has_identifier(body):
+        raise ApiError(422, "PII_DETECTED", "The correction looks like it contains an identifier or a name; enter the clinical value only")
     async with transaction(conn):
         await still_effective(conn, case_id)
         async with conn.execute("SELECT * FROM ai_fields WHERE field_id = ? AND case_id = ?", (field_id, case_id)) as cur:
@@ -145,5 +158,17 @@ async def reviewed(conn: aiosqlite.Connection, principal: Principal, case_id: st
         v = effective_value(f["kind"], f["value"], rv)
         values.append({"field_id": f["field_id"], "field": f["field"], "value": v, "basis": "reviewer_corrected" if rv["outcome"] == "corrected" else "ai_extracted_accepted_by_reviewer",
                        "reviewed_by_role": rv["actor_role"], "evidence": f["evidence"], "form_hints": _hints(f, v) if isinstance(v, dict) else []})
+    # Repeated readings of one vital (e.g. "spo2" and "spo2#2") that differ: no hint, a human chooses.
+    readings: dict[str, set] = {}
+    for x in values:
+        name = x["field"].split("#")[0]
+        if name in _FORM or name in ("bp", "temp"):
+            readings.setdefault(name, set()).add(json.dumps(x["value"], sort_keys=True))
+    conflicts = sorted(n for n, vs in readings.items() if len(vs) > 1)
+    for x in values:
+        if x["field"].split("#")[0] in conflicts:
+            x["form_hints"] = []
+            x["form_hint_withheld"] = "several readings differ; choose the reading to enter after checking the patient"
     return {"case_id": case_id, "extraction_id": last["extraction_id"] if last else None, "values": values, "unresolved": unresolved,
+            "conflicting_readings": conflicts,
             "note": "View only. Nothing here submits triage or changes urgency; enter values on the triage form yourself after checking them."}

@@ -253,3 +253,22 @@ def test_sentence_split_keeps_decimals_and_splits_on_danda():
 
     text = "Temp 39.2 C. SpO2 91%!\nबुखार है। BP 150/90"
     assert [text[s:e] for s, e in split_sentences(text)] == ["Temp 39.2 C.", "SpO2 91%!", "बुखार है।", "BP 150/90"]
+
+
+@pytest.mark.parametrize("quote,expected_negated,flag", [
+    ("No chest pain", True, None),
+    ("denies chest pain", True, None),
+    ("Patient denies chest pain", True, None),
+    ("Severe chest pain since morning, no fever", False, "negation_conflict"),  # council-found bug: the cue belongs to fever
+    ("severe chest pain and no fever", False, "negation_conflict"),
+    ("chest pain is not better", False, "negation_conflict"),
+])
+def test_negation_must_govern_the_mention(quote, expected_negated, flag):
+    segs = {"S1": "Severe chest pain since morning, no fever. No chest pain. denies chest pain. Patient denies chest pain. severe chest pain and no fever. chest pain is not better"}
+    g = ground(segs, out(red_flags=[{"flag": "chest_pain_acute_24h", "negated": True, "evidence": [ev(quote)]}]))
+    e = keys(g)["red_flag:chest_pain_acute_24h"]
+    assert e.vote is expected_negated
+    assert e.flags == ((flag,) if flag else ())
+    if not expected_negated:  # the alarm survives voting as a priority item
+        f = fields(vote([g, g, g]))["red_flag:chest_pain_acute_24h"]
+        assert f.value["negated"] is False and f.priority_review

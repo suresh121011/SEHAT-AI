@@ -14,6 +14,7 @@ translation quality for clinical speech is unevaluated.
 
 import json
 import os
+import threading
 from pathlib import Path
 
 import anyio
@@ -31,8 +32,13 @@ class Translator:
         self.model_dir = model_dir
         self.model_id = f"{MODEL_ID}@{MODEL_REVISION[:12]}"
         self._loaded = None
+        self._lock = threading.Lock()
 
     def _load(self):
+        with self._lock:  # concurrent first requests load the model once
+            return self._load_locked()
+
+    def _load_locked(self):
         if self._loaded is None:
             os.environ["HF_HUB_OFFLINE"] = "1"  # nothing below may reach the Hub
             import torch  # noqa: F401  (voice extras)

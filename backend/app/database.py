@@ -366,6 +366,7 @@ AI_STATEMENTS: tuple[str, ...] = (
     urgency_json      TEXT NOT NULL,
     flags_json        TEXT NOT NULL,
     created_at        TEXT NOT NULL,
+    request_sha256    TEXT NOT NULL,
     UNIQUE (case_id, idempotency_key)
 )""",
     """CREATE TABLE ai_fields (
@@ -404,8 +405,8 @@ AI_STATEMENTS: tuple[str, ...] = (
     case_id                TEXT NOT NULL REFERENCES cases(case_id),
     extraction_id          TEXT NOT NULL REFERENCES ai_extraction_runs(extraction_id),
     triage_run_id          TEXT REFERENCES triage_runs(run_id),
-    deterministic_urgency  TEXT,
-    final_urgency          TEXT,
+    recorded_urgency       TEXT,   -- the rules engine's, from triage_run_id
+    urgency_if_accepted    TEXT,   -- enforce_raise_only(recorded, unanimous AI suggestion); nothing is recorded from it
     blocked_count          INTEGER NOT NULL,
     note_json              TEXT NOT NULL,
     consent_seq            INTEGER NOT NULL REFERENCES consent_events(seq),

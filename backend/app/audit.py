@@ -198,9 +198,9 @@ class AiFieldReviewDetails(_Details):
 class AiNoteDetails(_Details):
     note_id: str
     extraction_id: str
-    deterministic_urgency: Literal["RED", "YELLOW", "GREEN"] | None
-    final_urgency: Literal["RED", "YELLOW", "GREEN"] | None
-    raise_applied: bool
+    recorded_urgency: Literal["RED", "YELLOW", "GREEN"] | None  # the rules engine's
+    urgency_if_suggestion_accepted: Literal["RED", "YELLOW", "GREEN"] | None
+    raise_suggested: bool
     downgrade_refused: bool
     claims: int = Field(ge=0)
     blocked_claims: int = Field(ge=0)

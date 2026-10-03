@@ -13,7 +13,9 @@ _I = re.IGNORECASE
 DIAGNOSIS = [re.compile(p, _I) for p in (
     r"\bdiagnos(?:is|ed|e|ing)\b", r"\byou have\b", r"\b(?:he|she|patient|they) (?:has|have) (?:a |an )?\w+ (?:disease|infection|syndrome|disorder)\b",
     r"\bthis is (?:likely|probably|definitely)\b", r"\bmost likely\b", r"\bsuffering from\b", r"\bthe condition is\b",
-    r"\bconsistent with\b", r"\bsuggestive of\b", r"\bconfirms?\b.*\b(?:infection|disease|dengue|malaria|sepsis|stroke|infarct)",
+    r"\bconsistent with\b", r"\bsuggestive of\b",
+    r"\b(?:likely|probable|probably|suspected|possible|presumed|query|\?)\s+(?:case of\s+)?(?:dengue|malaria|typhoid|sepsis|stroke|tb|tuberculosis|"
+    r"pneumonia|covid|mi|infarct\w*|heart attack|appendicitis|meningitis|eclampsia|pre-?eclampsia|anaemia|anemia|diabetes|hypertension|infection)\b", r"\bconfirms?\b.*\b(?:infection|disease|dengue|malaria|sepsis|stroke|infarct)",
 )]
 PRESCRIPTION = [re.compile(p, _I) for p in (
     r"\b(?:take|give|administer|start|prescribe[ds]?|increase|decrease|stop)\s+(?:taking\s+)?\w+\s+\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|tablets?|tabs?)\b",

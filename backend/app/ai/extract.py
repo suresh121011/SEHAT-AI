@@ -5,6 +5,7 @@ Nothing here reads or writes `triage_runs`, and nothing submits triage. Every st
 human decision (`needs_review`); reviewed OCR values are carried over as already human-reviewed.
 """
 
+import hashlib
 import json
 import re
 import uuid
@@ -94,17 +95,24 @@ def source_ref(seg: RedactedSegment, source: dict, quote: str) -> dict:
 # ── Create ───────────────────────────────────────────────────────────────────────────────────────
 
 
-async def _existing(conn, case_id: str, key: str) -> str | None:
-    async with conn.execute("SELECT extraction_id FROM ai_extraction_runs WHERE case_id = ? AND idempotency_key = ?", (case_id, key)) as cur:
+async def _existing(conn, case_id: str, key: str, request_hash: str) -> str | None:
+    """The run already recorded for this key, or None. Reusing a key with a different request is a 409."""
+    async with conn.execute("SELECT extraction_id, request_sha256 FROM ai_extraction_runs WHERE case_id = ? AND idempotency_key = ?", (case_id, key)) as cur:
         row = await cur.fetchone()
-    return row["extraction_id"] if row else None
+    if row is None:
+        return None
+    if row["request_sha256"] != request_hash:
+        raise ApiError(409, "IDEMPOTENCY_KEY_REUSED", "This idempotency key was used for a different request")
+    return row["extraction_id"]
 
 
 async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: ExtractionRequest, provider: StructuredProvider,
                  passes: int, request_id: str | None, translator=None) -> dict:
     key = str(body.idempotency_key)
+    # Hash of the request (never stored raw): a retry must be the same request.
+    request_hash = hashlib.sha256(body.model_dump_json(exclude={"idempotency_key"}).encode()).hexdigest()
     await gate(conn, principal, case_id, request_id)
-    if (eid := await _existing(conn, case_id, key)) is not None:  # retry: never re-runs the provider
+    if (eid := await _existing(conn, case_id, key, request_hash)) is not None:  # retry: never re-runs the provider
         return await view(conn, principal, case_id, eid, request_id)
 
     src = await inputs.build(conn, case_id, body.intake_text, body.include_voice, translator)
@@ -124,20 +132,22 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
         return await maker.run_passes(provider, prompt, passes)
 
     async def persist(c, prompt: RedactedPrompt, res: maker.VoteResult, authz_seq: int) -> str:
-        if (existing := await _existing(c, case_id, key)) is not None:
+        if (existing := await _existing(c, case_id, key, request_hash)) is not None:
             return existing
         eid, now = str(uuid.uuid4()), _now()
         segs = {s.segment_id: s for s in prompt.segments}
         flags = ["possible_instruction_text"] if instruction_like else []
         await c.execute(
             "INSERT INTO ai_extraction_runs (extraction_id, case_id, created_by, actor_role, idempotency_key, provider, provider_kind, model_id, prompt_version, "
-            "schema_version, passes_requested, passes_valid, status, consent_seq, segments_json, skipped_json, dropped_json, abstentions_json, urgency_json, flags_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "schema_version, passes_requested, passes_valid, status, consent_seq, segments_json, skipped_json, dropped_json, abstentions_json, urgency_json, flags_json, created_at, "
+            "request_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (eid, case_id, principal.user_id, principal.role.value, key, provider.name, provider.kind, provider.model_id, PROMPT_VERSION, SCHEMA_VERSION,
              res.passes_requested, res.passes_valid, res.status, authz_seq,
              json.dumps([{"segment_id": s.segment_id, "text": s.text, "redacted_total": s.redacted_total, "source": sources[s.segment_id]} for s in prompt.segments]),
              json.dumps(src.skipped), json.dumps(res.dropped), json.dumps(res.abstentions),
-             json.dumps({"suggestion": res.urgency_suggestion, "candidates": res.urgency_candidates}), json.dumps(flags), now),
+             json.dumps({"suggestion": res.urgency_suggestion, "candidates": res.urgency_candidates,
+                         "evidence": [{**e, "source": source_ref(segs[e["segment_id"]], sources[e["segment_id"]], e["quote"])} for e in res.urgency_evidence]}),
+             json.dumps(flags), now, request_hash),
         )
         ordinal = 0
         for f in res.fields:
@@ -212,7 +222,7 @@ async def load_run(conn, case_id: str, extraction_id: str) -> tuple[aiosqlite.Ro
 def run_view(run, fields: list[dict]) -> dict:
     return {
         "extraction_id": run["extraction_id"], "case_id": run["case_id"], "status": run["status"], "created_at": run["created_at"],
-        "provider": run["provider"], "provider_kind": run["provider_kind"], "model_id": run["model_id"], "synthetic_provider": run["provider"] == "fake",
+        "provider": run["provider"], "provider_kind": run["provider_kind"], "model_id": run["model_id"], "provider_is_fake": run["provider"] == "fake",
         "prompt_version": run["prompt_version"], "schema_version": run["schema_version"],
         "maker": {"passes_requested": run["passes_requested"], "passes_valid": run["passes_valid"], "abstentions": json.loads(run["abstentions_json"])},
         "segments": json.loads(run["segments_json"]), "skipped_sources": json.loads(run["skipped_json"]), "dropped": json.loads(run["dropped_json"]),

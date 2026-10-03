@@ -587,6 +587,7 @@ All API errors follow a consistent shape:
 | `AI_ADAPTER_ERROR` | 502 | AI adapter/provider failed; no output returned; no fallback provider |
 | `AI_NOT_CONFIGURED` | 503 | `AI_PROVIDER=none`: no model is called (Phase 6) |
 | `AI_NO_INPUT` | 422 | Nothing to extract (no intake text, English transcript or reviewed OCR value) |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | Same idempotency key sent with a different extraction request |
 | `REVIEW_CONFLICT` | 409 | Field reviewed by someone else since the decision being replaced |
 | `ACCEPT_REQUIRES_VALUE` | 422 | A disputed value cannot be accepted; correct or reject it |
 | `CORRECTION_REQUIRED` / `CORRECTION_INVALID` / `CORRECTION_UNEXPECTED` | 422 | Correction missing, of the wrong type for the field, or sent with a non-`corrected` decision |

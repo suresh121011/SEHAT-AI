@@ -54,6 +54,7 @@ class VoteResult:
     dropped: list[dict] = field(default_factory=list)
     urgency_suggestion: str | None = None  # only when unanimous
     urgency_candidates: list[dict] = field(default_factory=list)
+    urgency_evidence: list[dict] = field(default_factory=list)  # quotes behind every candidate level
     abstentions: list[dict] = field(default_factory=list)
 
 
@@ -98,6 +99,7 @@ def vote(passes: list[Grounded | None], passes_requested: int | None = None, abs
         if sample.kind == "urgency":
             counts = Counter(e.vote for e in present)
             res.urgency_candidates = [{"level": lvl, "passes": c} for lvl, c in counts.most_common()]
+            res.urgency_evidence = _ev(present)
             if len(present) == n and len(counts) == 1:
                 res.urgency_suggestion = sample.vote
             continue

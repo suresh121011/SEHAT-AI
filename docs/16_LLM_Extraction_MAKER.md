@@ -1,6 +1,6 @@
 # 16 — LLM Extraction, MAKER Voting & Source-Linked Notes (Phase 6)
 
-> **MAKER, in one line:** ask the model the same question several times (3 by default). A value is trusted only as far as the independent answers agree. Every disagreement goes to a human. (Adapted from MAKER, arXiv:2511.09030, in a basic form.)
+> **MAKER, in one line:** ask the model the same question several times (3 by default) and show how far the answers agree. Every disagreement goes to a human. The passes are not independent (one model shares its own errors), so agreement is a filter, not proof. (Adapted from MAKER, arXiv:2511.09030, in a basic form.)
 >
 > **Status:** research prototype, not a clinically validated device. Non-diagnostic. **Synthetic data only.** No live LLM has been run: Azure OpenAI credentials are not available, so every check uses the **fake provider**. The fake is a deterministic keyword extractor, **not an LLM**.
 
@@ -31,7 +31,7 @@ POST /cases/{id}/ai/notes                        server-template note; rules urg
 | `AI_PROVIDER` | What runs | Notes |
 |:---|:---|:---|
 | `none` (default) | Nothing | AI endpoints return `503 AI_NOT_CONFIGURED`. |
-| `fake` | `app/ai/fake_provider.py`, a deterministic keyword/regex extractor | Offline. Labelled `provider_kind: "deterministic keyword extractor (not an LLM)"` in every response, with `synthetic_provider: true`. `AI_FAKE_MODE=demo_disagreement` makes pass 2 disagree on the first measurement, to demonstrate a disputed value. |
+| `fake` | `app/ai/fake_provider.py`, a deterministic keyword/regex extractor | Offline. Labelled `provider_kind: "deterministic keyword extractor (not an LLM)"` in every response, with `provider_is_fake: true`, and note drafts add a `provider_notice`. `AI_FAKE_MODE=demo_disagreement` makes pass 2 disagree on the first measurement, to demonstrate a disputed value. |
 | `azure` | `app/ai/azure_provider.py`: Azure OpenAI through Semantic Kernel, using strict JSON-schema structured output | Config-gated. See §7. **Not run live** in this build. |
 
 There is **no fallback** between providers. If every pass fails, the request returns `502 AI_ADAPTER_ERROR`.
@@ -59,13 +59,15 @@ The schema contains:
 
 ## 4. Grounding and source links
 
-`app/ai/grounding.py` is pure, cannot be bypassed, and runs **before** voting:
+`app/ai/grounding.py` is pure. It runs on every model value in the extraction path, **before** voting:
 
 - **Quotes:** the quote must occur in the cited redacted segment (case- and whitespace-insensitive).
 - **Numbers:** the value, and `value2` where present, must occur as a number in the quote. Number words are parsed with the voice extractor's parser, so "one hundred and forty over ninety" grounds 140/90. "one forty over ninety" does **not**: that parser deliberately never sums "one forty". The value is dropped with reason `value_not_in_quote`.
 - **Text values:** every word of 3 or more characters must occur in the quote.
 - **Identifier patterns:** a value that matches one is dropped (`pii_pattern_in_output`).
-- **Negation is asymmetric.** A mention counts as negated only if the model says so **and** the quote contains a negation cue. A disagreement in either direction keeps the mention present and adds a flag (`negation_conflict` or `negation_unsupported`) for review.
+- **Negation must govern the mention** (fixed after the final council review). A mention counts as negated only if the model says so **and** every quote is a single clause that opens with a negation cue: "No chest pain", "denies chest pain", "Patient denies chest pain".
+  - A cue elsewhere is not tied to the mention, so the mention stays present and gets a flag (`negation_conflict` or `negation_unsupported`). For example, in "Severe chest pain since morning, no fever" the "no" belongs to fever.
+  - Errors can only lead to an extra review. They never hide an alarm.
 - **Nothing is dropped silently.** Each drop is listed in `dropped: [{field, reason}]`.
 
 **Source references** (`extract.source_ref`):
@@ -104,12 +106,18 @@ The docs/09 values "0.95 / 0.5 confidence" are not used. A probability would ove
   - Every claim is built from one stored field and cites its `field_id`.
   - Rejected and disputed fields produce no claim. Disputed values are listed under `needs_human_entry` with their candidates.
   - The output guard (`app/ai/guard.py`) blocks diagnostic, prescriptive, instruction-like or identifier-like text, including reviewer corrections.
-  - The summary is at most 500 characters.
+  - **Alarms first.** Red-flag mentions lead the claims and the summary, so the 500-character cap can never cut them.
+  - Every unreviewed sentence in the summary is tagged `[unreviewed]`.
   - Fixed disclaimer, `clinical_use_allowed: false`, `requires_sign_off: true`.
   - Urgency:
-    - **Latest case triage run exists:** the deterministic urgency stands, and `enforce_raise_only(result, suggestion)` gives the final level. A raise is shown as `raise_requires_human_action`. A downgrade is refused with the engine's reason.
+    - **Latest case triage run exists:**
+      - `recorded_urgency` is the rules engine's result, and the only recorded urgency.
+      - `if_ai_suggestion_accepted` is what `enforce_raise_only(result, suggestion)` would give. A downgrade is refused with the engine's reason. A raise is shown as `raise_suggested` and changes nothing until a human acts on it.
+      - The suggestion's quotes and source links are in `ai_suggestion_evidence`.
+      - The warning `triage_run_predates_extraction` appears when the triage run is older than the extraction.
     - **No triage run:** `"not determined by the rules engine — human triage required"`.
   - **No AI endpoint writes `triage_runs`.** A static test checks this.
+  - **Sign-off is not implemented** (Phase 8). `requires_sign_off: true` is a statement, not a workflow. A note is a snapshot and does not update when fields are reviewed later. `draft()` uses the newest triage run of the case.
 
 ## 7. Enabling Azure OpenAI later (env only)
 
@@ -144,6 +152,16 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
   - The full-date (DOB) pattern also redacts onset dates, so "since 28/09/2026" becomes `[DATE_REDACTED]` and cannot be extracted.
   - A run of 8 or more bare digits fails the whole request closed, e.g. "glucose 245 312 280" → `422 PII_DETECTED`. This fail-safe is accepted as is.
 - **Spoken numbers:** see §4. "one forty" is dropped, not guessed.
+- **One bad segment blocks the whole request.** Fail-closed redaction applies per request: one Hindi or Odia word in otherwise English text (`unsupported_script`), or a run of bare readings, returns 422 for the entire extraction.
+- **Silent over-redaction:** "LMP 12/03/2026, G2P1" can become "LMP [DATE_REDACTED], [PERSON_REDACTED]", and romanised "Bukhar hai" can be redacted as a name. The value is lost, and no error is raised.
+- **The form-hint path is not guarded by `enforce_raise_only`.** Accepted values come with hints for the triage form. If a person copies a wrong reviewed value into the form, it changes the rules input itself, and nothing records where a triage input came from. Mitigations:
+  - hints exist only for human-reviewed values;
+  - repeated readings that differ get no hint (`conflicting_readings`);
+  - red-flag mentions are only candidates for the screen;
+  - the red-flag screen is always asked.
+- **Names in corrections:** reviewer corrections go through the full redaction pass (Presidio and patterns) and are rejected if anything is found. This is heuristic and can miss names.
+- **Repeated readings use positional keys (`spo2#2`).** A real LLM that orders readings differently from pass to pass will produce disputes.
+- **Translator:** a missing torch or IndicTransToolkit surfaces only on the first request, recorded as `translation_failed` with the source skipped.
 - **Withdrawing consent after storage:** AI rows are kept but no longer served, because every AI endpoint re-checks `triage` and `ai_assist`. There is no purge or tombstone path yet. Deletion was deferred in Phase 3.
 - **Prompt injection:** instruction-like intake is flagged `possible_instruction_text`. Grounding and raise-only bound the damage, but no detector is complete.
 - **IndicTrans2 (P2):**
@@ -203,6 +221,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 | `503 AI_NOT_CONFIGURED` | No provider configured |
 | `502 AI_ADAPTER_ERROR` | Every provider pass failed (no fallback) |
 | `422 AI_NO_INPUT` | Nothing to extract |
+| `409 IDEMPOTENCY_KEY_REUSED` | The same key was sent with a different request (a request hash is stored, never the text) |
 | `422 PII_DETECTED` | Identifier pattern after redaction, or in a correction |
 | `422 AI_INPUT_UNSUPPORTED_LANGUAGE` | Text is not English (Latin script) |
 | `409 CONSENT_WITHDRAWN` | Consent changed while the request was running |
@@ -214,7 +233,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 
 ## 12. Verification (2026-10-03)
 
-- **Backend:** `929 passed, 10 skipped (opt-in live), 5 xfailed`, up from the Phase 5 baseline of 831 passed. The 99 Phase 6 tests in `backend/tests/ai/` cover:
+- **Backend:** `940 passed, 10 skipped (opt-in live), 5 xfailed`, up from the Phase 5 baseline of 831 passed. The 110 Phase 6 tests in `backend/tests/ai/` cover:
   - grounding, voting, guard and redaction table tests on realistic redacted inputs
   - adapter contract, config refusals, mocked Azure contract
   - consent withdrawal mid-flight (`ai_assist` and `triage`): nothing persisted
@@ -222,7 +241,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
   - `triage_runs` unchanged by AI endpoints, plus the static no-write check
   - adversarial fake: fabricated values dropped, alarms kept
   - P1 pure functions and endpoints; mocked translation
-- **HTTP walkthrough:** `backend/scripts/e2e_ai_check.py` passed **16/16** against a live uvicorn server with `AI_PROVIDER=fake AI_FAKE_MODE=demo_disagreement`. Steps: provider label → consent → extraction (redacted, located quotes, red-flag mention) → disputed BP → review → reviewed view → rules triage → note (GREEN → RED raise shown, claims cited, sign-off required) → withdrawal → 403 → audit has no values → chain verifies.
+- **HTTP walkthrough:** `backend/scripts/e2e_ai_check.py` passed **18/18** against a live uvicorn server with `AI_PROVIDER=fake AI_FAKE_MODE=demo_disagreement`. Steps: provider label → consent → extraction (redacted, located quotes, red-flag mention) → disputed BP → review → reviewed view → rules triage → note (recorded GREEN; RED raise suggested, source-linked, alarms first; claims cited; sign-off required) → withdrawal → 403 → audit has no values → chain verifies.
 - **Not verified:**
   - any real LLM
   - the real IndicTrans2 model
@@ -244,3 +263,30 @@ An llm-council review (5 advisors, anonymised peer review, chairman) of the plan
 - Documented limits: Hinglish, onset dates, no purge path.
 
 Rejected: dropping `ai_fields` and `triage_runs.input_json` (both were in the agreed scope), and FHIR/LOINC hooks (out of scope).
+
+**Final council review of the implemented diff (2026-10-03).** Same format: 5 advisors, 5 peer reviews, chairman.
+- **Confirmed sound:**
+  - no AI code writes `triage_runs`;
+  - every path that sets urgency goes through `enforce_raise_only`;
+  - the T1/T1b/T2 consent re-checks hold;
+  - audit records ids, enums and counts only.
+- **Found and fixed before the PR:**
+  - A negation cue anywhere in a quote could mark a red flag as denied. Every reviewer ranked this finding first. Negation is now scoped to the mention, with 6 regression tests.
+  - Alarms could be truncated out of the summary. They now come first.
+  - Unreviewed summary sentences read as fact. They are now tagged `[unreviewed]`.
+  - The urgency suggestion's evidence was dropped. It is now stored and shown.
+  - An idempotency key could be reused with a different body. That now returns 409.
+  - Misleading `final` / `raise_applied` names were replaced by `recorded_urgency`, `if_ai_suggestion_accepted` and `raise_suggested`.
+  - The guard did not catch hedged diagnoses ("likely dengue"). Now it does.
+  - Names in corrections were stored. Corrections now get a full redaction pass.
+  - Repeated readings gave conflicting form hints. Hints are now withheld when readings differ.
+  - The translator could load twice. Its loader now has a lock.
+  - Wording: "independent passes" and "cannot be bypassed" corrected; `synthetic_provider` → `provider_is_fake`. The mandated "AI-drafted, pending review" disclaimer (docs/04) is kept, and a `provider_notice` now says when the values came from the fake.
+- **Documented, not fixed (§8):** sign-off, the form-hint path, over-redaction, whole-request fail-closed, positional reading keys.
+- **Later:**
+  - a synthetic gold set with an extraction scorer;
+  - romanised Hinglish synonyms;
+  - an adversarial negation fake mode;
+  - provenance on triage inputs;
+  - purge on withdrawal;
+  - Azure data-residency review before any cloud use.

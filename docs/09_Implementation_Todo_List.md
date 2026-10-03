@@ -495,8 +495,9 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > Boxes are ticked only with test evidence. **No live LLM:** Azure credentials are not available, so everything
 > runs on the fake provider, a deterministic keyword extractor that is **not an LLM**. The Azure path is
 > config-gated and covered by a mocked contract test. Items changed after research and the council review are
-> ~~struck~~, with the reason. Backend: 929 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 16/16
-> against a live server.
+> ~~struck~~, with the reason. Backend: 940 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 18/18
+> against a live server. The final council review found a negation-scope bug that could hide an alarm; it is
+> fixed, with regression tests (docs/16 §13).
 
 #### 6.1 Structured JSON Extraction
 
