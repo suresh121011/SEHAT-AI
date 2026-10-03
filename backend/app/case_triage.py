@@ -32,8 +32,8 @@ async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case
             result = evaluate_triage(data)
             run_id = str(uuid.uuid4())
             await conn.execute(
-                "INSERT INTO triage_runs (run_id, case_id, consent_seq, urgency, result_json, engine_version, ruleset_version, actor_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO triage_runs (run_id, case_id, consent_seq, urgency, result_json, engine_version, ruleset_version, actor_id, created_at, input_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     case_id,
@@ -44,6 +44,7 @@ async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case
                     result.ruleset_version,
                     principal.user_id,
                     datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                    data.model_dump_json(),
                 ),
             )
             await audit.record(
@@ -65,6 +66,25 @@ async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case
     except consent.ConsentNotEffective as exc:
         denial = exc  # the protected transaction rolled back; record the denial separately
     raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
+
+
+async def run_input(conn: aiosqlite.Connection, principal: Principal, case_id: str, run_id: str, request_id: str | None) -> TriageInput | None:
+    """The stored rules-engine input of a run (None for runs recorded before inputs were stored). Same access
+    and consent as case triage."""
+    denial: consent.ConsentNotEffective | None = None
+    try:
+        async with transaction(conn):
+            await consent.load_case(conn, principal, case_id, "triage")
+            await consent.require(conn, case_id, "triage")
+            async with conn.execute("SELECT input_json FROM triage_runs WHERE case_id = ? AND run_id = ?", (case_id, run_id)) as cur:
+                row = await cur.fetchone()
+    except consent.ConsentNotEffective as exc:
+        denial = exc
+    if denial is not None:
+        raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
+    if row is None:
+        raise ApiError(404, "NOT_FOUND", "Triage run not found")
+    return TriageInput.model_validate_json(row["input_json"]) if row["input_json"] else None
 
 
 async def list_runs(conn: aiosqlite.Connection, case_id: str) -> list[dict]:

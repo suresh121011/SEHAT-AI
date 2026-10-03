@@ -419,7 +419,12 @@ AI_STATEMENTS: tuple[str, ...] = (
     *_append_only("ai_note_drafts"),
 )
 
-MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS)
+# ── Step 7: Phase 6 P1. New triage runs also store the validated rules-engine input (vitals, flags, age; no
+# identifiers) so counterfactuals can be recomputed. Nullable: earlier runs have none. Rows stay append-only.
+TRIAGE_INPUT_STATEMENTS: tuple[str, ...] = ("ALTER TABLE triage_runs ADD COLUMN input_json TEXT",)
+
+MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
+                                           TRIAGE_INPUT_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

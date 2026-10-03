@@ -16,12 +16,13 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict
 
 from app import audit
-from app.ai import guard
-from app.ai.extract import gate, load_run, still_effective
+from app.ai import followup, guard
+from app.ai.extract import case_scenario, gate, load_run, still_effective
 from app.ai.review import effective_value
 from app.auth import Principal
 from app.database import read_transaction, transaction
-from app.rules import TriageResult, Urgency, enforce_raise_only
+from app.rules import TriageInput, TriageResult, Urgency, enforce_raise_only
+from app.rules.counterfactual import counterfactuals
 
 DISCLAIMER = "AI-drafted, pending review by a qualified clinician. Not a diagnosis. Research prototype, not a clinically validated device."
 MAX_SUMMARY_CHARS = 500
@@ -121,13 +122,23 @@ def urgency_block(triage_row, urgency_json: dict) -> dict:
     }
 
 
+def run_counterfactuals(triage_row) -> dict | None:
+    """From the stored input of the latest triage run; runs recorded before input storage have none."""
+    if triage_row is None:
+        return None
+    if triage_row["input_json"] is None:
+        return {"status": "unavailable", "reason": "triage run recorded before inputs were stored"}
+    return {"status": "computed", **counterfactuals(TriageInput.model_validate_json(triage_row["input_json"]))}
+
+
 async def draft(conn: aiosqlite.Connection, principal: Principal, case_id: str, extraction_id: str, request_id=None) -> dict:
     await gate(conn, principal, case_id, request_id)
     async with transaction(conn):
         await still_effective(conn, case_id)
         run, fields = await load_run(conn, case_id, extraction_id)
-        async with conn.execute("SELECT run_id, urgency, result_json, created_at FROM triage_runs WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
+        async with conn.execute("SELECT run_id, urgency, result_json, input_json, created_at FROM triage_runs WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
             triage_row = await cur.fetchone()
+        gaps = followup.for_extraction(await case_scenario(conn, case_id), fields)
         claims, blocked, needs_entry = build_claims(fields)
         claims = validate_claims(claims, {f["field_id"] for f in fields})
         text, omitted = summary(claims)
@@ -140,6 +151,9 @@ async def draft(conn: aiosqlite.Connection, principal: Principal, case_id: str, 
             "summary": text, "summary_omitted_claims": omitted,
             "claims": claims, "blocked_claims": blocked,
             "needs_human_entry": needs_entry,
+            "missing_information": gaps["missing_information"],
+            "follow_up_questions": gaps["follow_up_questions"],
+            "counterfactuals": run_counterfactuals(triage_row),
             "pending_review": [{"field_id": f["field_id"], "field": f["field"], "priority_review": f["priority_review"]} for f in fields if f["needs_review"]],
             "disclaimer": DISCLAIMER, "clinical_use_allowed": False, "requires_sign_off": True,
         }

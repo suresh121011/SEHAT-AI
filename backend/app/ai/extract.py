@@ -14,7 +14,7 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit, consent
-from app.ai import guard, inputs, maker
+from app.ai import followup, guard, inputs, maker
 from app.ai.adapter import StructuredProvider
 from app.ai.prompts import PROMPT_VERSION
 from app.ai.schemas import SCHEMA_VERSION
@@ -229,7 +229,13 @@ async def view(conn, principal: Principal, case_id: str, extraction_id: str, req
     async with read_transaction(conn):
         await still_effective(conn, case_id)
         run, fields = await load_run(conn, case_id, extraction_id)
-    return run_view(run, fields)
+        scenario = await case_scenario(conn, case_id)
+    return {**run_view(run, fields), **followup.for_extraction(scenario, fields)}
+
+
+async def case_scenario(conn, case_id: str) -> str:
+    async with conn.execute("SELECT scenario FROM cases WHERE case_id = ?", (case_id,)) as cur:
+        return (await cur.fetchone())["scenario"]
 
 
 async def list_runs(conn, principal: Principal, case_id: str, request_id=None) -> dict:

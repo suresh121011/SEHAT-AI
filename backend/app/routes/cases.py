@@ -71,3 +71,14 @@ async def consent_history(case_id: uuid.UUID, principal: Principal = Depends(get
 async def triage_case(case_id: uuid.UUID, body: TriageInput, request: Request, principal: Principal = Depends(_triage_roles), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     run_id, result = await case_triage.run_case_triage(db, principal, str(case_id), body, _rid(request))
     return {"case_id": str(case_id), "run_id": run_id, "result": result.model_dump(mode="json")}
+
+
+@router.get("/cases/{case_id}/triage/runs/{run_id}/counterfactuals")
+async def run_counterfactuals(case_id: uuid.UUID, run_id: uuid.UUID, request: Request, principal: Principal = Depends(_triage_roles), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    """Counterfactuals for a recorded case triage run, from its stored input (docs/16 §7)."""
+    from app.rules.counterfactual import counterfactuals
+
+    data = await case_triage.run_input(db, principal, str(case_id), str(run_id), _rid(request))
+    if data is None:
+        return {"case_id": str(case_id), "run_id": str(run_id), "status": "unavailable", "reason": "triage run recorded before inputs were stored"}
+    return {"case_id": str(case_id), "run_id": str(run_id), "status": "computed", **counterfactuals(data)}
