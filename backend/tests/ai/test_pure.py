@@ -246,3 +246,10 @@ def test_strict_provider_schema_closes_every_object():
 
     objs = list(objects(schema))
     assert objs and all(o["additionalProperties"] is False and set(o["required"]) == set(o["properties"]) for o in objs)
+
+
+def test_sentence_split_keeps_decimals_and_splits_on_danda():
+    from app.ai.inputs import split_sentences
+
+    text = "Temp 39.2 C. SpO2 91%!\nबुखार है। BP 150/90"
+    assert [text[s:e] for s, e in split_sentences(text)] == ["Temp 39.2 C.", "SpO2 91%!", "बुखार है।", "BP 150/90"]

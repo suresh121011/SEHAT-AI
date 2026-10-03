@@ -20,7 +20,9 @@ import aiosqlite
 MAX_INTAKE_CHARS = 4000
 MAX_SEGMENTS = 60
 MAX_SEGMENT_CHARS = 600
-_SENTENCE = re.compile(r"[^.!?\n]+[.!?]?")
+# A sentence ends at . ! ? । ॥ followed by whitespace or the end (so "39.2" is not split), or at a newline.
+# । and ॥ end sentences in Hindi and Odia.
+_SENTENCE_END = re.compile(r"(?<=[.!?।॥])(?=\s|$)|\n")
 
 
 @dataclass
@@ -39,8 +41,12 @@ class Inputs:
 def split_sentences(text: str) -> list[tuple[int, int]]:
     """(start, end) spans of non-empty sentences, trimmed; long sentences are cut at MAX_SEGMENT_CHARS."""
     spans = []
-    for m in _SENTENCE.finditer(text):
-        s, e = m.start(), m.end()
+    bounds, start = [], 0
+    for m in _SENTENCE_END.finditer(text):
+        bounds.append((start, m.start()))
+        start = m.end()
+    bounds.append((start, len(text)))
+    for s, e in bounds:
         while s < e and text[s].isspace():
             s += 1
         while e > s and text[e - 1].isspace():
