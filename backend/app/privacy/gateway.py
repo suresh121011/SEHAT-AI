@@ -6,10 +6,17 @@
         adapter.complete(RedactedText)   (errors wrapped; in-flight calls cannot be cancelled)
     T2  [txn] consent unchanged? → audit ai_output_returned                     else discard, 409
 
+`submit_structured` (Phase 6, docs/16) is the same T1/T1b/T2 flow for a list of segments: each segment is
+redacted independently (any failure blocks the whole request), the caller's `run` performs the provider
+passes, and the caller's `persist` stores the result inside the T2 transaction, after the consent re-check.
+
 Guarantee: output is only returned if consent for `ai_assist` (and therefore `triage`) was continuously
 unchanged from T1 to T2 by consent-event sequence. Not guaranteed: what an external processor did with an
 in-flight request. Raw text is never persisted or audited; the gateway drops its reference after redaction.
 """
+
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 import aiosqlite
 import anyio
@@ -19,7 +26,10 @@ from app.auth import Principal
 from app.database import transaction
 from app.errors import ApiError
 from app.privacy.adapters import AiDraft, BaseLlmAdapter
-from app.privacy.pii import PiiRedactionError, _process_raw
+from app.privacy.pii import PiiRedactionError, RedactedPrompt, _process_raw, _process_segments
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 def _withdrawn() -> ApiError:
@@ -101,4 +111,69 @@ async def submit_for_ai_assist(
         return draft
     if adapter_failed and await _still_authorized(conn, case_id, authz_seq):
         raise ApiError(502, "AI_ADAPTER_ERROR", "The AI adapter failed; no output returned")
+    raise _withdrawn()
+
+
+async def submit_structured(
+    conn: aiosqlite.Connection,
+    principal: Principal,
+    case_id: str,
+    raw_segments: list[tuple[str, str]],
+    run: Callable[[RedactedPrompt], Awaitable[T]],
+    persist: Callable[[aiosqlite.Connection, RedactedPrompt, T, int], Awaitable[R]],
+    request_id: str | None = None,
+) -> R:
+    """Phase 6 structured path. `run(prompt)` calls the provider (no DB lock held); `persist(conn, prompt,
+    result, authz_seq)` runs inside the T2 write transaction only if consent is unchanged since T1."""
+    denial: consent.ConsentNotEffective | None = None
+    authz_seq = 0
+    try:
+        async with transaction(conn):
+            await consent.load_case(conn, principal, case_id, "triage")
+            authz_seq = (await consent.require(conn, case_id, "ai_assist")).authz_seq
+    except consent.ConsentNotEffective as exc:
+        denial = exc
+    if denial is not None:
+        raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
+
+    outcome = await anyio.to_thread.run_sync(_process_segments, raw_segments)
+    del raw_segments
+    if outcome.prompt is None:
+        reason = outcome.reason or "internal_error"
+        await _record(conn, principal, case_id, request_id, "ai_request_blocked", "failure", audit.ReasonDetails(reason_code=reason))
+        raise PiiRedactionError(reason)
+    prompt = outcome.prompt
+
+    proceed = False
+    async with transaction(conn):
+        if await _still_authorized(conn, case_id, authz_seq):
+            proceed = True
+            await audit.record(conn, principal=principal, action="pii_redacted", outcome="success", case_id=case_id, request_id=request_id, details=audit.PiiRedactedDetails(redacted_total=prompt.redacted_total))
+        else:
+            await audit.record(conn, principal=principal, action="ai_request_blocked", outcome="denied", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="consent_changed"))
+    if not proceed:
+        raise _withdrawn()
+
+    result = None
+    failed = False
+    try:
+        result = await run(prompt)
+    except Exception:
+        failed = True
+
+    persisted = None
+    returned = False
+    async with transaction(conn):
+        if not await _still_authorized(conn, case_id, authz_seq):
+            await audit.record(conn, principal=principal, action="ai_output_discarded", outcome="denied", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="consent_changed"))
+        elif failed:
+            await audit.record(conn, principal=principal, action="ai_request_blocked", outcome="failure", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="adapter_error"))
+        else:
+            persisted = await persist(conn, prompt, result, authz_seq)
+            returned = True
+            await audit.record(conn, principal=principal, action="ai_output_returned", outcome="success", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="returned"))
+    if returned:
+        return persisted
+    if failed and await _still_authorized(conn, case_id, authz_seq):
+        raise ApiError(502, "AI_ADAPTER_ERROR", "The AI provider failed; no output returned and no fallback provider was used")
     raise _withdrawn()

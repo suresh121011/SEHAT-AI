@@ -339,7 +339,87 @@ OCR_PURGE_STATEMENTS: tuple[str, ...] = (
     "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
 )
 
-MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS)
+# ── Step 6: Phase 6 AI extraction (docs/16 §9). Append-only. Only redacted-derived content is stored: the
+# redacted segments the provider saw, voted fields with their quotes, reviewer decisions and note drafts. Raw
+# intake text is never stored. `triage_runs` is not touched by this step.
+AI_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE ai_extraction_runs (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    extraction_id     TEXT NOT NULL UNIQUE,
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    created_by        TEXT NOT NULL,
+    actor_role        TEXT NOT NULL,
+    idempotency_key   TEXT NOT NULL,
+    provider          TEXT NOT NULL,
+    provider_kind     TEXT NOT NULL,
+    model_id          TEXT NOT NULL,
+    prompt_version    TEXT NOT NULL,
+    schema_version    TEXT NOT NULL,
+    passes_requested  INTEGER NOT NULL,
+    passes_valid      INTEGER NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('completed', 'insufficient_agreement')),
+    consent_seq       INTEGER NOT NULL REFERENCES consent_events(seq),
+    segments_json     TEXT NOT NULL,
+    skipped_json      TEXT NOT NULL,
+    dropped_json      TEXT NOT NULL,
+    abstentions_json  TEXT NOT NULL,
+    urgency_json      TEXT NOT NULL,
+    flags_json        TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    UNIQUE (case_id, idempotency_key)
+)""",
+    """CREATE TABLE ai_fields (
+    field_id          TEXT PRIMARY KEY,
+    extraction_id     TEXT NOT NULL REFERENCES ai_extraction_runs(extraction_id),
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    ordinal           INTEGER NOT NULL,
+    origin            TEXT NOT NULL CHECK (origin IN ('model', 'ocr_reviewed')),
+    field_key         TEXT NOT NULL,
+    kind              TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('agreed', 'majority', 'disputed', 'disputed_raise', 'human_reviewed')),
+    agreement         TEXT,
+    value_json        TEXT NOT NULL,
+    candidates_json   TEXT NOT NULL,
+    evidence_json     TEXT NOT NULL,
+    critical          INTEGER NOT NULL,
+    priority_review   INTEGER NOT NULL,
+    flags_json        TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+)""",
+    """CREATE TABLE ai_field_review_events (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id          TEXT NOT NULL UNIQUE,
+    field_id          TEXT NOT NULL REFERENCES ai_fields(field_id),
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    outcome           TEXT NOT NULL CHECK (outcome IN ('accepted', 'corrected', 'rejected', 'unsure')),
+    corrected_json    TEXT,
+    supersedes        TEXT,
+    actor_id          TEXT NOT NULL,
+    actor_role        TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+)""",
+    """CREATE TABLE ai_note_drafts (
+    seq                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id                TEXT NOT NULL UNIQUE,
+    case_id                TEXT NOT NULL REFERENCES cases(case_id),
+    extraction_id          TEXT NOT NULL REFERENCES ai_extraction_runs(extraction_id),
+    triage_run_id          TEXT REFERENCES triage_runs(run_id),
+    deterministic_urgency  TEXT,
+    final_urgency          TEXT,
+    blocked_count          INTEGER NOT NULL,
+    note_json              TEXT NOT NULL,
+    consent_seq            INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id               TEXT NOT NULL,
+    actor_role             TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+)""",
+    *_append_only("ai_extraction_runs"),
+    *_append_only("ai_fields"),
+    *_append_only("ai_field_review_events"),
+    *_append_only("ai_note_drafts"),
+)
+
+MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
@@ -349,6 +429,7 @@ FK_OFF_STEPS = frozenset({3})
 TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
 VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
+AI_TABLES = ("ai_extraction_runs", "ai_fields", "ai_field_review_events", "ai_note_drafts")
 OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")
 
 

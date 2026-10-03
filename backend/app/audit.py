@@ -47,6 +47,9 @@ AuditAction = Literal[
     "ocr_attestation_recorded",
     "ocr_review_resolved",
     "ocr_document_deleted",
+    "ai_extraction_recorded",
+    "ai_field_reviewed",
+    "ai_note_drafted",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -168,6 +171,39 @@ class OcrDeletedDetails(_Details):
     reason: Literal["reviewer_request", "retention_expired"]
     files_removed: int = Field(ge=0)
     files_failed: int = Field(ge=0)
+
+
+class AiExtractionDetails(_Details):
+    """Counts and enums only: no values, quotes or segment text."""
+
+    extraction_id: str
+    provider: Literal["fake", "azure"]
+    status: Literal["completed", "insufficient_agreement"]
+    passes_requested: int = Field(ge=0)
+    passes_valid: int = Field(ge=0)
+    segments: int = Field(ge=0)
+    skipped_sources: int = Field(ge=0)
+    fields: int = Field(ge=0)
+    disputed: int = Field(ge=0)
+    disputed_raise: int = Field(ge=0)
+    dropped_ungrounded: int = Field(ge=0)
+    urgency_suggestion: Literal["RED", "YELLOW", "GREEN"] | None
+
+
+class AiFieldReviewDetails(_Details):
+    field_id: str
+    outcome: Literal["accepted", "corrected", "rejected", "unsure"]
+
+
+class AiNoteDetails(_Details):
+    note_id: str
+    extraction_id: str
+    deterministic_urgency: Literal["RED", "YELLOW", "GREEN"] | None
+    final_urgency: Literal["RED", "YELLOW", "GREEN"] | None
+    raise_applied: bool
+    downgrade_refused: bool
+    claims: int = Field(ge=0)
+    blocked_claims: int = Field(ge=0)
 
 
 class AuditVerifiedDetails(_Details):
