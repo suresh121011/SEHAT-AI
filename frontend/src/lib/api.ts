@@ -17,12 +17,15 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export type RequestOptions = { signal?: AbortSignal };
+
+async function request<T>(method: string, path: string, body?: unknown, opts: RequestOptions = {}): Promise<T> {
   const res = await fetch(`/api/backend/${path.replace(/^\//, "")}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     cache: "no-store",
+    signal: opts.signal,
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -70,10 +73,10 @@ export const api = {
   postAudio,
   postForm,
   postForBlob,
-  get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  delete: <T>(path: string) => request<T>("DELETE", path),
+  get: <T>(path: string, opts?: RequestOptions) => request<T>("GET", path, undefined, opts),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>("POST", path, body, opts),
+  patch: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>("PATCH", path, body, opts),
+  delete: <T>(path: string, opts?: RequestOptions) => request<T>("DELETE", path, undefined, opts),
 };
 
 export async function login(username: string, role: string): Promise<{ username: string; role: string; home: string }> {

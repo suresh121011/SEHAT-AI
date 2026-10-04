@@ -101,7 +101,7 @@ flowchart TD
 
 ## 5. Data Retention & Deletion
 
-> **Target policy — not enforced in Phase 3.** No automatic purge or deletion runs yet, and the append-only audit log cannot currently expire rows. Phase 4 processes audio in memory and does not store it; voice transcripts are stored and fall under this (unenforced) retention policy — see [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md). See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
+> **Target policy — not enforced in Phase 3.** No automatic purge or deletion runs yet, and the append-only audit log cannot currently expire rows. Phase 6 AI data (rows below) follows the same pattern: kept after withdrawal, reads refused, deletion deferred ([`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md) §1). Phase 4 processes audio in memory and does not store it; voice transcripts are stored and fall under this (unenforced) retention policy — see [`12_Voice_Pipeline.md`](12_Voice_Pipeline.md). See [`11_Privacy_Consent_Audit.md`](11_Privacy_Consent_Audit.md).
 
 | Data Type | Retention | Trigger for Deletion |
 |:---|:---|:---|
@@ -109,6 +109,11 @@ flowchart TD
 | **Voice transcripts** | Target policy as for triage notes (not enforced) | Deletion deferred; rows kept after withdrawal, reads refused |
 | **Document images** | Until reviewer sign-off | Deleted after extraction is verified and signed. **Phase 5 (docs/14 §3): stored as re-encoded page PNGs; deletion not implemented yet — this target is not enforced.** |
 | **Triage notes** | 1 year | Automatic purge after retention period |
+| **AI extraction runs** (Phase 6, `ai_extraction_runs`): redacted input segments, skipped-source and drop reasons, MAKER pass outcomes, urgency-suggestion vote with its quotes, request hash | Kept; no retention period set or enforced | **No deletion or purge path.** Rows are append-only by database trigger, so they cannot be deleted even on request. After `ai_assist` or `triage` is withdrawn, every AI read is refused (403, or 409 mid-request); rows stay stored and are served again only if consent is granted again. Raw typed intake text is never stored ([`16_LLM_Extraction_MAKER.md`](16_LLM_Extraction_MAKER.md) §9) |
+| **AI extracted fields** (`ai_fields`): voted values with quoted evidence and source references; reviewed OCR values copied with their provenance | As AI extraction runs | As AI extraction runs |
+| **AI field review events** (`ai_field_review_events`): accept / correct / reject / unsure, with reviewer corrections | As AI extraction runs | As AI extraction runs. Corrections pass a heuristic identifier check (patterns plus Presidio NER) before storage; names can still be missed |
+| **AI note drafts** (`ai_note_drafts`): snapshot of the draft note (claims, urgency block, missing information, counterfactuals) | As AI extraction runs | As AI extraction runs. A draft does not change when consent is withdrawn or fields are reviewed later |
+| **Triage-run inputs** (`triage_runs.input_json`, Phase 6): the rules-engine input of new runs (vitals, flags, age; no free text) | As triage notes (not enforced) | Stored with the append-only triage run; no deletion path |
 | **Audit log entries** | 1 year (CERT-In Directions) | No deletion — retained for compliance |
 | **Consent records** | Duration of data retention + 1 year | Retained as proof of lawful processing |
 | **Referral tracking data** | Until outcome recorded + 90 days | Automatic purge |

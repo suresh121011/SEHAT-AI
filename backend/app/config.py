@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -29,6 +30,11 @@ DEMO_AUTH_ENVIRONMENTS = frozenset({"development", "test"})
 # Hosts that may receive the Sarvam API key, patient audio and read-back text (docs/12 §2, §8). Kept in code
 # on purpose: widening it is a reviewed change, not an environment edit.
 SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
+
+# Azure OpenAI endpoint host suffixes that may receive the API key and redacted case text (docs/16 §7).
+# Kept in code on purpose, like SARVAM_ALLOWED_HOSTS.
+AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
+AI_PROVIDERS = ("none", "fake", "azure")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -82,10 +88,31 @@ class Settings:
     # a number of days, or "none" = kept until a reviewer deletes it. The duration itself is a product/legal
     # decision that is NOT made in code; there is no silent default.
     ocr_retention_days: int | None = None
-    # Reserved for later phases. Neither feature is implemented: enabling one refuses to start, so a switch
-    # can never suggest that a check runs when it does not (MAKER is reported `not_run` in OCR verification).
-    maker_voting_enabled: bool = False  # Phase 6 (docs/09 §6.3)
+    # Phase 6 AI extraction (docs/16). `none` = no model is called (AI endpoints answer 503). `fake` = the
+    # deterministic offline keyword extractor (not an LLM). `azure` = Azure OpenAI via Semantic Kernel, only
+    # with AI_CLOUD_ENABLED=1, complete credentials, an allowed host and AI_CLOUD_SYNTHETIC_DATA_ONLY=1.
+    # There is never a fallback from one provider to another.
+    ai_provider: str = "none"
+    ai_cloud_enabled: bool = False
+    ai_cloud_synthetic_data_only: bool = False
+    ai_maker_passes: int = 3
+    ai_fake_mode: str = "honest"  # honest | demo_disagreement (fake provider only; demo of a disputed value)
+    ai_timeout_s: float = 30.0
+    # Phase 6 P2: IndicTrans2 (indic → en), local only. Off unless enabled.
+    translation_enabled: bool = False
+    translation_model_dir: Path = REPO_ROOT / "models" / "translation"
+    # Reserved for a later phase. Not implemented: enabling it refuses to start, so a switch can never
+    # suggest that a check runs when it does not. (MAKER voting is part of Phase 6 extraction and needs no
+    # switch; OCR verification still reports MAKER as `not_run`, see docs/14.)
     medgemma_enabled: bool = False  # X-ray/ECG description, deferred (docs/14 §11)
+    # Facility isolation (docs/17 §8). Trusted server config, never client input. None = isolation OFF (every
+    # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
+    # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
+    account_facilities: dict[str, frozenset[str] | None] | None = None
+
+    @property
+    def facility_isolation(self) -> bool:
+        return self.account_facilities is not None
 
     @property
     def sarvam_configured(self) -> bool:
@@ -146,9 +173,114 @@ def get_settings() -> Settings:
         ocr_page_timeout_s=float(_env("OCR_PAGE_TIMEOUT_S", "180")),
         ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
-        maker_voting_enabled=_not_implemented("MAKER_VOTING_ENABLED", "MAKER voting (Phase 6)"),
+        **_ai_settings(),
         medgemma_enabled=_not_implemented("MEDGEMMA_ENABLED", "MedGemma image description (deferred)"),
+        account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
     )
+
+
+_FACILITY_CODE = re.compile(r"^[A-Z0-9-]{3,32}$")  # same pattern as CaseCreate.facility_code
+
+
+def _account_facilities(value: str) -> dict[str, frozenset[str] | None] | None:
+    """ACCOUNT_FACILITIES=user=CODE[,CODE...];user2=*  (docs/17 §8). Unset/blank = isolation off. Parsed strictly:
+    any malformed entry, unknown account, duplicate account or bad facility code refuses to start. Refusals name
+    the rule, never the offending value; the log line carries counts only."""
+    if not value:
+        return None
+    from app.auth import DEMO_ACCOUNTS  # lazy: app.auth imports this module
+
+    out: dict[str, frozenset[str] | None] = {}
+    for entry in value.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        user, sep, codes_raw = entry.partition("=")
+        user = user.strip()
+        if not sep or not user:
+            raise RuntimeError("ACCOUNT_FACILITIES entries must be username=FACILITY[,FACILITY...] or username=*, separated by ';'")
+        if user not in DEMO_ACCOUNTS:
+            raise RuntimeError("ACCOUNT_FACILITIES names an account that does not exist")
+        if user in out:
+            raise RuntimeError("ACCOUNT_FACILITIES lists an account more than once")
+        codes = [c.strip() for c in codes_raw.split(",")]
+        if codes == ["*"]:
+            out[user] = None
+            continue
+        if not codes or any(not _FACILITY_CODE.fullmatch(c) for c in codes):
+            raise RuntimeError("ACCOUNT_FACILITIES facility codes must match ^[A-Z0-9-]{3,32}$, or be a single '*'")
+        out[user] = frozenset(codes)
+    if not out:
+        raise RuntimeError("ACCOUNT_FACILITIES is set but has no entries; leave it empty to turn facility isolation off")
+    logger.info("facility isolation enforced: %d account(s) mapped, %d unrestricted", len(out), sum(1 for v in out.values() if v is None))
+    return out
+
+
+def _ai_settings() -> dict:
+    """AI provider settings (docs/16 §7). Every refusal names exactly what is missing; values are never echoed."""
+    provider = (_env("AI_PROVIDER") or "none").lower()  # blank = default
+    if provider not in AI_PROVIDERS:
+        raise RuntimeError("AI_PROVIDER must be one of: none, fake, azure")
+    passes = _env("AI_MAKER_PASSES") or "3"
+    if not passes.isdigit() or not 3 <= int(passes) <= 5:
+        raise RuntimeError("AI_MAKER_PASSES must be a whole number from 3 to 5")
+    cloud = _flag("AI_CLOUD_ENABLED")
+    synthetic_only = _flag("AI_CLOUD_SYNTHETIC_DATA_ONLY")
+    if provider == "azure":
+        if not cloud:
+            raise RuntimeError("AI_PROVIDER=azure requires AI_CLOUD_ENABLED=1 (redacted case text leaves this machine)")
+        if not synthetic_only:
+            raise RuntimeError("AI_PROVIDER=azure requires AI_CLOUD_SYNTHETIC_DATA_ONLY=1: PII redaction has known misses "
+                               "(docs/16 §8), so only synthetic data may be sent to a cloud model in this build")
+        missing = [n for n in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_NAME", "AZURE_OPENAI_API_VERSION") if not _env(n)]
+        if missing:
+            raise RuntimeError(f"AI_PROVIDER=azure requires {', '.join(missing)}")
+        _azure_endpoint(_env("AZURE_OPENAI_ENDPOINT"))
+    fake_mode = (_env("AI_FAKE_MODE") or "honest").lower()
+    if fake_mode not in ("honest", "demo_disagreement"):
+        raise RuntimeError("AI_FAKE_MODE must be honest or demo_disagreement")
+    if fake_mode != "honest" and provider != "fake":
+        raise RuntimeError("AI_FAKE_MODE applies only to AI_PROVIDER=fake")
+    timeout = float(_env("AI_TIMEOUT_S") or "30")
+    if not 1 <= timeout <= 120:
+        raise RuntimeError("AI_TIMEOUT_S must be between 1 and 120 seconds")
+    return {
+        "ai_provider": provider,
+        "ai_cloud_enabled": cloud,
+        "ai_cloud_synthetic_data_only": synthetic_only,
+        "ai_maker_passes": int(passes),
+        "ai_fake_mode": fake_mode,
+        "ai_timeout_s": timeout,
+        "translation_enabled": _flag("TRANSLATION_ENABLED"),
+        "translation_model_dir": _path(_env("TRANSLATION_MODEL_DIR") or "./models/translation"),
+    }
+
+
+def _azure_endpoint(value: str) -> str:
+    """AZURE_OPENAI_ENDPOINT must be https://<resource><allowed suffix> (optionally a trailing `/`). The value
+    itself is not echoed."""
+    allowed = ", ".join("*" + s for s in AZURE_OPENAI_HOST_SUFFIXES)
+    error = RuntimeError(f"AZURE_OPENAI_ENDPOINT must be https://<resource> with host in: {allowed} (no path, port, credentials, query)")
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise error
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise error from None
+    host = (parts.hostname or "").lower()
+    if (
+        parts.scheme.lower() != "https"
+        or not any(host.endswith(sfx) and len(host) > len(sfx) for sfx in AZURE_OPENAI_HOST_SUFFIXES)
+        or parts.username is not None
+        or parts.password is not None
+        or port not in (None, 443)
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+    ):
+        raise error
+    return f"https://{host}/"
 
 
 def _not_implemented(name: str, feature: str) -> bool:

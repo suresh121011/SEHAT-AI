@@ -1,0 +1,6 @@
+# SEHAT AI — optional local translation (Phase 6 P2, docs/16 §8). Not installed by default; the app runs and
+# all other features work without it. Hindi/Odia transcripts are skipped (with a reason) until this is
+# installed AND the model is downloaded AND TRANSLATION_ENABLED=1.
+#   uv pip install --python .venv/bin/python -r backend/requirements-translation.txt
+-r requirements-voice.txt     # torch + transformers (<5)
+IndicTransToolkit==1.1.1      # MIT; IndicProcessor pre/post-processing for IndicTrans2 (builds Cython)

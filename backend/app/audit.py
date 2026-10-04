@@ -47,6 +47,14 @@ AuditAction = Literal[
     "ocr_attestation_recorded",
     "ocr_review_resolved",
     "ocr_document_deleted",
+    "ai_extraction_recorded",
+    "ai_field_reviewed",
+    "ai_note_drafted",
+    "review_signed_off",
+    "urgency_overridden",
+    "red_escalation_acknowledged",
+    "red_escalation_overdue",
+    "triage_corrected",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -170,9 +178,82 @@ class OcrDeletedDetails(_Details):
     files_failed: int = Field(ge=0)
 
 
+class AiExtractionDetails(_Details):
+    """Counts and enums only: no values, quotes or segment text."""
+
+    extraction_id: str
+    provider: Literal["fake", "azure"]
+    status: Literal["completed", "insufficient_agreement"]
+    passes_requested: int = Field(ge=0)
+    passes_valid: int = Field(ge=0)
+    segments: int = Field(ge=0)
+    skipped_sources: int = Field(ge=0)
+    fields: int = Field(ge=0)
+    disputed: int = Field(ge=0)
+    disputed_raise: int = Field(ge=0)
+    dropped_ungrounded: int = Field(ge=0)
+    urgency_suggestion: Literal["RED", "YELLOW", "GREEN"] | None
+
+
+class AiFieldReviewDetails(_Details):
+    field_id: str
+    outcome: Literal["accepted", "corrected", "rejected", "unsure"]
+
+
+class AiNoteDetails(_Details):
+    note_id: str
+    extraction_id: str
+    recorded_urgency: Literal["RED", "YELLOW", "GREEN"] | None  # the rules engine's
+    urgency_if_suggestion_accepted: Literal["RED", "YELLOW", "GREEN"] | None
+    raise_suggested: bool
+    downgrade_refused: bool
+    claims: int = Field(ge=0)
+    blocked_claims: int = Field(ge=0)
+
+
 class AuditVerifiedDetails(_Details):
     verified_through_seq: int = Field(ge=0)
     ok: bool
+
+
+UrgencyLevel = Literal["RED", "YELLOW", "GREEN"]
+
+
+class ReviewSignOffDetails(_Details):
+    """Ids and enums only; never the reviewer's free text."""
+
+    review_event_id: str
+    triage_run_id: str
+    rules_urgency: UrgencyLevel
+    effective_urgency: UrgencyLevel
+
+
+class UrgencyOverrideDetails(_Details):
+    review_event_id: str
+    triage_run_id: str
+    rules_urgency: UrgencyLevel
+    old_urgency: UrgencyLevel
+    new_urgency: UrgencyLevel
+    reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+    has_reason_text: bool
+
+
+class TriageCorrectedDetails(_Details):
+    """Ids, field paths and enums only; never values or the reviewer's free text."""
+
+    from_run_id: str
+    to_run_id: str
+    rules_urgency_before: UrgencyLevel
+    rules_urgency_after: UrgencyLevel
+    changed_fields: list[str] = Field(max_length=64)
+    reason_code: str = Field(pattern=r"^[a-z_]{1,48}$")
+    has_reason_text: bool
+
+
+class EscalationDetails(_Details):
+    triage_run_id: str
+    deadline: str
+    seconds_after_deadline: int  # negative = acknowledged before the deadline
 
 
 def _canonical(payload: dict) -> str:

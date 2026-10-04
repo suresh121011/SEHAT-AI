@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 
 import { logout } from "@/lib/api";
+import { clearAllLocalNotes } from "@/lib/intakeStore";
 
 export function LogoutButton() {
   const router = useRouter();
@@ -12,8 +13,9 @@ export function LogoutButton() {
   return (
     <button
       type="button"
-      className="rounded border border-black/15 px-3 py-1 text-sm hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+      className="min-h-11 rounded border border-line px-4 text-sm font-bold text-ink hover:bg-primary-tint"
       onClick={async () => {
+        clearAllLocalNotes(); // body-map and follow-up notes never outlive the session on a shared device
         await logout();
         router.push("/login");
         router.refresh();

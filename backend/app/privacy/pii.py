@@ -329,3 +329,113 @@ def redact(raw: str) -> RedactedText:
     if outcome.redacted is None:
         raise PiiRedactionError(outcome.reason or "internal_error")
     return outcome.redacted
+
+
+# ── Phase 6: segmented prompts (docs/16 §4) ──────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RedactedSegment:
+    """One redacted input segment. `replacements` maps each redaction token back to the input it replaced:
+    (redacted_start, redacted_end, input_start, input_end). Input offsets index the *normalized* text; they
+    equal raw-text offsets only when `normalization_identity` is true (always so for plain ASCII)."""
+
+    segment_id: str
+    text: str
+    redacted_total: int
+    replacements: tuple[tuple[int, int, int, int], ...]
+    normalization_identity: bool
+
+    def __repr__(self) -> str:
+        return f"RedactedSegment({self.segment_id!r}, redacted_total={self.redacted_total})"
+
+    __str__ = __repr__
+
+    def input_offsets(self, start: int, end: int) -> tuple[int, int] | None:
+        """Map a range of the redacted text to the raw input range, or None if normalization changed the
+        text (offsets would not index the raw input). A range touching a token widens to the whole token."""
+        if not self.normalization_identity:
+            return None
+
+        def m(p: int, is_end: bool) -> int:
+            shift = 0
+            for rs, re_, ns, ne in self.replacements:
+                if p <= rs:
+                    return p + shift
+                if p < re_:
+                    return ne if is_end else ns
+                shift = ne - re_
+            return p + shift
+
+        return m(start, False), m(end, True)
+
+
+class RedactedPrompt:
+    """The only input a Phase 6 structured provider accepts. Constructed only by `redact_segments`."""
+
+    __slots__ = ("segments",)
+    segments: tuple[RedactedSegment, ...]
+
+    def __init__(self, key: object, segments: tuple[RedactedSegment, ...]):
+        if key is not _KEY:
+            raise TypeError("RedactedPrompt can only be produced by app.privacy.pii.redact_segments")
+        object.__setattr__(self, "segments", segments)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("RedactedPrompt is immutable")
+
+    @property
+    def redacted_total(self) -> int:
+        return sum(s.redacted_total for s in self.segments)
+
+    def segment_texts(self) -> dict[str, str]:
+        return {s.segment_id: s.text for s in self.segments}
+
+    def __repr__(self) -> str:
+        return f"RedactedPrompt(segments={len(self.segments)}, redacted_total={self.redacted_total})"
+
+    __str__ = __repr__
+
+
+@dataclass(frozen=True)
+class _SafeSegmentsOutcome:
+    prompt: RedactedPrompt | None
+    reason: str | None
+
+
+def _process_segments(raw_segments: list[tuple[str, str]]) -> _SafeSegmentsOutcome:
+    """Redact each (segment_id, raw text) independently. Any failing segment fails the whole prompt closed.
+    Never raises (same discipline as `_process_raw`)."""
+    try:
+        out: list[RedactedSegment] = []
+        for segment_id, raw in raw_segments:
+            text = normalize(raw)
+            if has_unsupported_script(text):
+                return _SafeSegmentsOutcome(None, "unsupported_script")
+            analyzer = get_analyzer()
+            results = analyzer.analyze(text=text, language="en", entities=ENTITIES, score_threshold=SCORE_THRESHOLD)
+            spans = merge_spans([_Span(r.start, r.end, r.entity_type, r.score) for r in results])
+            redacted = apply_redactions(text, spans)
+            if residual_hit(redacted):
+                return _SafeSegmentsOutcome(None, "residual_identifier_pattern")
+            reps, delta = [], 0
+            for s in sorted(spans, key=lambda x: x.start):
+                token = TOKENS[s.entity]
+                rs = s.start + delta
+                reps.append((rs, rs + len(token), s.start, s.end))
+                delta += len(token) - (s.end - s.start)
+            out.append(RedactedSegment(segment_id, redacted, len(spans), tuple(reps), text == raw))
+        return _SafeSegmentsOutcome(RedactedPrompt(_KEY, tuple(out)), None)
+    except _AnalyzerUnavailable:
+        return _SafeSegmentsOutcome(None, "redaction_unavailable")
+    except Exception:
+        return _SafeSegmentsOutcome(None, "internal_error")
+
+
+def redact_segments(raw_segments: list[tuple[str, str]]) -> RedactedPrompt:
+    """Redact segments or raise a sanitized PiiRedactionError."""
+    outcome = _process_segments(raw_segments)
+    del raw_segments
+    if outcome.prompt is None:
+        raise PiiRedactionError(outcome.reason or "internal_error")
+    return outcome.prompt

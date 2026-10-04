@@ -15,7 +15,9 @@ export const DEMO_ACCOUNTS: { username: string; role: Role; label: string }[] = 
 ];
 
 // docs/09 §1.6: /intake/* → patient, anm; /dashboard/* → medical officer, supervisor.
+// First match wins: the governance page (aggregates, GET /audit/governance) is supervisor/admin only (docs/17).
 export const ROUTE_ACCESS: { prefix: string; roles: Role[] }[] = [
+  { prefix: "/dashboard/governance", roles: ["supervisor", "admin"] },
   { prefix: "/intake", roles: ["patient", "anm"] },
   { prefix: "/dashboard", roles: ["medical_officer", "supervisor"] },
 ];

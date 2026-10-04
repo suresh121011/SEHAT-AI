@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
-from app.routes import audit, auth, cases, health, ocr, triage, voice
+from app.routes import ai, audit, auth, cases, health, ocr, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -56,6 +56,14 @@ async def lifespan(app: FastAPI):
         finally:
             await conn.close()
     app.state.kernel = build_kernel(settings)
+    from app.ai.providers import build_provider
+
+    app.state.ai_provider = build_provider(settings)  # None when AI_PROVIDER=none (AI endpoints answer 503)
+    app.state.translator = None
+    if settings.translation_enabled:
+        from app.ai.translate import build_translator
+
+        app.state.translator = build_translator(settings)
     yield
     from app.ocr.worker_client import shutdown_all
 
@@ -87,11 +95,14 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(auth.router, prefix=API_PREFIX)
+    # Before triage/audit: its static paths (/triage/queue, /audit/governance) must win over /audit/{case_id}.
+    app.include_router(review.router, prefix=API_PREFIX)
     app.include_router(triage.router, prefix=API_PREFIX)
     app.include_router(cases.router, prefix=API_PREFIX)
     app.include_router(audit.router, prefix=API_PREFIX)
     app.include_router(voice.router, prefix=API_PREFIX)
     app.include_router(ocr.router, prefix=API_PREFIX)
+    app.include_router(ai.router, prefix=API_PREFIX)
     return app
 
 

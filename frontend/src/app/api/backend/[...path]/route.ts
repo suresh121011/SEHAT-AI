@@ -6,6 +6,10 @@ import { API_BASE_URL, SESSION_COOKIE } from "@/lib/auth";
 // Same-origin proxy to the FastAPI backend that attaches the session JWT as a Bearer token.
 async function proxy(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
+  // "." / ".." segments would be normalised by fetch and could reach backend paths outside /api/v1.
+  if (path.some((p) => p === "." || p === "..")) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
+  }
   const incoming = new URL(request.url);
   const target = `${API_BASE_URL}/${path.map(encodeURIComponent).join("/")}${incoming.search}`;
 

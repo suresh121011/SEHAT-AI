@@ -477,8 +477,8 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > consent, `app/services/kernel.py` (Semantic Kernel + Azure OpenAI), OCR `/documents/reviewed` and voice
 > source refs. Entry checklist — decide or supply **before integrating** the item named:
 >
-> - [ ] **LLM provider** (6.1, 6.3, 6.5, 6.6): `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
-> - [ ] **Adapter contract** (6.1, 6.3): `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
+> - [~] **LLM provider** (6.1, 6.3, 6.5, 6.6): Phase 6 built on the fake provider; Azure is env-gated (docs/16 §7) but still has no credentials. `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
+> - [x] **Adapter contract** (6.1, 6.3) — done: `StructuredProvider` (docs/16 §2). `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
 > - [ ] **Redaction before any cloud call with real text**: 5 known name/DOB misses are pinned as xfail in `tests/privacy/test_pii.py` (lowercase or uncued Indian names). Acceptable for synthetic development; not for real patient text.
 > - [x] **`OCR_RETENTION_DAYS`** chosen and set when OCR is enabled (product/legal; the server refuses to start without it). `.env.example` lists the OCR keys (`OCR_RETENTION_DAYS=none` there and in the local `.env`, 2026-10-02).
 > - [ ] **Browser walkthrough** of docs/14 §9.3 (manual, ~10 min) — UI rendering, highlights, keyboard/focus, rejection card.
@@ -491,62 +491,94 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Extraction (20%)
 > **Features:** #14, #15, #16, #17
 
+> **Phase 6 as implemented** (branch `feat/phase-6-llm-extraction`, 2026-10-03): see [docs/16](16_LLM_Extraction_MAKER.md).
+> Boxes are ticked only with test evidence. **No live LLM:** Azure credentials are not available, so everything
+> runs on the fake provider, a deterministic keyword extractor that is **not an LLM**. The Azure path is
+> config-gated and covered by a mocked contract test. Items changed after research and the council review are
+> ~~struck~~, with the reason. Backend: 946 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 18/18
+> against a live server. The final council review found a negation-scope bug that could hide an alarm; it is
+> fixed, with regression tests (docs/16 §13).
+
 #### 6.1 Structured JSON Extraction
 
-- [ ] Create `backend/app/services/extraction.py`
-- [ ] Define TriageNote JSON schema (TypedDict or Pydantic model)
-- [ ] Create SK prompt template for structured extraction
-- [ ] Extract to schema fields: chief_complaint, vitals, lab_values, medications, duration
-- [ ] Validate output matches schema (reject free-text responses)
+- [x] ~~`backend/app/services/extraction.py`~~ → `backend/app/ai/` package: adapter, fake and Azure providers, schemas, grounding, MAKER, extract, review, note
+- [x] Extraction schema as Pydantic (`app/ai/schemas.py`); strict JSON-schema output for providers
+- [x] Versioned prompt for model providers (`app/ai/prompts.py`; Semantic Kernel `AzureChatCompletion`) — ~~SK prompt template file~~ not needed
+- [x] Fields: chief_complaint, onset, duration, symptoms (negation), vitals, labs (Hb, platelets, creatinine, troponin, glucose), medications, red-flag mentions, urgency suggestion
+- [x] Free text rejected: schema-invalid replies abstain; extra keys are rejected (tested)
+- [x] Provider-agnostic contract (`RedactedPrompt` only; `AI_PROVIDER=none|fake|azure`; no fallback)
+- [~] Azure OpenAI provider — env-gated (`AI_CLOUD_ENABLED`, `AI_CLOUD_SYNTHETIC_DATA_ONLY`, host allowlist); **mocked only, not run live** (no credentials)
 
 #### 6.2 Source-Linked Fields
 
-- [ ] Create SourceLinkedField model (field_name, value, source_type, source_ref, confidence)
-- [ ] Attach source_type: "transcript" | "ocr" | "body_map" | "manual"
-- [ ] Attach source_ref to every extracted field
-- [ ] Merge sources from voice, OCR, body map, and text inputs
+- [x] Every value carries `evidence [{segment_id, quote}]`; **grounding** drops anything not quoted from its source (reason listed)
+- [x] Source types: `manual_text`, `transcript`, `transcript_translated`, `ocr_reviewed`. ~~`body_map`~~: no body-map input exists yet (Phase 7)
+- [x] Redacted→raw offset map: transcript quotes map to raw transcript characters (tested)
+- [x] Merge: typed text + English voice transcripts + reviewed OCR values (deterministic, not sent to a model). Reviewed-OCR merge tested through the real OCR attest/review endpoints with replayed engines (`tests/ai/test_ocr_merge.py`). The pre-PR audit fixed two defects: OCR keys in `required_fields` (`ocr:hb` → `ocr:hemoglobin`, glucose keys), and the note printing the raw OCR value dict
 
 #### 6.3 MAKER Voting on Critical Values
 
-- [ ] Create `backend/app/services/maker.py`
-- [ ] Implement 3-pass extraction at temp 0.1, 0.2, 0.3
-- [ ] Compare extracted values across passes
-- [ ] If 3 agree → accept (confidence 0.95)
-- [ ] If disagreement → flag for human entry (confidence 0.5)
-- [ ] Apply to: hemoglobin, platelets, creatinine, troponin, blood glucose
+- [x] ~~`backend/app/services/maker.py`~~ → `app/ai/maker.py`
+- [x] 3 passes (configurable 3–5) at temperatures 0.1 / 0.2 / 0.3, run concurrently
+- [x] Compare values after grounding; invalid passes abstain; fewer than 2 valid passes → no fields
+- [x] Unanimous → `agreed`. ~~confidence 0.95~~ → agreement count `3/3` (council: passes of one model share errors)
+- [x] Disagreement on a critical value → `disputed`, value null, candidates shown for human entry. ~~confidence 0.5~~
+- [x] Applied to vitals plus Hb, platelets, creatinine, troponin, glucose
+- [x] Red-flag mentions never voted away (one grounded pass → `disputed_raise`); urgency suggestion only if unanimous
+- [~] With the fake provider, voting is exercised only through perturbation and `AI_FAKE_MODE=demo_disagreement` (deterministic passes always agree)
+- [ ] MAKER on OCR critical values — still `not_run`: OCR text is not sent to a model (docs/14)
 
 #### 6.4 Missing Information Detection
 
-- [ ] Define required fields per scenario in `backend/app/rules/required_fields.py`
-- [ ] OPD: chief_complaint, duration, severity, spo2, bp, pulse
-- [ ] Maternal: LMP, EDD, gravida/parity, Hb, BP, danger signs
-- [ ] NCD: 2 BP readings, blood sugar, current drugs, adherence
-- [ ] Compare extracted fields against required → identify gaps
+- [x] `backend/app/rules/required_fields.py` (pure)
+- [x] OPD: chief_complaint, duration, severity, spo2, bp, pulse
+- [x] Maternal: LMP, EDD, gravida/parity, Hb, BP, danger signs — ~~extracted~~ LMP, EDD and G/P are not extracted yet, so they always show as missing
+- [x] NCD: 2 BP readings, blood sugar, current drugs, adherence
+- [x] Gaps listed as `needs_human_review`; the red-flag screen is always asked first and never inferred
 
 #### 6.5 Follow-Up Questions
 
-- [ ] Create SK prompt: given missing fields + language → generate questions
-- [ ] Generate in patient's detected language (Odia/Hindi/English)
-- [ ] Return structured: { field_name, question_text, response_options }
-- [ ] Frontend renders as buttons/dropdowns + voice option
+- [x] ~~SK prompt~~ → deterministic English question bank (`app/ai/question_bank.py`): no model needed, no hallucinated questions
+- [ ] ~~Generate in patient's language~~ — Hindi/Odia return `not_available_pending_review` (needs native-speaker and clinical review, docs/13)
+- [x] Structured: `{field_name, question_text, response_options, is_danger_sign}`, max 5, danger signs first
+- [ ] Frontend rendering — Phase 7/8 (no UI in Phase 6)
 
 #### 6.6 AI Summary Generation
 
-- [ ] Create SK prompt for narrative summary generation
-- [ ] Include: all source-linked fields, urgency, flags, scores
-- [ ] Append mandatory disclaimer: "AI-drafted, pending review by qualified clinician"
-- [ ] Run through non-diagnostic language filter before output
-- [ ] Character limit: 500 chars max
+- [x] Note draft: ~~SK narrative prompt~~ → **server template** (council). Every claim cites a `field_id`; rejected and disputed values make no claim
+- [x] Includes source-linked fields, rules urgency + triggered rules, `enforce_raise_only` result, missing info, questions, counterfactuals
+- [x] Disclaimer: "AI-drafted, pending review by a qualified clinician. Not a diagnosis." `requires_sign_off`, `clinical_use_allowed=false`
+- [x] Non-diagnostic / prescriptive / instruction / identifier output guard (`app/ai/guard.py`) — heuristic, documented
+- [x] Summary ≤ 500 characters
+- [x] Raise-only: a GREEN suggestion on a rules-RED case stays RED; a RED raise is shown as a suggestion, never written to `triage_runs` (tested)
+- [ ] Model-written narrative — not built (template only)
 
 #### 6.7 Counterfactual Generation
 
-- [ ] Create `backend/app/services/counterfactual.py`
-- [ ] For each RED flag: calculate "If [field] were [threshold] → urgency changes to [X]"
-- [ ] Generate 2-3 counterfactuals per triage note
-- [ ] Format: { if_changed, then_urgency }
-- [ ] Include in triage note output
+- [x] ~~`backend/app/services/counterfactual.py`~~ → `app/rules/counterfactual.py` (pure; the engine re-run is the only judge, no new thresholds)
+- [x] Red flags removed, screen incomplete, nearest vital value that changes urgency
+- [x] Up to 3 per note
+- [x] Format `{if_changed, then_urgency, rule_ids}`
+- [x] In the note (latest run), `POST /triage/counterfactuals`, `GET /cases/{id}/triage/runs/{run_id}/counterfactuals`; migration 7 stores `triage_runs.input_json` for new runs (older runs: unavailable)
 
-**✅ Phase 6 Definition of Done:** LLM extracts to JSON schema. Every field has a source link. MAKER voting on critical values. Missing fields detected per scenario. Follow-up questions generated in patient's language. Counterfactuals included.
+#### 6.8 Privacy, consent, audit (Phase 6 additions)
+
+- [x] `gateway.submit_structured`: per-segment redaction (fail closed), consent re-check T1/T1b/T2, persistence inside T2
+- [x] Withdrawal mid-flight → 409, nothing persisted (`ai_assist` and `triage`); every AI read re-checks consent
+- [x] Append-only `ai_*` tables (migration 6); audit with counts and enums only (e2e-checked)
+- [x] No bulk accept; corrections ≤ 200 characters with identifier patterns rejected
+- [ ] Purge/tombstone for AI rows after withdrawal — deferred (deletion deferred since Phase 3)
+
+#### 6.9 IndicTrans2 (deferred from Phase 4)
+
+- [x] Local, flag-gated path (`TRANSLATION_ENABLED=0` default); pinned revision checked at startup; explicit download script
+- [x] Translated fields flagged `machine_translated_unreviewed`, linked to the original sentence
+- [ ] Real model run — **BLOCKED**: `indictrans2-indic-en-dist-200M` is gated on Hugging Face (needs the owner's account); mocked tests only
+- [ ] Translation quality on clinical speech — not evaluated
+
+**✅ Phase 6 Definition of Done (revised):**
+- **Met with the fake provider:** schema-checked extraction with every field source-linked and grounded; basic MAKER voting; missing information per scenario; English follow-up questions; counterfactuals; a template note with raise-only urgency; human review per field.
+- **Not met:** a live LLM, follow-up questions in the patient's language, real IndicTrans2.
 
 ---
 
@@ -627,57 +659,72 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Review (15%), Safety (20%)
 > **Features:** #20, #21, #22, #23, #24
 
+> **Phase 8 as implemented** (2026-10-04, uncommitted on `feat/phase-6-llm-extraction`): see [docs/17](17_Reviewer_Dashboard.md).
+> Boxes are ticked only with test evidence. Backend 1017 passed / 10 skipped / 5 xfailed; `tests/review` 71; frontend
+> lint, tsc, 34 unit tests and build pass; `scripts/e2e_review_ui_check.py` 22/22 through the Next.js proxy. **Not done:
+> a rendered browser walkthrough** (docs/17 §9). The RED timer is a displayed target. **No alert is delivered** (P0
+> before real use).
+
+> **Phase 8 final hardening** (2026-10-04, uncommitted): docs/17 §3b, §8, §10.
+> - **Done:** account-level facility isolation (server config); token username bound to its subject; audit read now case-checked; required expected-run token on intake re-triage; RED priority held until sign-off; first rendered browser walkthrough (production build, headless Chrome).
+> - **Verification:** backend 1075/10/5; frontend 67 unit tests; e2e 30/30 and 19/19.
+> - **Still blocked:** alert delivery; per-person identity and facility membership; clinical approval of reason codes.
+
+> **Phase 8 hardening pass** (2026-10-04, uncommitted): docs/17 §3a, §8 and §10.
+> - **Fixed with tests:** the correction race and missing reason (`POST /triage/{id}/corrections`, migration 9); a later override lowering a reviewer-raised RED used to close it; an open RED now keeps RED priority; the overdue audit event repeated on re-runs; governance lost RED history on re-runs (now counted as episodes); overrides from a stale view (`expected_urgency` → 409); proxy `..` traversal; voice conflicts shown; field-level validation errors; abortable polling.
+> - **Still blocked:** alert delivery (P0), facility scoping, the rendered browser walkthrough, clinical approval of reason codes.
+
 #### 8.1 Priority Queue
 
-- [ ] Create `frontend/src/app/dashboard/page.tsx`
-- [ ] Create `GET /api/v1/triage/queue` endpoint (filter by facility, sort by urgency)
-- [ ] Display queue: RED on top, then YELLOW, then GREEN
-- [ ] Show per-card: token, urgency badge, chief complaint, time since arrival
-- [ ] Add urgency filter tabs (All / RED / YELLOW / GREEN)
-- [ ] Add case count per urgency level
+- [x] `frontend/src/app/dashboard/page.tsx` (3-pane workstation, `?case=`)
+- [x] `GET /api/v1/triage/queue` (facility filter; server order RED→YELLOW→GREEN, then oldest; override raises only)
+- [x] Display queue in server order (never re-sorted client-side)
+- [x] Per row: token, urgency badge, scenario, waiting time, review/missing/RED-target status — ~~chief complaint~~ (not in the triage run)
+- [x] Urgency filters (All / RED / YELLOW / GREEN; hide rows only)
+- [x] Case count per urgency level (server `counts`)
 
 #### 8.2 Triage Card View
 
-- [ ] Create `frontend/src/app/dashboard/case/[id]/page.tsx`
-- [ ] Create `GET /api/v1/triage/{case_id}` endpoint
-- [ ] Display sections: Chief Complaint, Vitals, Lab Values, Red Flags, Counterfactual, AI Summary
-- [ ] Make every field clickable → show source (audio player / image viewer)
-- [ ] Show mandatory disclaimer: "AI-drafted, pending review by qualified clinician"
-- [ ] Show missing information section with warnings
+- [x] ~~`dashboard/case/[id]`~~ → case workspace in `/dashboard?case=` (queue and RED banner stay visible)
+- [x] `GET /api/v1/triage/{case_id}` (consent-gated clinical content; urgency/RED always visible)
+- [x] Rules result, triggered rules + sources, missing info, recorded input, lab values (OCR), counterfactuals, history — ~~AI summary~~ not shown (note drafts remain in Phase 6 endpoints)
+- [~] Evidence panel: AI quotes, OCR page highlight, voice transcript span; no audio player; recorded input has no per-field source
+- [x] Disclaimers: rules not AI; sign-off ≠ diagnosis; GREEN ≠ safe; hypothetical ≠ actual
+- [x] Missing information section (never treated as normal)
 
 #### 8.3 Named Sign-Off
 
-- [ ] Create `PATCH /api/v1/triage/{case_id}/sign-off` endpoint
-- [ ] Record reviewer_id + reviewer_name + timestamp
-- [ ] Add "✅ Approve" button in triage card
-- [ ] Log sign-off event in audit trail
-- [ ] After sign-off: mark case as reviewed, move out of active queue
+- [x] `PATCH /api/v1/triage/{case_id}/sign-off` (`confirm: true`, run-bound, one per run)
+- [~] Reviewer account id + role + server time (no real names in the demo accounts)
+- [x] Sign-off dialog with an explicit confirmation
+- [x] `review_signed_off` audit event
+- [x] Signed-off cases leave the default queue (an unacknowledged RED stays)
 
 #### 8.4 Override with Reason Code
 
-- [ ] Create `PATCH /api/v1/triage/{case_id}/override` endpoint
-- [ ] Accept: new_urgency, reason_code (enum), reason_text (free text)
-- [ ] Create override modal in frontend: reason code dropdown + text field
-- [ ] Log override event in audit trail (old_urgency, new_urgency, reason)
-- [ ] Show warning: "This override will be logged with your name and ID"
+- [x] `PATCH /api/v1/triage/{case_id}/override`
+- [x] new_urgency, reason_code (server enum), reason_text (≤500, identifier check; required for `other`)
+- [x] Override dialog: current vs proposed, server reason codes, confirmation
+- [x] `urgency_overridden` audit event (ids and enums only, never free text)
+- [x] Warning: logged with your account and server time, cannot be edited
 
 #### 8.5 Escalation Timer
 
-- [ ] Backend: track time since RED case entered queue (unacknowledged)
-- [ ] Create `GET /api/v1/triage/escalations` endpoint (RED > 3 min unacked)
-- [ ] Frontend: show countdown timer on RED cases
-- [ ] At 3 minutes: trigger audio alert (browser Notification API + sound)
-- [ ] Auto-escalation: push to district supervisor queue + log event
+- [x] Server deadline = RED run + 180 s; re-runs neither restart nor close it
+- [x] `GET /api/v1/triage/escalations` + `POST /triage/{id}/acknowledge`
+- [x] RED banner countdown from the server deadline (clock-offset corrected; survives reload)
+- [ ] ~~Audio/Notification alert~~ — deliberately not built: it would imply an alerting guarantee the prototype lacks
+- [~] Overdue is recorded once per escalation in the audit log (keyed by deadline; re-runs don't repeat it); **no delivery to anyone** (P0 before real use)
 
 #### 8.6 Counterfactual Display
 
-- [ ] Add "What would change it" section to triage card
-- [ ] Display counterfactuals from triage note: "If X → urgency Y"
-- [ ] Style: toggle/accordion in triage card
+- [x] "What would change the result?" hypothetical panel
+- [x] From `GET /cases/{id}/triage/runs/{run}/counterfactuals` (read-only)
+- [x] Hatched "HYPOTHETICAL" surface, outlined urgency word
 
 #### 8.7 WebSocket Real-Time Updates
 
-- [ ] Create `ws://localhost:8000/ws/queue/{facility_code}` endpoint
+- [ ] Create `ws://localhost:8000/ws/queue/{facility_code}` endpoint — not built; the UI polls every 15 s
 - [ ] Emit events: new_case, urgency_changed, signed_off, escalation
 - [ ] Frontend: connect to WebSocket on dashboard mount
 - [ ] Update queue in real-time without page refresh

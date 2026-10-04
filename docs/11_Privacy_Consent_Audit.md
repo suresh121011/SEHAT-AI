@@ -31,9 +31,10 @@
 - emergency processing without consent (DPDP s.7(f));
 - data deletion/erasure;
 - browser speech recognition;
-- multilingual AI processing;
-- a live LLM adapter;
-- the non-diagnostic output filter;
+- multilingual AI processing (Phase 6 adds a local IndicTrans2 path, flag-gated, not run against the real model; docs/16 §8);
+- a live LLM adapter (Phase 6 adds a structured provider contract, a fake provider and an env-gated Azure provider that has not been run; docs/16);
+- a complete non-diagnostic output filter (Phase 6 adds a heuristic guard on note text, `app/ai/guard.py`);
+- purge of stored AI output after consent withdrawal (Phase 6 stops serving it, but the rows are kept);
 - external audit checkpoints;
 - retention enforcement;
 - real authentication.
@@ -47,7 +48,9 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
   POST /cases/{id}/triage ─────────────► [txn] case access → scenario → consent(triage)
                                           → app.rules.evaluate_triage (pure) → triage_runs + audit
   POST /triage/process ────────────────► stateless calculator (unchanged; no storage, no identity)
-  (future Phase 6 code) ───────────────► privacy.gateway.submit_for_ai_assist:
+  POST /cases/{id}/ai/extractions (Phase 6, docs/16) ► privacy.gateway.submit_structured: the same T1/T1b/T2 flow,
+        each segment redacted independently (any failure blocks the request); persistence runs inside T2.
+  (single-string path, unchanged) ─────► privacy.gateway.submit_for_ai_assist:
         T1  [txn] case access → consent(ai_assist) → authz_seq
             normalize → script policy → Presidio → merge/replace → residual sweep   (thread, no DB lock)
         T1b [txn] authz_seq unchanged? → audit pii_redacted(total)                  else 409
