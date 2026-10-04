@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
-from app.routes import ai, audit, auth, cases, health, ocr, triage, voice
+from app.routes import ai, audit, auth, cases, health, ocr, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -95,6 +95,8 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(auth.router, prefix=API_PREFIX)
+    # Before triage/audit: its static paths (/triage/queue, /audit/governance) must win over /audit/{case_id}.
+    app.include_router(review.router, prefix=API_PREFIX)
     app.include_router(triage.router, prefix=API_PREFIX)
     app.include_router(cases.router, prefix=API_PREFIX)
     app.include_router(audit.router, prefix=API_PREFIX)

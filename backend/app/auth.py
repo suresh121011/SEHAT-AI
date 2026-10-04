@@ -45,6 +45,24 @@ class Principal:
     user_id: str
     username: str
     role: Role
+    # Facilities this account may access (docs/17 §8). None = unrestricted: isolation is off, the account is mapped
+    # to "*", or a server-internal actor. Set only from server config (`facility_scope`), never from the client.
+    facilities: frozenset[str] | None = None
+
+    def may_access_facility(self, facility_code: str | None) -> bool:
+        return self.facilities is None or facility_code in self.facilities
+
+
+def facility_scope(username: str) -> frozenset[str] | None:
+    """Scope from trusted server config (ACCOUNT_FACILITIES) by username only: never from token claims, headers,
+    query or body. Isolation off → None (unrestricted). Isolation on and the account is not mapped → EMPTY (deny all
+    case access), never unrestricted."""
+    mapping = get_settings().account_facilities
+    if mapping is None:
+        return None
+    if username not in mapping:
+        return frozenset()
+    return mapping[username]
 
 
 def create_access_token(username: str, role: Role) -> tuple[str, int]:
@@ -65,7 +83,7 @@ def authenticate_demo_user(username: str, role: Role) -> Principal:
     expected = DEMO_ACCOUNTS.get(username)
     if expected is None or expected != role:
         raise ApiError(401, "UNAUTHORIZED", "Unknown demo account or role mismatch")
-    return Principal(user_id=demo_user_id(username), username=username, role=role)
+    return Principal(user_id=demo_user_id(username), username=username, role=role, facilities=facility_scope(username))
 
 
 def _decode(token: str) -> Principal:
@@ -77,9 +95,14 @@ def _decode(token: str) -> Principal:
             algorithms=[settings.jwt_algorithm],
             options={"require": ["exp", "sub", "role"]},
         )
-        return Principal(user_id=claims["sub"], username=claims.get("username", ""), role=Role(claims["role"]))
+        username = claims.get("username")
+        # The username selects the facility scope, so it must be the one the subject was issued for.
+        if not isinstance(username, str) or demo_user_id(username) != claims["sub"]:
+            raise ValueError("username does not match subject")
+        role = Role(claims["role"])
     except (jwt.PyJWTError, ValueError) as exc:
         raise ApiError(401, "UNAUTHORIZED", "Invalid or expired JWT") from exc
+    return Principal(user_id=claims["sub"], username=username, role=role, facilities=facility_scope(username))
 
 
 _bearer = HTTPBearer(auto_error=False)

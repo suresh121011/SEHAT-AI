@@ -495,7 +495,7 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > Boxes are ticked only with test evidence. **No live LLM:** Azure credentials are not available, so everything
 > runs on the fake provider, a deterministic keyword extractor that is **not an LLM**. The Azure path is
 > config-gated and covered by a mocked contract test. Items changed after research and the council review are
-> ~~struck~~, with the reason. Backend: 940 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 18/18
+> ~~struck~~, with the reason. Backend: 946 passed / 10 skipped / 5 xfailed; `scripts/e2e_ai_check.py` 18/18
 > against a live server. The final council review found a negation-scope bug that could hide an alarm; it is
 > fixed, with regression tests (docs/16 §13).
 
@@ -514,7 +514,7 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - [x] Every value carries `evidence [{segment_id, quote}]`; **grounding** drops anything not quoted from its source (reason listed)
 - [x] Source types: `manual_text`, `transcript`, `transcript_translated`, `ocr_reviewed`. ~~`body_map`~~: no body-map input exists yet (Phase 7)
 - [x] Redacted→raw offset map: transcript quotes map to raw transcript characters (tested)
-- [x] Merge: typed text + English voice transcripts + reviewed OCR values (deterministic, not sent to a model)
+- [x] Merge: typed text + English voice transcripts + reviewed OCR values (deterministic, not sent to a model). Reviewed-OCR merge tested through the real OCR attest/review endpoints with replayed engines (`tests/ai/test_ocr_merge.py`). The pre-PR audit fixed two defects: OCR keys in `required_fields` (`ocr:hb` → `ocr:hemoglobin`, glucose keys), and the note printing the raw OCR value dict
 
 #### 6.3 MAKER Voting on Critical Values
 
@@ -659,57 +659,72 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **Eval Criteria:** Review (15%), Safety (20%)
 > **Features:** #20, #21, #22, #23, #24
 
+> **Phase 8 as implemented** (2026-10-04, uncommitted on `feat/phase-6-llm-extraction`): see [docs/17](17_Reviewer_Dashboard.md).
+> Boxes are ticked only with test evidence. Backend 1017 passed / 10 skipped / 5 xfailed; `tests/review` 71; frontend
+> lint, tsc, 34 unit tests and build pass; `scripts/e2e_review_ui_check.py` 22/22 through the Next.js proxy. **Not done:
+> a rendered browser walkthrough** (docs/17 §9). The RED timer is a displayed target. **No alert is delivered** (P0
+> before real use).
+
+> **Phase 8 final hardening** (2026-10-04, uncommitted): docs/17 §3b, §8, §10.
+> - **Done:** account-level facility isolation (server config); token username bound to its subject; audit read now case-checked; required expected-run token on intake re-triage; RED priority held until sign-off; first rendered browser walkthrough (production build, headless Chrome).
+> - **Verification:** backend 1075/10/5; frontend 67 unit tests; e2e 30/30 and 19/19.
+> - **Still blocked:** alert delivery; per-person identity and facility membership; clinical approval of reason codes.
+
+> **Phase 8 hardening pass** (2026-10-04, uncommitted): docs/17 §3a, §8 and §10.
+> - **Fixed with tests:** the correction race and missing reason (`POST /triage/{id}/corrections`, migration 9); a later override lowering a reviewer-raised RED used to close it; an open RED now keeps RED priority; the overdue audit event repeated on re-runs; governance lost RED history on re-runs (now counted as episodes); overrides from a stale view (`expected_urgency` → 409); proxy `..` traversal; voice conflicts shown; field-level validation errors; abortable polling.
+> - **Still blocked:** alert delivery (P0), facility scoping, the rendered browser walkthrough, clinical approval of reason codes.
+
 #### 8.1 Priority Queue
 
-- [ ] Create `frontend/src/app/dashboard/page.tsx`
-- [ ] Create `GET /api/v1/triage/queue` endpoint (filter by facility, sort by urgency)
-- [ ] Display queue: RED on top, then YELLOW, then GREEN
-- [ ] Show per-card: token, urgency badge, chief complaint, time since arrival
-- [ ] Add urgency filter tabs (All / RED / YELLOW / GREEN)
-- [ ] Add case count per urgency level
+- [x] `frontend/src/app/dashboard/page.tsx` (3-pane workstation, `?case=`)
+- [x] `GET /api/v1/triage/queue` (facility filter; server order RED→YELLOW→GREEN, then oldest; override raises only)
+- [x] Display queue in server order (never re-sorted client-side)
+- [x] Per row: token, urgency badge, scenario, waiting time, review/missing/RED-target status — ~~chief complaint~~ (not in the triage run)
+- [x] Urgency filters (All / RED / YELLOW / GREEN; hide rows only)
+- [x] Case count per urgency level (server `counts`)
 
 #### 8.2 Triage Card View
 
-- [ ] Create `frontend/src/app/dashboard/case/[id]/page.tsx`
-- [ ] Create `GET /api/v1/triage/{case_id}` endpoint
-- [ ] Display sections: Chief Complaint, Vitals, Lab Values, Red Flags, Counterfactual, AI Summary
-- [ ] Make every field clickable → show source (audio player / image viewer)
-- [ ] Show mandatory disclaimer: "AI-drafted, pending review by qualified clinician"
-- [ ] Show missing information section with warnings
+- [x] ~~`dashboard/case/[id]`~~ → case workspace in `/dashboard?case=` (queue and RED banner stay visible)
+- [x] `GET /api/v1/triage/{case_id}` (consent-gated clinical content; urgency/RED always visible)
+- [x] Rules result, triggered rules + sources, missing info, recorded input, lab values (OCR), counterfactuals, history — ~~AI summary~~ not shown (note drafts remain in Phase 6 endpoints)
+- [~] Evidence panel: AI quotes, OCR page highlight, voice transcript span; no audio player; recorded input has no per-field source
+- [x] Disclaimers: rules not AI; sign-off ≠ diagnosis; GREEN ≠ safe; hypothetical ≠ actual
+- [x] Missing information section (never treated as normal)
 
 #### 8.3 Named Sign-Off
 
-- [ ] Create `PATCH /api/v1/triage/{case_id}/sign-off` endpoint
-- [ ] Record reviewer_id + reviewer_name + timestamp
-- [ ] Add "✅ Approve" button in triage card
-- [ ] Log sign-off event in audit trail
-- [ ] After sign-off: mark case as reviewed, move out of active queue
+- [x] `PATCH /api/v1/triage/{case_id}/sign-off` (`confirm: true`, run-bound, one per run)
+- [~] Reviewer account id + role + server time (no real names in the demo accounts)
+- [x] Sign-off dialog with an explicit confirmation
+- [x] `review_signed_off` audit event
+- [x] Signed-off cases leave the default queue (an unacknowledged RED stays)
 
 #### 8.4 Override with Reason Code
 
-- [ ] Create `PATCH /api/v1/triage/{case_id}/override` endpoint
-- [ ] Accept: new_urgency, reason_code (enum), reason_text (free text)
-- [ ] Create override modal in frontend: reason code dropdown + text field
-- [ ] Log override event in audit trail (old_urgency, new_urgency, reason)
-- [ ] Show warning: "This override will be logged with your name and ID"
+- [x] `PATCH /api/v1/triage/{case_id}/override`
+- [x] new_urgency, reason_code (server enum), reason_text (≤500, identifier check; required for `other`)
+- [x] Override dialog: current vs proposed, server reason codes, confirmation
+- [x] `urgency_overridden` audit event (ids and enums only, never free text)
+- [x] Warning: logged with your account and server time, cannot be edited
 
 #### 8.5 Escalation Timer
 
-- [ ] Backend: track time since RED case entered queue (unacknowledged)
-- [ ] Create `GET /api/v1/triage/escalations` endpoint (RED > 3 min unacked)
-- [ ] Frontend: show countdown timer on RED cases
-- [ ] At 3 minutes: trigger audio alert (browser Notification API + sound)
-- [ ] Auto-escalation: push to district supervisor queue + log event
+- [x] Server deadline = RED run + 180 s; re-runs neither restart nor close it
+- [x] `GET /api/v1/triage/escalations` + `POST /triage/{id}/acknowledge`
+- [x] RED banner countdown from the server deadline (clock-offset corrected; survives reload)
+- [ ] ~~Audio/Notification alert~~ — deliberately not built: it would imply an alerting guarantee the prototype lacks
+- [~] Overdue is recorded once per escalation in the audit log (keyed by deadline; re-runs don't repeat it); **no delivery to anyone** (P0 before real use)
 
 #### 8.6 Counterfactual Display
 
-- [ ] Add "What would change it" section to triage card
-- [ ] Display counterfactuals from triage note: "If X → urgency Y"
-- [ ] Style: toggle/accordion in triage card
+- [x] "What would change the result?" hypothetical panel
+- [x] From `GET /cases/{id}/triage/runs/{run}/counterfactuals` (read-only)
+- [x] Hatched "HYPOTHETICAL" surface, outlined urgency word
 
 #### 8.7 WebSocket Real-Time Updates
 
-- [ ] Create `ws://localhost:8000/ws/queue/{facility_code}` endpoint
+- [ ] Create `ws://localhost:8000/ws/queue/{facility_code}` endpoint — not built; the UI polls every 15 s
 - [ ] Emit events: new_case, urgency_changed, signed_off, escalation
 - [ ] Frontend: connect to WebSocket on dashboard mount
 - [ ] Update queue in real-time without page refresh

@@ -424,8 +424,50 @@ AI_STATEMENTS: tuple[str, ...] = (
 # identifiers) so counterfactuals can be recomputed. Nullable: earlier runs have none. Rows stay append-only.
 TRIAGE_INPUT_STATEMENTS: tuple[str, ...] = ("ALTER TABLE triage_runs ADD COLUMN input_json TEXT",)
 
+# ── Step 8: Phase 8 reviewer dashboard (docs/17). Append-only human review events bound to ONE triage run:
+# sign-off, urgency override (reason code required) and RED acknowledgment. The triage run itself is never
+# modified; the rules-engine urgency stays on triage_runs and the override is a separate, attributable row.
+REVIEW_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE review_events (
+    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id        TEXT NOT NULL UNIQUE,
+    case_id         TEXT NOT NULL REFERENCES cases(case_id),
+    triage_run_id   TEXT NOT NULL REFERENCES triage_runs(run_id),
+    kind            TEXT NOT NULL CHECK (kind IN ('sign_off', 'override', 'acknowledge')),
+    rules_urgency   TEXT NOT NULL CHECK (rules_urgency IN ('RED', 'YELLOW', 'GREEN')),
+    old_urgency     TEXT CHECK (old_urgency IN ('RED', 'YELLOW', 'GREEN')),
+    new_urgency     TEXT CHECK (new_urgency IN ('RED', 'YELLOW', 'GREEN')),
+    reason_code     TEXT,
+    reason_text     TEXT,
+    actor_id        TEXT NOT NULL,
+    actor_role      TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    CHECK (kind != 'override' OR (old_urgency IS NOT NULL AND new_urgency IS NOT NULL AND reason_code IS NOT NULL AND old_urgency != new_urgency))
+)""",
+    "CREATE INDEX idx_review_events_case ON review_events(case_id, seq)",
+    "CREATE UNIQUE INDEX idx_review_events_one_sign_off ON review_events(triage_run_id) WHERE kind = 'sign_off'",
+    "CREATE UNIQUE INDEX idx_review_events_one_ack ON review_events(triage_run_id) WHERE kind = 'acknowledge'",
+    *_append_only("review_events"),
+)
+
+# ── Step 9: Phase 8 hardening (docs/17 §3a). A reviewer's correction is a NEW triage run that names the run it
+# corrects and the reason. Nullable additive columns (older runs and intake runs have none); rows stay append-only.
+# The partial unique index lets a run be corrected at most once, so two concurrent corrections of the same run
+# cannot both commit even if the in-transaction stale check were bypassed. Rollback: the columns are ignored by
+# older code; nothing existing is rewritten.
+TRIAGE_CORRECTION_STATEMENTS: tuple[str, ...] = (
+    "ALTER TABLE triage_runs ADD COLUMN corrects_run_id TEXT REFERENCES triage_runs(run_id)",
+    "ALTER TABLE triage_runs ADD COLUMN correction_reason_code TEXT",
+    "ALTER TABLE triage_runs ADD COLUMN correction_reason_text TEXT",
+    "CREATE UNIQUE INDEX idx_triage_runs_one_correction ON triage_runs(corrects_run_id) WHERE corrects_run_id IS NOT NULL",
+    # A reviewer may raise a run to RED again after acknowledging an earlier RED on it: that new escalation needs
+    # its own acknowledgment, so "one acknowledgment per run" no longer holds. Duplicate acknowledgments of the SAME
+    # escalation are still refused by the state check inside the acknowledge write transaction (BEGIN IMMEDIATE).
+    "DROP INDEX idx_review_events_one_ack",
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
-                                           TRIAGE_INPUT_STATEMENTS)
+                                           TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

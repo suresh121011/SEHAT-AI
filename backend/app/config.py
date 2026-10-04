@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -104,6 +105,14 @@ class Settings:
     # suggest that a check runs when it does not. (MAKER voting is part of Phase 6 extraction and needs no
     # switch; OCR verification still reports MAKER as `not_run`, see docs/14.)
     medgemma_enabled: bool = False  # X-ray/ECG description, deferred (docs/14 §11)
+    # Facility isolation (docs/17 §8). Trusted server config, never client input. None = isolation OFF (every
+    # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
+    # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
+    account_facilities: dict[str, frozenset[str] | None] | None = None
+
+    @property
+    def facility_isolation(self) -> bool:
+        return self.account_facilities is not None
 
     @property
     def sarvam_configured(self) -> bool:
@@ -166,7 +175,45 @@ def get_settings() -> Settings:
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
         medgemma_enabled=_not_implemented("MEDGEMMA_ENABLED", "MedGemma image description (deferred)"),
+        account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
     )
+
+
+_FACILITY_CODE = re.compile(r"^[A-Z0-9-]{3,32}$")  # same pattern as CaseCreate.facility_code
+
+
+def _account_facilities(value: str) -> dict[str, frozenset[str] | None] | None:
+    """ACCOUNT_FACILITIES=user=CODE[,CODE...];user2=*  (docs/17 §8). Unset/blank = isolation off. Parsed strictly:
+    any malformed entry, unknown account, duplicate account or bad facility code refuses to start. Refusals name
+    the rule, never the offending value; the log line carries counts only."""
+    if not value:
+        return None
+    from app.auth import DEMO_ACCOUNTS  # lazy: app.auth imports this module
+
+    out: dict[str, frozenset[str] | None] = {}
+    for entry in value.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        user, sep, codes_raw = entry.partition("=")
+        user = user.strip()
+        if not sep or not user:
+            raise RuntimeError("ACCOUNT_FACILITIES entries must be username=FACILITY[,FACILITY...] or username=*, separated by ';'")
+        if user not in DEMO_ACCOUNTS:
+            raise RuntimeError("ACCOUNT_FACILITIES names an account that does not exist")
+        if user in out:
+            raise RuntimeError("ACCOUNT_FACILITIES lists an account more than once")
+        codes = [c.strip() for c in codes_raw.split(",")]
+        if codes == ["*"]:
+            out[user] = None
+            continue
+        if not codes or any(not _FACILITY_CODE.fullmatch(c) for c in codes):
+            raise RuntimeError("ACCOUNT_FACILITIES facility codes must match ^[A-Z0-9-]{3,32}$, or be a single '*'")
+        out[user] = frozenset(codes)
+    if not out:
+        raise RuntimeError("ACCOUNT_FACILITIES is set but has no entries; leave it empty to turn facility isolation off")
+    logger.info("facility isolation enforced: %d account(s) mapped, %d unrestricted", len(out), sum(1 for v in out.values() if v is None))
+    return out
 
 
 def _ai_settings() -> dict:

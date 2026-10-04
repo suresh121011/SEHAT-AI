@@ -37,7 +37,7 @@ async def _migrate(path, migrations=MIGRATIONS) -> int:
 
 def test_fresh_database_reaches_current_version(tmp_path):
     db = tmp_path / "fresh.db"
-    assert asyncio.run(_migrate(db)) == SCHEMA_VERSION == 7
+    assert asyncio.run(_migrate(db)) == SCHEMA_VERSION == 9
     assert set(TABLES) | set(PRIVACY_TABLES) <= _tables(db)
 
 
@@ -50,7 +50,7 @@ def test_legacy_v0_file_with_baseline_tables_migrates_without_touching_them(tmp_
         c.execute("INSERT INTO cases (case_id, patient_token, facility_code, scenario, status) VALUES ('c1','t1','PHC-1','opd','open')")
     assert _version(db) == 0
     asyncio.run(_migrate(db))
-    assert _version(db) == 7
+    assert _version(db) == 9
     assert set(TABLES) <= _tables(db)  # legacy tables kept (non-destructive)
     with sqlite3.connect(db) as c:
         row = c.execute("SELECT case_id, created_by FROM cases").fetchone()
@@ -61,7 +61,7 @@ def test_rerun_is_a_noop(tmp_path):
     db = tmp_path / "again.db"
     asyncio.run(_migrate(db))
     asyncio.run(_migrate(db))
-    assert _version(db) == 7
+    assert _version(db) == 9
 
 
 def test_failed_step_rolls_back_completely(tmp_path):
@@ -77,7 +77,7 @@ def test_failed_step_rolls_back_completely(tmp_path):
     assert "created_by" not in cols  # the ALTER inside the failed step was rolled back too
     # recovery: fix the cause and rerun
     asyncio.run(_migrate(db))
-    assert _version(db) == 7
+    assert _version(db) == 9
 
 
 def test_concurrent_runners_do_not_double_apply(tmp_path):
@@ -87,7 +87,7 @@ def test_concurrent_runners_do_not_double_apply(tmp_path):
         return await asyncio.gather(_migrate(db), _migrate(db))
 
     assert asyncio.run(both()) == [SCHEMA_VERSION, SCHEMA_VERSION]
-    assert _version(db) == 7
+    assert _version(db) == 9
 
 
 def _migrated(tmp_path):

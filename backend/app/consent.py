@@ -4,6 +4,8 @@ Service functions take a connection so routes stay thin and race tests can drive
 
 - Case access is checked separately from consent. Unauthorized and non-existent cases get the same
   404, and no audit event is written for them.
+- Facility isolation (docs/17 §8): a case outside `Principal.facilities` (server config ACCOUNT_FACILITIES) is that
+  same 404; creating a case in a facility outside the scope is a 403 and writes nothing.
 - Consent is an append-only history; the effective state per purpose is the latest event by seq.
   `ai_assist` and `voice_cloud` are only effective while `triage` is effective.
 - A decision records every purpose explicitly: optional purposes not opted into are recorded as
@@ -13,6 +15,7 @@ Service functions take a connection so routes stay thin and race tests can drive
   not a verified patient; `staff_attested_verbal` is the ANM account's attestation.
 """
 
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -28,6 +31,8 @@ from app.consent_notice import NOTICE_VERSION, Language, Purpose, get_notice
 from app.database import transaction as _write
 from app.errors import ApiError, consent_required, not_found
 from app.rules.models import Scenario
+
+logger = logging.getLogger("sehat.consent")
 
 PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist", "voice_cloud")
 DEPENDENT_PURPOSES: tuple[Purpose, ...] = ("ai_assist", "voice_cloud")  # require triage
@@ -75,8 +80,8 @@ async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: s
     """Return the case if `principal` may access it in `mode`; otherwise the same 404 as a missing case."""
     async with conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)) as cur:
         row = await cur.fetchone()
-    if row is None:
-        raise not_found()
+    if row is None or not principal.may_access_facility(row["facility_code"]):
+        raise not_found()  # outside the account's facility scope looks exactly like a missing case (docs/17 §8)
     creator = row["created_by"] is not None and row["created_by"] == principal.user_id
     allowed = {
         "write": creator,
@@ -89,6 +94,11 @@ async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: s
 
 
 async def create_case(conn: aiosqlite.Connection, principal: Principal, body: CaseCreate, request_id: str | None) -> dict:
+    if not principal.may_access_facility(body.facility_code):
+        # Nothing is written. No audit event: the audit schema has no access-denial action, and unauthorized case
+        # access is likewise not audited (module docstring). The facility code is not logged.
+        logger.info("case_create_denied reason=facility_not_permitted")
+        raise ApiError(403, "FORBIDDEN", "facility not permitted for this account")
     case_id = str(uuid.uuid4())
     patient_token = f"PT-{secrets.token_hex(6).upper()}"  # random, opaque, pseudonymous (not anonymous)
     async with _write(conn):

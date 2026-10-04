@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
@@ -8,6 +10,7 @@ from app.auth import (
     create_access_token,
     get_current_principal,
 )
+from app.config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -30,6 +33,9 @@ class MeResponse(BaseModel):
     user_id: str
     username: str
     role: Role
+    # From server config only (docs/17 §8). null = unrestricted (isolation off, or "*"); [] = no facility.
+    facility_scope: list[str] | None
+    facility_isolation: Literal["enforced", "off"]
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -49,4 +55,10 @@ async def login(body: LoginRequest) -> LoginResponse:
 @router.get("/me", response_model=MeResponse)
 async def me(principal: Principal = Depends(get_current_principal)) -> MeResponse:
     """Token introspection used by the frontend's server-side route guards."""
-    return MeResponse(user_id=principal.user_id, username=principal.username, role=principal.role)
+    return MeResponse(
+        user_id=principal.user_id,
+        username=principal.username,
+        role=principal.role,
+        facility_scope=sorted(principal.facilities) if principal.facilities is not None else None,
+        facility_isolation="enforced" if get_settings().facility_isolation else "off",
+    )

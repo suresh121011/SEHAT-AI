@@ -357,7 +357,9 @@ def test_no_ai_code_writes_triage_runs():
 
 def test_only_two_request_fields_carry_free_text():
     """Phase 6 adds the first free-text request fields. Pin them: intake text (redacted per segment before any
-    provider, never stored raw) and a reviewer's short correction (identifier patterns rejected)."""
+    provider, never stored raw) and a reviewer's short correction (identifier patterns rejected). Phase 8 adds a
+    third: the override explanation (docs/06 §3.7; ≤500 chars, identifier check, never copied into the audit log), and
+    the hardening pass a fourth: the correction explanation (docs/17 §3a; ≤300 chars, same identifier check)."""
     from app.main import create_app
     from tests.privacy.test_boundary import _unconstrained_strings
 
@@ -385,7 +387,9 @@ def test_only_two_request_fields_carry_free_text():
             if content:
                 assert _unconstrained_strings(content["schema"], comps, p, set()) == []
                 walk(content["schema"], f"{method.upper()} {p}", set())
-    assert sorted(set(long_text)) == ["POST /api/v1/cases/{case_id}/ai/extractions.intake_text", "POST /api/v1/cases/{case_id}/ai/fields/{field_id}/review.corrected.value"]
+    assert sorted(set(long_text)) == ["PATCH /api/v1/triage/{case_id}/override.reason_text", "POST /api/v1/cases/{case_id}/ai/extractions.intake_text",
+                                      "POST /api/v1/cases/{case_id}/ai/fields/{field_id}/review.corrected.value",
+                                      "POST /api/v1/triage/{case_id}/corrections.reason_text"]
 
 
 def test_correction_with_an_identifier_is_rejected(ai_client, anm, case):
@@ -446,3 +450,15 @@ def test_differing_repeat_readings_get_no_form_hint(ai_client, anm, case):
     out = ai_client.get(f"/api/v1/cases/{case}/ai/reviewed", headers=auth(anm)).json()
     assert out["conflicting_readings"] == ["spo2"]
     assert all(x["form_hints"] == [] and "form_hint_withheld" in x for x in out["values"] if x["field"].startswith("spo2"))
+
+
+def test_ai_rows_are_kept_after_withdrawal_and_served_again_only_after_reconsent(ai_client, anm, case):
+    """docs/04 §5 retention row: kept, reads refused while withdrawn, no deletion; re-consent reopens reads."""
+    set_provider(ai_client, FakeProvider())
+    eid = extract(ai_client, anm, case).json()["extraction_id"]
+    rows = count("ai_fields", case)
+    assert withdraw(ai_client, anm, case, "ai_assist").status_code == 200
+    assert ai_client.get(f"/api/v1/cases/{case}/ai/extractions/{eid}", headers=auth(anm)).status_code == 403
+    assert count("ai_fields", case) == rows  # nothing deleted
+    assert grant(ai_client, anm, case, ai=True).status_code == 200
+    assert ai_client.get(f"/api/v1/cases/{case}/ai/extractions/{eid}", headers=auth(anm)).status_code == 200

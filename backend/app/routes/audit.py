@@ -1,4 +1,10 @@
-"""Audit read and verification (supervisor only; docs/11 §H). No write paths are exposed."""
+"""Audit read and verification (supervisor only; docs/11 §H). No write paths are exposed.
+
+`GET /audit/{case_id}` goes through the same case-access check as every case read (`consent.load_case`, "read"):
+a missing case or one outside the supervisor's facility scope is the same 404 (docs/17 §8).
+`POST /audit/verify` is deliberately global: it recomputes the hash chain over ALL rows (a chain cannot be verified
+per facility) and returns only ok / first bad seq / verified-through seq, never case content or case ids.
+"""
 
 import json
 import logging
@@ -8,7 +14,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, Depends, Request
 
-from app import audit
+from app import audit, consent
 from app.auth import Principal, Role, require_roles
 from app.database import get_db, transaction
 
@@ -19,8 +25,9 @@ _supervisor = require_roles(Role.SUPERVISOR)
 
 
 @router.get("/{case_id}")
-async def case_audit(case_id: uuid.UUID, _: Principal = Depends(_supervisor), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+async def case_audit(case_id: uuid.UUID, principal: Principal = Depends(_supervisor), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     """Events for one case. actor_id is omitted: it is a reversible pseudonym of the demo username."""
+    await consent.load_case(db, principal, str(case_id), "read")  # 404 for missing or out-of-scope cases
     async with db.execute(
         "SELECT seq, timestamp, actor_role, action, outcome, details_json FROM audit_log WHERE case_id = ? ORDER BY seq",
         (str(case_id),),

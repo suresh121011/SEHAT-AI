@@ -30,6 +30,7 @@ All project documentation lives in `docs/`:
 | [`docs/14_OCR_Pipeline.md`](docs/14_OCR_Pipeline.md) | OCR pipeline (Phase 5): Surya/PaddleOCR + Chandra on-device, Gödel verification, RxNorm, sourced reference ranges, source-linked review, verification status |
 | [`docs/15_OCR_Evaluation_Plan.md`](docs/15_OCR_Evaluation_Plan.md) | Governed real-document OCR evaluation plan (not started; required before real patient data): governance, sampling, annotation, metrics, proposed acceptance criteria |
 | [`docs/16_LLM_Extraction_MAKER.md`](docs/16_LLM_Extraction_MAKER.md) | LLM extraction (Phase 6): provider-agnostic adapter (fake now, Azure by env), grounding, MAKER voting, per-field review, source-linked note with raise-only urgency, missing info, counterfactuals, IndicTrans2 path, limits |
+| [`docs/17_Reviewer_Dashboard.md`](docs/17_Reviewer_Dashboard.md) | Reviewer dashboard (Phase 8): rules-ordered queue, case review with source evidence, hypothetical counterfactuals, sign-off/override (reason codes), RED review target (display only, no alert delivery), governance aggregates, verification |
 
 ## Agent Rules
 

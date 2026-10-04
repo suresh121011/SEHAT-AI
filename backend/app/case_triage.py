@@ -21,7 +21,66 @@ from app.errors import ApiError
 from app.rules import TriageInput, TriageResult, evaluate_triage
 
 
-async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case_id: str, data: TriageInput, request_id: str | None) -> tuple[str, TriageResult]:
+async def record_run(conn: aiosqlite.Connection, principal: Principal, case: aiosqlite.Row, data: TriageInput, snap: consent.ConsentSnapshot,
+                     request_id: str | None, correction: tuple[str, str, str | None] | None = None) -> tuple[str, TriageResult, str]:
+    """Inside the caller's write transaction, after case access and the triage-consent check: the scenario match,
+    the pure rules engine, the append-only triage_runs row and its audit event. Shared by intake triage and a
+    reviewer's correction (app.review_queue.correct), so a corrected value goes through exactly the same rules.
+    `correction` = (corrected run id, reason code, reason text) for a reviewer correction, else None."""
+    case_id = case["case_id"]
+    if case["scenario"] != data.scenario.value:
+        raise ApiError(409, "SCENARIO_MISMATCH", "Triage scenario does not match the case scenario")
+    result = evaluate_triage(data)
+    run_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    await conn.execute(
+        "INSERT INTO triage_runs (run_id, case_id, consent_seq, urgency, result_json, engine_version, ruleset_version, actor_id, created_at, input_json, "
+        "corrects_run_id, correction_reason_code, correction_reason_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id, case_id, snap.latest_seq["triage"], result.urgency.value, result.model_dump_json(), result.engine_version, result.ruleset_version,
+         principal.user_id, created_at, data.model_dump_json(), *(correction or (None, None, None))),
+    )
+    await audit.record(
+        conn,
+        principal=principal,
+        action="triage_recorded",
+        outcome="success",
+        case_id=case_id,
+        request_id=request_id,
+        details=audit.TriageRecordedDetails(
+            run_id=run_id,
+            urgency=result.urgency.value,
+            rule_ids=[t.rule_id for t in result.triggered_rules],
+            engine_version=result.engine_version,
+            ruleset_version=result.ruleset_version,
+        ),
+    )
+    return run_id, result, created_at
+
+
+NO_RUN = "none"  # `expected_run_id=none`: the caller believes the case has no triage run yet
+
+
+async def check_expected_run(conn: aiosqlite.Connection, case_id: str, expected_run_id: str | None) -> None:
+    """Optimistic concurrency for re-triage, inside the caller's write transaction (BEGIN IMMEDIATE holds the write
+    lock, so this check and the insert that follows cannot interleave with another writer, on any connection).
+    The first run needs no token. Once a run exists the caller must name the run it based its request on: a missing
+    token → 409 EXPECTED_RUN_REQUIRED, a token that is not the latest run → 409 STALE_TRIAGE_RUN. Nothing is written
+    in either case, so a stale screen can never silently supersede a newer run or a reviewer's work on it."""
+    async with conn.execute("SELECT run_id FROM triage_runs WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
+        row = await cur.fetchone()
+    latest = row["run_id"] if row else None
+    if expected_run_id is None:
+        if latest is None:
+            return
+        raise ApiError(409, "EXPECTED_RUN_REQUIRED", "This case already has a triage result. Reload it and resubmit with the result you are replacing",
+                       {"latest_triage_run_id": latest})
+    if (latest or NO_RUN) != expected_run_id:
+        raise ApiError(409, "STALE_TRIAGE_RUN", "A newer triage result exists for this case; nothing was saved. Reload and review it first",
+                       {"latest_triage_run_id": latest})
+
+
+async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case_id: str, data: TriageInput, request_id: str | None,
+                          expected_run_id: str | None = None) -> tuple[str, TriageResult]:
     denial: consent.ConsentNotEffective | None = None
     try:
         async with transaction(conn):
@@ -29,39 +88,8 @@ async def run_case_triage(conn: aiosqlite.Connection, principal: Principal, case
             if case["scenario"] != data.scenario.value:
                 raise ApiError(409, "SCENARIO_MISMATCH", "Triage scenario does not match the case scenario")
             snap = await consent.require(conn, case_id, "triage")
-            result = evaluate_triage(data)
-            run_id = str(uuid.uuid4())
-            await conn.execute(
-                "INSERT INTO triage_runs (run_id, case_id, consent_seq, urgency, result_json, engine_version, ruleset_version, actor_id, created_at, input_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    run_id,
-                    case_id,
-                    snap.latest_seq["triage"],
-                    result.urgency.value,
-                    result.model_dump_json(),
-                    result.engine_version,
-                    result.ruleset_version,
-                    principal.user_id,
-                    datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-                    data.model_dump_json(),
-                ),
-            )
-            await audit.record(
-                conn,
-                principal=principal,
-                action="triage_recorded",
-                outcome="success",
-                case_id=case_id,
-                request_id=request_id,
-                details=audit.TriageRecordedDetails(
-                    run_id=run_id,
-                    urgency=result.urgency.value,
-                    rule_ids=[t.rule_id for t in result.triggered_rules],
-                    engine_version=result.engine_version,
-                    ruleset_version=result.ruleset_version,
-                ),
-            )
+            await check_expected_run(conn, case_id, expected_run_id)
+            run_id, result, _ = await record_run(conn, principal, case, data, snap, request_id)
             return run_id, result
     except consent.ConsentNotEffective as exc:
         denial = exc  # the protected transaction rolled back; record the denial separately
