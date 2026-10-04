@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
-import { DemoBanner } from "@/components/DemoBanner";
+import { Icon } from "@/components/Icon";
+import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { type DocType, DOC_TYPE_LABEL, DocumentUpload } from "@/components/DocumentUpload";
 import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { ApiError, api } from "@/lib/api";
@@ -77,14 +78,14 @@ function FieldRow({ f, selected, onSelect }: { f: Field; selected: boolean; onSe
   const name = f.kind === "lab" ? f.name_raw : f.drug_raw;
   return (
     <button type="button" onClick={onSelect} aria-pressed={selected}
-      className={`w-full rounded border p-2 text-left text-sm ${selected ? "border-fuchsia-600 ring-2 ring-fuchsia-600" : "border-black/15 dark:border-white/15"}`}>
+      className={`w-full rounded border p-2 text-left text-sm ${selected ? "border-secondary ring-2 ring-secondary" : "border-subtle "}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <strong>{name || "(no name read)"}</strong>
         <span className="text-xs">{REVIEW_TEXT[f.review_status] ?? f.review_status}</span>
       </div>
       {f.kind === "lab" ? (
         <div className="font-mono">
-          {f.value?.raw || "—"} {f.unit?.raw} <span className="opacity-60">· range {f.range?.raw || "not printed"}{f.flag_raw ? ` · flag ${f.flag_raw}` : ""}</span>
+          {f.value?.raw || "—"} {f.unit?.raw} <span className="text-muted">· range {f.range?.raw || "not printed"}{f.flag_raw ? ` · flag ${f.flag_raw}` : ""}</span>
         </div>
       ) : (
         <div className="font-mono">{[f.strength_raw, f.dosage_pattern, f.frequency_raw, f.duration_raw].filter(Boolean).join(" · ") || f.line_raw}</div>
@@ -94,7 +95,7 @@ function FieldRow({ f, selected, onSelect }: { f: Field; selected: boolean; onSe
         {ins.text}
       </div>
       {f.kind === "lab" && f.printed_range_status && f.printed_range_status !== "range_unavailable" && (
-        <div className="text-xs opacity-80">
+        <div className="text-xs text-muted">
           {RANGE_TEXT[f.printed_range_status]?.symbol} {RANGE_TEXT[f.printed_range_status]?.text} printed on the report (machine-read, pending review)
         </div>
       )}
@@ -134,8 +135,8 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
     decide("corrected", correction);
   };
   return (
-    <div className="space-y-2 rounded border border-black/10 p-3 text-sm dark:border-white/15">
-      <h3 className="font-semibold">Readings</h3>
+    <div className="space-y-2 rounded border border-subtle p-3 text-sm">
+      <h3 className="font-bold">Readings</h3>
       <ul>
         {f.readings.map((r, i) => (
           <li key={i} className="font-mono">
@@ -171,14 +172,14 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
         <div className="space-y-2" role="group" aria-label="Review decision">
           {!attested && <p role="note">Answer the patient question above before confirming values.</p>}
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy || !attested || !f.can_confirm} onClick={() => decide("confirmed")} className="rounded bg-green-700 px-3 py-1 text-white disabled:opacity-50">
-              ✓ Confirm this row (name, value, unit, range)
+            <button type="button" disabled={busy || !attested || !f.can_confirm} onClick={() => decide("confirmed")} className="rounded bg-success min-h-11 px-4 py-2 text-white disabled:opacity-50">
+              <Icon name="check" /> Confirm this row (name, value, unit, range)
             </button>
-            <button type="button" disabled={busy} onClick={() => decide("unsure")} className="rounded border border-black/20 px-3 py-1 dark:border-white/20">
+            <button type="button" disabled={busy} onClick={() => decide("unsure")} className="rounded border border-line min-h-11 px-4 py-2">
               ? Not sure — leave unresolved
             </button>
-            <button type="button" disabled={busy} onClick={() => decide("rejected")} className="rounded border border-black/20 px-3 py-1 dark:border-white/20">
-              ✗ Wrong / not on report
+            <button type="button" disabled={busy} onClick={() => decide("rejected")} className="rounded border border-line min-h-11 px-4 py-2">
+              <Icon name="cross" /> Wrong / not on report
             </button>
           </div>
           {!f.can_confirm && (
@@ -192,7 +193,7 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs">
                 Sign{" "}
-                <select value={comparator} onChange={(e) => setComparator(e.target.value)} className="rounded border border-black/20 px-1 dark:border-white/20">
+                <select value={comparator} onChange={(e) => setComparator(e.target.value)} className="rounded border border-line px-1">
                   {["=", "<", "<=", ">", ">="].map((c) => (
                     <option key={c} value={c}>{c === "=" ? "(none)" : c}</option>
                   ))}
@@ -200,23 +201,23 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
               </label>
               <label className="text-xs">
                 Result from the paper (was “{f.value?.raw || "—"}”):{" "}
-                <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="w-28 rounded border border-black/20 px-2 py-0.5 font-mono dark:border-white/20" />
+                <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="w-28 rounded border border-line px-2 py-0.5 font-mono" />
               </label>
               <label className="text-xs">
                 Unit (was “{f.unit?.raw || "—"}”){" "}
-                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="rounded border border-black/20 px-1 dark:border-white/20">
+                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="rounded border border-line px-1">
                   <option value="">keep</option>
                   {UNITS.map((u) => (
                     <option key={u} value={u}>{u === "none" ? "no unit printed" : u}</option>
                   ))}
                 </select>
               </label>
-              <button type="button" disabled={busy || !attested} onClick={correctValue} className="rounded border border-blue-600 px-3 py-1 text-blue-700 disabled:opacity-50 dark:text-blue-300">
-                ✎ Save correction
+              <button type="button" disabled={busy || !attested} onClick={correctValue} className="rounded border border-primary min-h-11 px-4 py-2 text-primary disabled:opacity-50">
+                <Icon name="pencil" /> Save correction
               </button>
             </div>
           )}
-          <p className="text-xs opacity-70">Wrong test or drug name? Reject the row. Your decision is recorded with your role; the machine reading is kept unchanged.</p>
+          <p className="text-xs text-muted">Wrong test or drug name? Reject the row. Your decision is recorded with your role; the machine reading is kept unchanged.</p>
         </div>
       ) : (
         <p className="text-xs">The health worker who created this case reviews these values (a doctor view comes in a later phase).</p>
@@ -307,27 +308,22 @@ function DocumentsScreen() {
     return d && f ? { d, f } : d ? { d, f: undefined } : null;
   }, [docs, selected]);
 
-  if (!caseId || notFound) {
-    return (
-      <section className="mx-auto max-w-xl space-y-4">
-        <DemoBanner />
-        <p role="alert">Case not found.</p>
-        <Link href="/intake" className="text-blue-600 underline">Start a new case</Link>
-      </section>
-    );
-  }
+  if (!caseId || notFound) return <CaseNotFound />;
 
   const triageOk = caseView?.consent.triage === "granted";
   const canUpload = !!caseView?.is_creator && role === "anm";
 
   return (
-    <section className="mx-auto max-w-5xl space-y-5 px-4">
-      <DemoBanner />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Lab reports and prescriptions</h1>
-        <span className="font-mono text-xs opacity-70">Case {caseView?.patient_token ?? "…"}</span>
-      </div>
-      <p className="rounded border border-blue-600/40 px-3 py-2 text-sm">
+    <IntakeShell
+      wide
+      step="documents"
+      caseId={caseId}
+      role={role}
+      triage={(caseView?.consent.triage ?? null) as "not_provided" | "granted" | "declined" | "withdrawn" | null}
+      token={caseView?.patient_token}
+      intro="Upload a photo or scan of a lab report or prescription. The health worker checks every value against the paper."
+    >
+      <p className="rounded-lg border border-info/40 bg-info-bg px-4 py-3">
         Machine-read and auto-checked — <strong>not yet confirmed by you</strong>. Reviewed values are a checked record shown alongside the case. They
         <strong> never change triage or urgency</strong>; a person enters any value on the triage form, which keeps a human responsible. Documents are read on this
         server only.
@@ -336,11 +332,11 @@ function DocumentsScreen() {
       {caseView && !triageOk && (
         <p role="alert">
           Triage consent is not in effect for this case.{" "}
-          <Link href={`/intake/consent?case=${caseId}`} className="text-blue-600 underline">Go to consent</Link>
+          <Link href={`/intake/consent?case=${caseId}`} className="text-primary underline">Go to consent</Link>
         </p>
       )}
       {caps?.ocr_enabled && (
-        <p className="text-xs opacity-80">
+        <p className="text-xs text-muted">
           Stored page images and read text are {caps.retention_days ? `deleted automatically after ${caps.retention_days} days` : "kept until a health worker deletes them"} (setting chosen by
           the organisation running this system). Copies of the database file (backups) are not covered.
         </p>
@@ -349,7 +345,7 @@ function DocumentsScreen() {
         <DocumentUpload maxBytes={caps.max_bytes} available={caps.document_types} onUpload={upload} />
       )}
       {triageOk && !canUpload && role === "patient" && <p className="text-sm">Please hand the report to the health worker to upload.</p>}
-      {message && <p role="alert" className="text-sm text-red-600">{message}</p>}
+      {message && <p role="alert" className="text-sm text-error">{message}</p>}
 
       {docs.map((d) => {
         const count = (st: string[]) => d.fields.filter((f) => st.includes(f.review_status)).length;
@@ -358,19 +354,19 @@ function DocumentsScreen() {
         const rejected = count(["rejected"]);
         const open = count(["machine_read"]);
         return (
-          <article key={d.document_id} className="space-y-3 rounded border border-black/10 p-4 dark:border-white/15">
+          <article key={d.document_id} className="space-y-3 rounded border border-subtle p-4">
             <p className="text-sm">
               <strong>{DOC_TYPE_LABEL[d.document_type]}</strong> · read by {Object.entries(d.engines).map(([e, s]) => `${ENGINE_LABEL[e] ?? e}: ${s === "ok" ? "done" : s.replaceAll("_", " ")}`).join(" · ")}
-              <span className="opacity-60"> · {new Date(d.created_at).toLocaleTimeString()}</span>
+              <span className="text-muted"> · {new Date(d.created_at).toLocaleTimeString()}</span>
             </p>
             {d.status === "deleted" && (
               <p role="note">
                 Deleted ({d.deleted?.reason === "retention_expired" ? "retention period ended" : `by the ${d.deleted?.by_role ?? "reviewer"}`}) — page images, read
-                text and decisions were removed from this server.
+                text and decisions were removed from this server (backups are not covered).
               </p>
             )}
             {d.status === "quality_rejected" && (
-              <div role="alert" className="space-y-1 rounded border border-red-600/50 p-3 text-sm">
+              <div role="alert" className="space-y-1 rounded border border-error/50 p-3 text-sm">
                 <p><strong>Not read — please upload a better copy.</strong> Nothing was extracted.</p>
                 <ul className="list-disc pl-5">
                   {retakeAdvice((d.quality ?? []).flatMap((q) => q.reasons)).map((a) => <li key={a}>{a}</li>)}
@@ -385,11 +381,11 @@ function DocumentsScreen() {
                 {confirmDelete === d.document_id ? (
                   <>
                     <span role="alert">Delete this document&apos;s page images, read text and all review decisions? This cannot be undone.</span>
-                    <button type="button" onClick={() => remove(d)} className="rounded bg-red-700 px-3 py-1 text-white">Yes, delete</button>
-                    <button type="button" onClick={() => setConfirmDelete(null)} className="rounded border border-black/20 px-3 py-1 dark:border-white/20">Keep</button>
+                    <button type="button" onClick={() => remove(d)} className="rounded bg-error min-h-11 px-4 py-2 text-white">Yes, delete</button>
+                    <button type="button" onClick={() => setConfirmDelete(null)} className="rounded border border-line min-h-11 px-4 py-2">Keep</button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setConfirmDelete(d.document_id)} className="rounded border border-red-700 px-3 py-1 text-red-700 dark:text-red-300">
+                  <button type="button" onClick={() => setConfirmDelete(d.document_id)} className="rounded border border-error min-h-11 px-4 py-2 text-error">
                     Delete this document
                   </button>
                 )}
@@ -397,8 +393,8 @@ function DocumentsScreen() {
             )}
             {d.status === "completed" && (
               <>
-                <fieldset className="space-y-2 rounded border border-amber-500 p-3">
-                  <legend className="px-1 font-semibold">Is this report for the patient in front of you, for this visit?</legend>
+                <fieldset className="space-y-2 rounded border border-warning p-3">
+                  <legend className="px-1 font-bold">Is this report for the patient in front of you, for this visit?</legend>
                   <p className="text-sm">
                     Check the name and date on the paper. Dates read: collected {d.dates?.collected_date ?? "not found"}, reported {d.dates?.report_date ?? "not found"}.
                   </p>
@@ -406,7 +402,7 @@ function DocumentsScreen() {
                     <div className="flex flex-wrap gap-2">
                       {[["matches", "Yes, this patient's report"], ["does_not_match", "No"], ["unsure", "Not sure"]].map(([a, t]) => (
                         <button key={a} type="button" aria-pressed={d.attestation?.answer === a} onClick={() => attest(d, a)}
-                          className={`rounded border px-3 py-1 text-sm ${d.attestation?.answer === a ? "border-blue-600 bg-blue-600 text-white" : "border-black/20 dark:border-white/20"}`}>
+                          className={`rounded border min-h-11 px-4 py-2 text-sm ${d.attestation?.answer === a ? "border-primary bg-primary text-white" : "border-line "}`}>
                           {t}
                         </button>
                       ))}
@@ -452,11 +448,11 @@ function DocumentsScreen() {
       })}
 
       {reviewer && reviewed && (
-        <aside className="space-y-2 rounded border border-green-700/50 p-4">
-          <h2 className="font-semibold">Reviewed values</h2>
-          <p className="text-xs">Only rows you confirmed or corrected appear here.</p>
+        <aside className="space-y-2 rounded border border-success/50 p-4">
+          <h2 className="font-bold">Reviewed values</h2>
+          <p className="text-xs">Only rows the health worker or doctor confirmed or corrected appear here.</p>
           {reviewed.values.length === 0 ? (
-            <p className="text-sm opacity-80">None yet.</p>
+            <p className="text-sm text-muted">None yet.</p>
           ) : (
             <ul className="space-y-1 text-sm">
               {reviewed.values.map((v) => {
@@ -475,10 +471,10 @@ function DocumentsScreen() {
               })}
             </ul>
           )}
-          <p className="text-xs opacity-70">{reviewed.note}</p>
+          <p className="text-xs text-muted">{reviewed.note}</p>
         </aside>
       )}
-    </section>
+    </IntakeShell>
   );
 }
 

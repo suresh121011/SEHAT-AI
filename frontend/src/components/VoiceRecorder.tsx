@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Icon } from "@/components/Icon";
 import { blobToWav16k } from "@/lib/wav";
 
 // Records from the microphone and hands back a 16 kHz mono WAV. Browser speech *recognition* is not
@@ -136,37 +137,42 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   }
 
   return (
-    <div className="space-y-3 rounded border border-black/10 p-4 dark:border-white/15">
+    <div className="space-y-3 rounded-lg border border-subtle bg-card p-4">
       <div className="flex flex-wrap items-center gap-3">
         {!recording ? (
-          <button type="button" onClick={start} disabled={disabled || !micAvailable} className="rounded bg-red-600 px-4 py-2 font-medium text-white disabled:opacity-50">
-            🎤 Start recording
+          <button type="button" onClick={start} disabled={disabled || !micAvailable} className="inline-flex min-h-12 items-center gap-2 rounded bg-primary px-5 py-2 text-lg font-bold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-55">
+            <Icon name="mic" size={22} /> Start recording
           </button>
         ) : (
-          <button type="button" onClick={stop} className="rounded bg-black px-4 py-2 font-medium text-white dark:bg-white dark:text-black">
-            ■ Stop
+          <button type="button" onClick={stop} className="inline-flex min-h-12 items-center gap-2 rounded border-2 border-error bg-card px-5 py-2 text-lg font-bold text-error">
+            <span className="inline-block size-3 rounded-sm bg-error" aria-hidden="true" /> Stop recording
           </button>
         )}
-        <span aria-live="polite" className="font-mono text-sm">
-          {recording ? `🔴 Recording… 0:${String(elapsed).padStart(2, "0")} / 0:${maxSeconds}` : `Up to ${maxSeconds} seconds`}
+        {/* Visible timer updates every second; the screen-reader announcement only changes on start, stop and 10 s left. */}
+        <span className="inline-flex items-center gap-2 font-mono text-base" aria-hidden="true">
+          {recording && <span className="inline-block size-3 rounded-full bg-error" />}
+          {recording ? `Recording 0:${String(elapsed).padStart(2, "0")} of 0:${maxSeconds}` : `Up to ${maxSeconds} seconds`}
+        </span>
+        <span className="sr-only" aria-live="polite">
+          {recording ? (maxSeconds - elapsed <= 10 ? "Recording, 10 seconds or less left" : "Recording started") : "Not recording"}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded bg-black/10 dark:bg-white/10" aria-hidden="true">
-        <div className="h-full bg-green-600 transition-[width]" style={{ width: `${Math.round(level * 100)}%` }} />
+      <div className="h-2 w-full overflow-hidden rounded bg-subtle" aria-hidden="true">
+        <div className="h-full bg-primary transition-[width] motion-reduce:transition-none" style={{ width: `${Math.round(level * 100)}%` }} />
       </div>
-      {!micAvailable && <p className="text-sm opacity-80">The microphone needs this page to be opened on localhost or over HTTPS. You can use a sample clip.</p>}
+      {!micAvailable && <p className="text-sm text-muted">The microphone needs this page to be opened on localhost or over HTTPS. You can use a sample clip.</p>}
       {samples.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="opacity-70">Demo fallback:</span>
+          <span className="text-muted">Demo fallback:</span>
           {samples.map((s) => (
-            <button key={s.url} type="button" disabled={disabled || recording} onClick={() => playSample(s.url)} className="rounded border border-black/20 px-3 py-1 disabled:opacity-50 dark:border-white/20">
-              ▶ {s.label}
+            <button key={s.url} type="button" disabled={disabled || recording} onClick={() => playSample(s.url)} className="rounded border border-line min-h-11 px-4 py-2 disabled:opacity-50">
+              {s.label}
             </button>
           ))}
         </div>
       )}
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-error">
           {error}
         </p>
       )}

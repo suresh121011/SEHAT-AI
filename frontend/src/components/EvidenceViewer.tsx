@@ -15,12 +15,12 @@ export function EvidenceViewer({ imageUrl, page, regions, label }: { imageUrl: s
   const drawable = onPage.map((r) => ({ r, s: regionStyle(r.bbox as BBox, page) })).filter((x) => x.s);
   return (
     <figure className="space-y-1">
-      <div className="relative w-full overflow-hidden rounded border border-black/20 dark:border-white/20" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
+      <div className="relative w-full overflow-hidden rounded border border-line" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- authenticated, no-store page image via the same-origin proxy */}
         <img src={imageUrl} alt={`Page ${page.page_index + 1} of the uploaded document`} className="absolute inset-0 h-full w-full" />
         {drawable.map(({ r, s }, i) => (
-          <span key={i} aria-hidden="true" className="absolute border-2 border-fuchsia-600 bg-fuchsia-400/20" style={s!}>
-            <span className="absolute -top-4 left-0 whitespace-nowrap bg-fuchsia-600 px-1 text-[10px] leading-4 text-white">{ROLE_LABEL[r.role] ?? r.role}</span>
+          <span key={i} aria-hidden="true" className="absolute border-2 border-secondary bg-secondary/20" style={s!}>
+            <span className="absolute -top-4 left-0 whitespace-nowrap bg-secondary px-1 text-[10px] leading-4 text-white">{ROLE_LABEL[r.role] ?? r.role}</span>
           </span>
         ))}
       </div>

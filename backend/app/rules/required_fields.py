@@ -43,13 +43,13 @@ SCENARIO_REQUIRED: dict[Scenario, tuple[Required, ...]] = {
         Required("lmp", "Last menstrual period", ("lmp",)),
         Required("edd", "Expected date of delivery", ("edd",)),
         Required("gravida_parity", "Gravida / parity", ("gravida_parity",)),
-        Required("hb", "Haemoglobin", ("hb", "ocr:hb"), priority=2),
+        Required("hb", "Haemoglobin", ("hb", "ocr:hemoglobin"), priority=2),  # OCR analyte keys: app/ocr/lexicon.py
         Required("bp", "Blood pressure", ("bp",), priority=2),
     ),
     Scenario.CHRONIC_NCD: (
         Required("bp_reading_1", "Blood pressure (reading 1)", ("bp",), priority=2),
         Required("bp_reading_2", "Blood pressure (reading 2)", ("bp#2",), priority=2),
-        Required("blood_sugar", "Blood sugar", ("glucose", "ocr:glucose", "ocr:fasting_glucose", "ocr:random_glucose")),
+        Required("blood_sugar", "Blood sugar", ("glucose", "ocr:glucose_fasting", "ocr:glucose_pp", "ocr:glucose_random")),
         Required("current_drugs", "Current medicines", ("medication:",)),
         Required("adherence", "Medicine adherence", ("adherence",)),
     ),

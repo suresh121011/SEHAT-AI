@@ -182,6 +182,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 - **Consent:**
   - Extraction needs `ai_assist`, which implies `triage`. Every read, review and note re-checks both.
   - **Roles:** the ANM who created the case, or a medical officer.
+- **Retention** (also in docs/04 §5): AI rows are kept after withdrawal, every AI read is refused while `triage` or `ai_assist` is withdrawn (served again only after re-consent), and there is no deletion path — the append-only triggers also block deletion.
 - **Storage** (migration 6, append-only by trigger):
   - `ai_extraction_runs`: redacted segments, skipped sources, drops, abstentions, urgency vote, flags
   - `ai_fields`
@@ -233,7 +234,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 
 ## 12. Verification (2026-10-03)
 
-- **Backend:** `940 passed, 10 skipped (opt-in live), 5 xfailed`, up from the Phase 5 baseline of 831 passed. The 110 Phase 6 tests in `backend/tests/ai/` cover:
+- **Backend:** `946 passed, 10 skipped (opt-in live), 5 xfailed`, up from the Phase 5 baseline of 831 passed. The 116 Phase 6 tests in `backend/tests/ai/` cover:
   - grounding, voting, guard and redaction table tests on realistic redacted inputs
   - adapter contract, config refusals, mocked Azure contract
   - consent withdrawal mid-flight (`ai_assist` and `triage`): nothing persisted
@@ -241,7 +242,17 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
   - `triage_runs` unchanged by AI endpoints, plus the static no-write check
   - adversarial fake: fabricated values dropped, alarms kept
   - P1 pure functions and endpoints; mocked translation
+  - **reviewed OCR merge** (`test_ocr_merge.py`), driven through the real OCR attest/review endpoints with replayed engines, not a live OCR engine. It checks:
+    - only reviewed values merge, as `human_reviewed`, with document, field, page and region provenance;
+    - OCR content never reaches the provider;
+    - a merged value can't be re-reviewed (`409 REVIEWED_AT_SOURCE`);
+    - no form hints;
+    - the note cites the values as printed;
+    - a reviewed OCR Hb satisfies the maternal Hb requirement;
+    - no `triage_runs` write.
+  - **retention after withdrawal:** AI rows are kept, reads are refused while consent is withdrawn, and reads reopen after re-consent (`test_ai_rows_are_kept_after_withdrawal_and_served_again_only_after_reconsent`)
 - **HTTP walkthrough:** `backend/scripts/e2e_ai_check.py` passed **18/18** against a live uvicorn server with `AI_PROVIDER=fake AI_FAKE_MODE=demo_disagreement`. Steps: provider label → consent → extraction (redacted, located quotes, red-flag mention) → disputed BP → review → reviewed view → rules triage → note (recorded GREEN; RED raise suggested, source-linked, alarms first; claims cited; sign-off required) → withdrawal → 403 → audit has no values → chain verifies.
+- **Fixed by the pre-PR audit:** (1) missing-information rules used OCR keys that the OCR pipeline never emits (`ocr:hb` instead of `ocr:hemoglobin`; glucose keys), so a reviewed OCR Hb was still listed as missing (safe, but wrong); a test now checks every OCR key against the OCR lexicon. (2) Note claims printed the raw OCR value dict; they now show comparator, value (or qualitative result), unit and the report's own printed flag, labelled "printed flag". The printed range stays in the field and is not repeated in the sentence, because a long range such as "1,50,000 - 4,50,000" would trip the identifier guard and block the claim.
 - **Not verified:**
   - any real LLM
   - the real IndicTrans2 model

@@ -27,7 +27,7 @@ def test_opd_missing_items_follow_the_architecture_list():
 
 
 def test_maternal_danger_signs_come_first_and_ocr_hb_counts():
-    keys = [g.key for g in missing("maternal", {"ocr:hb", "bp"})]
+    keys = [g.key for g in missing("maternal", {"ocr:hemoglobin", "bp"})]  # the OCR analyte key (app/ocr/lexicon.py)
     assert keys[:2] == ["red_flag_screen", "danger_signs"] and "hb" not in keys
 
 
@@ -137,3 +137,12 @@ def test_run_counterfactuals_need_triage_consent(ai_client, anm, cid):
     ai_client.post(f"/api/v1/cases/{cid}/consent/withdraw", json={"purpose": "triage"}, headers=auth(anm))
     r = ai_client.get(f"/api/v1/cases/{cid}/triage/runs/{run['run_id']}/counterfactuals", headers=auth(anm))
     assert r.status_code == 403
+
+
+def test_ocr_keys_in_required_fields_are_real_ocr_analyte_keys():
+    """Guards against the key mismatch found in the pre-PR audit (ocr:hb vs the OCR key "hemoglobin")."""
+    from app.ocr.lexicon import ANALYTE_ALIASES
+    from app.rules.required_fields import SCENARIO_REQUIRED
+
+    ocr_keys = {k.split(":", 1)[1] for reqs in SCENARIO_REQUIRED.values() for r in reqs for k in r.satisfied_by if k.startswith("ocr:")}
+    assert ocr_keys and ocr_keys <= set(ANALYTE_ALIASES)

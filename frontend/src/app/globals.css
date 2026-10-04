@@ -1,26 +1,205 @@
 @import "tailwindcss";
 
+/*
+ * SEHAT AI design tokens (Phase 7). One meaning per colour; never colour alone for meaning.
+ * Contrast (WCAG relative luminance, checked against --card / --page):
+ *   text 14.7 / 13.8 · text-muted 7.2 / 6.7 · primary (white text) 7.7 · secondary (white) 7.0
+ *   success 5.7 · warning 6.8 · error 5.7 · info 7.4 · consent 8.6 · ai 7.7
+ *   urgency: RED white-on 6.5 · YELLOW dark-on 9.7 · GREEN dark-on-pale 7.6
+ * The focus ring is dark navy (not yellow) so it can never be mistaken for YELLOW urgency.
+ * References: NHS service manual (colour, care cards), GOV.UK Design System (focus, question pages,
+ * check answers, file upload), USWDS step indicator, WCAG 2.2 SC 2.5.8 / 2.4.13.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --page: #faf7f2;
+  --card: #ffffff;
+  --text: #1f2a2e;
+  --text-muted: #4a5a60;
+  --primary: #0b5d5e;
+  --primary-hover: #084849;
+  --primary-tint: #e3f0ee;
+  --secondary: #2f5b8a;
+  --border-input: #6b7a7f;
+  --border-subtle: #d9dedc;
+  --focus: #1b2a6b;
+  --success-fg: #1e6b3a;
+  --success-bg: #e7f3ec;
+  --warning-fg: #7a4b00;
+  --warning-bg: #fff4db;
+  --error-fg: #b3261e;
+  --error-bg: #fdecea;
+  --info-fg: #1f4f7a;
+  --info-bg: #e8f0f8;
+  --consent-fg: #34436b;
+  --consent-bg: #eef1f7;
+  --ai-fg: #5a3e7a;
+  --ai-bg: #f3eff8;
+  --urg-red-bg: #b3261e;
+  --urg-red-fg: #ffffff;
+  --urg-yellow-bg: #f6c343;
+  --urg-yellow-fg: #2b2100;
+  --urg-green-bg: #dcefe2;
+  --urg-green-fg: #14532d;
+  /* Phase 8 reviewer workstation (contrast computed, docs/17 §6):
+   * shell text 11.7 · shell muted 8.7 · shell focus ring (white) 11.7 · selected row ink 12.6
+   * escalation: pending text 8.0 · overdue white-on 9.1 · acknowledged text 9.8 (neutral grey, never green)
+   * hypothetical surface ink 13.2 / 11.5 · chart series on card 5.9 / 4.9 / 9.0 */
+  --shell-bg: #0a3f40;
+  --shell-fg: #ffffff;
+  --shell-fg-muted: #c9e4e1;
+  --row-selected-bg: #e3f0ee;
+  --row-selected-bar: #0b5d5e;
+  --esc-pending-bg: #fdecea;
+  --esc-pending-fg: #8c1d18;
+  --esc-pending-border: #b3261e;
+  --esc-overdue-bg: #8c1d18;
+  --esc-overdue-fg: #ffffff;
+  --esc-ack-bg: #eef2f3;
+  --esc-ack-fg: #2f3e44;
+  --esc-ack-border: #4a5a60;
+  --human-fg: #0b5d5e;
+  --human-bg: #e3f0ee;
+  --hypo-a: #f4f3ef;
+  --hypo-b: #e6e3dc;
+  --hypo-border: #6b7a7f;
+  --hypo-chip: #4a5a60;
+  --chart-1: #2166ac;
+  --chart-2: #b35806;
+  --chart-3: #3d4b52;
+  /* Final hardening (2026-10-04, frontend polish). Contrast computed (WCAG relative luminance):
+   *   --skeleton #e3e7e5 on card 1.25 — decorative loading placeholder only; always paired with a visible text label,
+   *     so it carries no information and is exempt from 3:1 (WCAG 1.4.11 applies to meaningful graphics).
+   *   Re-used pairs checked for new placements: warning-fg on warning-bg 6.8 (facility line on the shell) ·
+   *   muted on human-bg 6.2 (reviewer column) · primary on esc-ack 6.8 (permission state link) · border-input
+   *   timeline rail on card 4.5 (non-text ≥ 3) · navy focus on esc-pending 11.6.
+   * Focus on a dark-red (overdue) control: navy alone is 1.5:1 there, white alone vanishes on the pale pending
+   * surface, so the control gets a white outline plus an outer navy ring (white 9.1 on red, navy 11.6 on pink).
+   * Type scale for the workstation: 12 (meta/pills) · 14 (body-small) · 16 (panel headings) · 18 (bar/banner)
+   * · 24 (case title); icons 14 in pills/meta, 16 inline and in buttons, 20 in headings and banners. */
+  --skeleton: #e3e7e5;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-tint: var(--primary-tint);
+  --color-secondary: var(--secondary);
+  --color-line: var(--border-input);
+  --color-subtle: var(--border-subtle);
+  --color-focus: var(--focus);
+  --color-success: var(--success-fg);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning-fg);
+  --color-warning-bg: var(--warning-bg);
+  --color-error: var(--error-fg);
+  --color-error-bg: var(--error-bg);
+  --color-info: var(--info-fg);
+  --color-info-bg: var(--info-bg);
+  --color-consent: var(--consent-fg);
+  --color-consent-bg: var(--consent-bg);
+  --color-ai: var(--ai-fg);
+  --color-ai-bg: var(--ai-bg);
+  --color-urg-red: var(--urg-red-bg);
+  --color-urg-red-ink: var(--urg-red-fg);
+  --color-urg-yellow: var(--urg-yellow-bg);
+  --color-urg-yellow-ink: var(--urg-yellow-fg);
+  --color-urg-green: var(--urg-green-bg);
+  --color-urg-green-ink: var(--urg-green-fg);
+  --color-shell: var(--shell-bg);
+  --color-shell-ink: var(--shell-fg);
+  --color-shell-muted: var(--shell-fg-muted);
+  --color-row-selected: var(--row-selected-bg);
+  --color-row-bar: var(--row-selected-bar);
+  --color-esc-pending: var(--esc-pending-bg);
+  --color-esc-pending-ink: var(--esc-pending-fg);
+  --color-esc-pending-line: var(--esc-pending-border);
+  --color-esc-overdue: var(--esc-overdue-bg);
+  --color-esc-overdue-ink: var(--esc-overdue-fg);
+  --color-esc-ack: var(--esc-ack-bg);
+  --color-esc-ack-ink: var(--esc-ack-fg);
+  --color-esc-ack-line: var(--esc-ack-border);
+  --color-human: var(--human-fg);
+  --color-human-bg: var(--human-bg);
+  --color-hypo-line: var(--hypo-border);
+  --color-hypo-chip: var(--hypo-chip);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-skeleton: var(--skeleton);
+  --font-sans: var(--font-atkinson), "Noto Sans Devanagari", "Noto Sans Oriya", "Kohinoor Devanagari", "Oriya Sangam MN", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  font-size: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.6;
 }
+
+/* Hindi/Odia: matras need room. */
+:lang(hi),
+:lang(or) {
+  line-height: 1.75;
+}
+
+/* GOV.UK-style visible focus: a 3px ring with an offset, on every focusable element. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  header nav,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
+
+/* Phase 8: the reviewer workstation is wider than the intake pages (root layout caps <main> at max-w-5xl). */
+main:has(> .workstation) {
+  max-width: 100rem;
+}
+
+/* Hypothetical (counterfactual) surface: hatched so it never looks like a real triage result. */
+.hypothetical {
+  background: repeating-linear-gradient(135deg, var(--hypo-a) 0 10px, var(--hypo-b) 10px 12px);
+  border: 2px dashed var(--hypo-border);
+}
+
+/* Focus ring on the dark shell: the navy ring would vanish (1.1:1), so it turns white there. */
+.on-shell :where(a, button, select, [tabindex]):focus-visible,
+[class*="bg-esc-overdue"] :where(a, button, input, [tabindex]):focus-visible,
+[class*="bg-esc-overdue"]:focus-visible {
+  outline-color: var(--shell-fg);
+}
+
+/* A dark-red control may sit on the pale pending surface: add an outer navy ring so focus shows on both. */
+[class*="bg-esc-overdue"]:is(a, button):focus-visible {
+  box-shadow: 0 0 0 7px var(--focus);
+}
+

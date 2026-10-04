@@ -46,6 +46,21 @@ def _fmt_num(x) -> str:
     return str(int(x)) if isinstance(x, float) and x.is_integer() else str(x)
 
 
+def _ocr_value_text(value) -> str:
+    """A reviewed OCR value as printed on the report: comparator, value (or qualitative result), unit, and the
+    report's own printed flag (H/L), labelled as printed. No interpretation is added. The printed range is not
+    repeated here (a long range such as "1,50,000 - 4,50,000" trips the identifier guard); it stays in the field."""
+    if not isinstance(value, dict):
+        return str(value)
+    shown = value.get("qualitative") or value.get("value") or ""
+    text = f"{value.get('comparator') or ''}{shown}".strip()
+    if value.get("unit"):
+        text = f"{text} {value['unit']}"
+    if value.get("flag"):
+        text = f"{text} (printed flag: {value['flag']})"
+    return text
+
+
 def claim_text(f: dict, v) -> str | None:
     kind, key = f["kind"], f["field"].split("#")[0]
     if kind == "text":
@@ -65,7 +80,7 @@ def claim_text(f: dict, v) -> str | None:
             return f"Source text denies: {flag} (not a completed red-flag screen)."
         return f"Red-flag mention to check on the screen: {flag}."
     if kind.startswith("ocr_"):
-        return f"Document value (reviewed): {v['name']} {v['value']}."
+        return f"Document value (reviewed): {v['name']} {_ocr_value_text(v['value'])}."
     return None
 
 

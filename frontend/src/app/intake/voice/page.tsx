@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { type FormEvent, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 
-import { DemoBanner } from "@/components/DemoBanner";
+import { Icon } from "@/components/Icon";
+import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
+import { roleWords } from "@/components/Provenance";
+import { Notice } from "@/components/ui";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { ApiError, api } from "@/lib/api";
 import { useMatchingVoice } from "@/lib/useMatchingVoice";
@@ -134,7 +137,7 @@ function Highlighted({ text, candidates }: { text: string; candidates: Candidate
     if (c.char_start < pos) continue;
     parts.push(text.slice(pos, c.char_start));
     parts.push(
-      <mark key={c.candidate_id} className="rounded bg-yellow-200 px-0.5 dark:bg-yellow-700">
+      <mark key={c.candidate_id} className="rounded bg-warning-bg px-0.5">
         {text.slice(c.char_start, c.char_end)}
       </mark>,
     );
@@ -167,7 +170,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
     <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-2 text-sm">
       <label className="flex flex-col">
         Measures
-        <select required value={field} onChange={(e) => setField(e.target.value)} className="rounded border px-2 py-1 dark:bg-black">
+        <select required value={field} onChange={(e) => setField(e.target.value)} className="rounded border-2 border-line min-h-11 px-3 py-2">
           <option value="" disabled>
             Choose…
           </option>
@@ -181,7 +184,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
       {field === "pregnancy" ? (
         <label className="flex flex-col">
           Value
-          <select required value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className="rounded border px-2 py-1 dark:bg-black">
+          <select required value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className="rounded border-2 border-line min-h-11 px-3 py-2">
             <option value="" disabled>
               Choose…
             </option>
@@ -192,19 +195,19 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
       ) : (
         <label className="flex flex-col">
           {field === "bp" ? "Systolic" : "Correct value"}
-          <input inputMode="decimal" required value={value} onChange={(e) => setValue(e.target.value)} className="w-24 rounded border px-2 py-1 dark:bg-black" />
+          <input inputMode="decimal" required value={value} onChange={(e) => setValue(e.target.value)} className="w-24 rounded border-2 border-line min-h-11 px-3 py-2" />
         </label>
       )}
       {field === "bp" && (
         <label className="flex flex-col">
           Diastolic
-          <input inputMode="numeric" required value={value2} onChange={(e) => setValue2(e.target.value)} className="w-24 rounded border px-2 py-1 dark:bg-black" />
+          <input inputMode="numeric" required value={value2} onChange={(e) => setValue2(e.target.value)} className="w-24 rounded border-2 border-line min-h-11 px-3 py-2" />
         </label>
       )}
       {field === "temp" && (
         <label className="flex flex-col">
           Unit
-          <select required value={unit} onChange={(e) => setUnit(e.target.value as "" | "c" | "f")} className="rounded border px-2 py-1 dark:bg-black">
+          <select required value={unit} onChange={(e) => setUnit(e.target.value as "" | "c" | "f")} className="rounded border-2 border-line min-h-11 px-3 py-2">
             <option value="" disabled>
               Choose…
             </option>
@@ -213,7 +216,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
           </select>
         </label>
       )}
-      <button type="submit" disabled={busy} className="rounded bg-blue-600 px-3 py-1 font-medium text-white disabled:opacity-60">
+      <button type="submit" disabled={busy} className="rounded bg-primary min-h-11 px-4 py-2 font-medium text-white disabled:opacity-60">
         Save correction
       </button>
     </form>
@@ -264,54 +267,54 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
   }
 
   return (
-    <li className="space-y-2 rounded border border-black/10 p-3 dark:border-white/15">
+    <li className="space-y-2 rounded border border-subtle p-3">
       <p lang={language} className="text-base font-medium">
         {c.readback_text}
       </p>
-      <p className="text-xs opacity-70">
+      <p className="text-xs text-muted">
         Heard: “<span lang={language}>{c.heard_text}</span>”
       </p>
       {c.flags.length > 0 && (
         <ul className="flex flex-wrap gap-1">
           {c.flags.map((f) => (
-            <li key={f} className="rounded border border-orange-500 px-2 py-0.5 text-xs">
-              ⚠ {FLAG_TEXT[f] ?? f}
+            <li key={f} className="rounded border border-warning px-2 py-0.5 text-xs">
+              <Icon name="alert" size={14} /> {FLAG_TEXT[f] ?? f}
             </li>
           ))}
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={listen} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
-          🔊 {ttsReady ? "Listen (online voice — sends this text to Sarvam AI)" : "Listen (this device's voice)"}
+        <button type="button" onClick={listen} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
+          <Icon name="speaker" /> {ttsReady ? "Listen (online voice — sends this text to Sarvam AI)" : "Listen (this device's voice)"}
         </button>
-        {speech && <span className="text-xs opacity-80" aria-live="polite">{speech}</span>}
+        {speech && <span className="text-xs text-muted" aria-live="polite">{speech}</span>}
       </div>
       {c.resolution ? (
         <p className="text-sm">
           <strong>{OUTCOME_TEXT[c.resolution.outcome]}</strong>
           {c.resolution.values && ` → ${Object.entries(c.resolution.values).map(([k, v]) => `${VITAL_LABEL[k] ?? k}: ${typeof v === "number" && k === "temp_c" ? v.toFixed(2) : String(v)}`).join(", ")}`}
-          <span className="opacity-60"> · by {c.resolution.actor_role}</span>
+          <span className="text-muted"> · by {roleWords(c.resolution.actor_role)}</span>
         </p>
       ) : reviewer ? null : (
-        <p className="text-sm opacity-80">A health worker will check this value with you.</p>
+        <p className="text-sm text-muted">A health worker will check this value with you.</p>
       )}
       {reviewer && (
         <div className="space-y-1">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Read-back decision">
-            <button type="button" disabled={busy || playing || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className="rounded bg-green-700 px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
-              ✓ Yes, that&apos;s right
+            <button type="button" disabled={busy || playing || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className="rounded bg-success min-h-11 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              <Icon name="check" /> Yes, that&apos;s right
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => setCorrecting((v) => !v)} className="rounded border border-blue-600 px-3 py-1 text-sm">
-              ✎ Change value
+            <button type="button" disabled={busy || playing} onClick={() => setCorrecting((v) => !v)} className="rounded border border-primary min-h-11 px-4 py-2 text-sm">
+              <Icon name="pencil" /> Change value
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
-              ? Not sure
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
+              Not sure
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-red-600 px-3 py-1 text-sm">
-              ✗ Wrong / not said
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-error min-h-11 px-4 py-2 text-sm">
+              <Icon name="cross" /> Wrong / not said
             </button>
           </div>
-          <p className="text-xs opacity-70">“Not sure” and “Wrong / not said” both leave the value blank, so it is checked by a person. Nothing is filled in without a decision.</p>
+          <p className="text-xs text-muted">“Not sure” and “Wrong / not said” both leave the value blank, so it is checked by a person. Nothing is filled in without a decision.</p>
           {!c.can_confirm && <p className="text-xs">This value cannot be accepted as heard (see the warnings) — enter it with “Change value”, or leave it blank.</p>}
           {correcting && <CorrectionForm candidate={c} busy={busy} onSubmit={(body) => onDecide(c.candidate_id, { ...body, supersedes: c.resolution?.event_id ?? null })} />}
         </div>
@@ -452,42 +455,33 @@ function VoiceScreen() {
     }
   }
 
-  if (!caseId || notFound) {
-    return (
-      <section className="mx-auto max-w-xl space-y-4">
-        <DemoBanner />
-        <p role="alert">Case not found.</p>
-        <Link href="/intake" className="text-blue-600 underline">
-          Start a new case
-        </Link>
-      </section>
-    );
-  }
+  if (!caseId || notFound) return <CaseNotFound />;
 
   const triageOk = caseView?.consent.triage === "granted";
   const canRecord = !!caseView?.is_creator && (role === "patient" || role === "anm");
 
   return (
-    <section className="mx-auto max-w-2xl space-y-5">
-      <DemoBanner />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Describe symptoms by voice</h1>
-        <Link href={`/intake/documents?case=${caseId}`} className="text-sm text-blue-600 underline">
-          Lab reports and prescriptions →
-        </Link>
-        <p className="w-full text-sm opacity-80">Measurements that are heard (temperature, pulse, oxygen…) are picked out for checking. Symptoms stay in the transcript for the reviewer to read.</p>
-        <span className="font-mono text-xs opacity-70">Case {caseView?.patient_token ?? "…"}</span>
-      </div>
-      <p className="rounded border border-blue-600/40 px-3 py-2 text-sm">
-        Voice only <strong>pre-fills</strong> values after a health worker checks each one. It does not decide urgency; the health worker still records triage. A value confirmed here can still be wrong if the reading itself was wrong.
-      </p>
+    <IntakeShell
+      step="voice"
+      caseId={caseId}
+      role={role}
+      triage={caseView?.consent.triage ?? null}
+      token={caseView?.patient_token}
+      intro="Record the patient describing their symptoms. Measurements that are heard (temperature, pulse, oxygen…) are picked out for checking; symptoms stay in the transcript for the reviewer to read."
+    >
+      <Notice tone="info">
+        <p>
+          Voice only <strong>pre-fills</strong> values after a health worker checks each one. It does not decide urgency; the health worker still records triage. A
+          value confirmed here can still be wrong if the reading itself was wrong. You can always type instead on the review step.
+        </p>
+      </Notice>
 
       {caps && !caps.voice_enabled && <p role="note">Voice input is turned off on this server. Please type the symptoms instead.</p>}
 
       {caseView && !triageOk && (
         <p role="alert">
           Triage consent is not in effect for this case.{" "}
-          <Link href={`/intake/consent?case=${caseId}`} className="text-blue-600 underline">
+          <Link href={`/intake/consent?case=${caseId}`} className="text-primary underline">
             Go to consent
           </Link>
         </p>
@@ -497,7 +491,7 @@ function VoiceScreen() {
         <>
           <fieldset className="flex flex-wrap gap-2" aria-label="Spoken language">
             {LANGUAGES.map((l) => (
-              <button key={l.code} type="button" onClick={() => setLanguage(l.code)} aria-pressed={language === l.code} className={`rounded border px-3 py-1 ${language === l.code ? "border-blue-600 bg-blue-50 dark:bg-blue-950" : "border-black/20 dark:border-white/20"}`}>
+              <button key={l.code} type="button" onClick={() => setLanguage(l.code)} aria-pressed={language === l.code} className={`rounded border min-h-11 px-4 py-2 ${language === l.code ? "border-primary bg-primary-tint " : "border-line "}`}>
                 {l.label}
               </button>
             ))}
@@ -508,10 +502,10 @@ function VoiceScreen() {
             {(["local", "cloud"] as Engine[]).map((e) => {
               const st = engineStatus(e);
               return (
-                <label key={e} className={`flex items-start gap-2 ${st.usable ? "" : "opacity-60"}`}>
+                <label key={e} className={`flex items-start gap-2 ${st.usable ? "" : "text-muted"}`}>
                   <input type="radio" name="engine" disabled={!st.usable} checked={selected === e} onChange={() => setEngine(e)} />
                   <span>
-                    {caps.engines[e].label} <span className="opacity-70">— {st.why}</span>
+                    {caps.engines[e].label} <span className="text-muted">— {st.why}</span>
                   </span>
                 </label>
               );
@@ -538,27 +532,27 @@ function VoiceScreen() {
             />
           )}
           {pending && !busy && (
-            <button type="button" onClick={() => upload(pending.wav, pending.key)} className="rounded border border-black/20 px-3 py-1 text-sm dark:border-white/20">
+            <button type="button" onClick={() => upload(pending.wav, pending.key)} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
               Retry the same recording
             </button>
           )}
-          {busy && <p aria-live="polite">Processing… (on-device models can take a while on the first run)</p>}
+          <p aria-live="polite">{busy ? "Processing… (the speech model on this server can take a while on the first run)" : ""}</p>
         </>
       )}
 
       {message && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-error">
           {message}
         </p>
       )}
 
       {items.map((t) => (
-        <article key={t.transcription_id} className="space-y-3 rounded border border-black/10 p-4 dark:border-white/15">
+        <article key={t.transcription_id} className="space-y-3 rounded border border-subtle p-4">
           <p className="text-sm">
-            <strong>Transcribed by: {t.engine === "local" ? "On this device (local model)" : "Internet — Sarvam AI"}</strong>
-            <span className="opacity-60"> · {t.model_id ?? "—"} · {new Date(t.created_at).toLocaleTimeString()}</span>
+            <strong>Transcribed by: {t.engine === "local" ? "On this facility\u2019s server (local model)" : "Internet — Sarvam AI"}</strong>
+            <span className="text-muted"> · {t.model_id ?? "—"} · {new Date(t.created_at).toLocaleTimeString()}</span>
             {caps && (
-              <span className="ml-2 rounded border border-black/20 px-1.5 text-xs dark:border-white/20">
+              <span className="ml-2 rounded border border-line px-1.5 text-xs">
                 {caps.verification[t.engine][t.language] === "tested_real" ? "tried on a few test clips only" : caps.verification[t.engine][t.language] === "tested_mock" ? "not checked on real speech" : "unverified"}
               </span>
             )}
@@ -568,14 +562,14 @@ function VoiceScreen() {
           {t.status === "failed" && <p>This recording failed ({t.failure_code}). No transcript was kept.</p>}
           {t.transcript_raw && (
             <div>
-              <h2 className="text-sm font-semibold">Raw transcript (not checked)</h2>
-              <p lang={t.language} className="whitespace-pre-wrap rounded bg-black/5 p-2 dark:bg-white/10">
+              <h2 className="text-sm font-bold">Raw transcript (not checked)</h2>
+              <p lang={t.language} className="whitespace-pre-wrap rounded bg-page p-2">
                 <Highlighted text={t.transcript_raw} candidates={t.candidates} />
               </p>
             </div>
           )}
           {t.readback_template_status !== "project_draft" && t.candidates.length > 0 && (
-            <p role="note" className="rounded border border-orange-500 px-3 py-1 text-xs">
+            <p role="note" className="rounded border border-warning min-h-11 px-4 py-2 text-xs">
               Draft translation of the read-back wording — not reviewed by a native speaker. Explain in person if unclear.
             </p>
           )}
@@ -586,23 +580,23 @@ function VoiceScreen() {
               ))}
             </ul>
           )}
-          {t.status === "completed" && t.candidates.length === 0 && <p className="text-sm opacity-80">No measurements were recognised. Speak in the language selected above — English speech with Hindi/Odia selected is written phonetically and its numbers are not read. Some spoken number forms (e.g. Odia 21–99 as words) are not read yet — enter them in the triage form.</p>}
+          {t.status === "completed" && t.candidates.length === 0 && <p className="text-sm text-muted">No measurements were recognised. Speak in the language selected above — English speech with Hindi/Odia selected is written phonetically and its numbers are not read. Some spoken number forms (e.g. Odia 21–99 as words) are not read yet — enter them in the triage form.</p>}
         </article>
       ))}
 
       {reviewer && prefill && (
-        <aside className="space-y-2 rounded border border-green-700/50 p-4">
-          <h2 className="font-semibold">Values the health worker confirmed</h2>
+        <aside className="space-y-2 rounded border border-success/50 p-4">
+          <h2 className="font-bold">Values the health worker confirmed</h2>
           {Object.keys(prefill.vitals).length + Object.keys(prefill.fields).length === 0 ? (
-            <p className="text-sm opacity-80">None yet.</p>
+            <p className="text-sm text-muted">None yet.</p>
           ) : (
             <ul className="text-sm">
               {Object.entries(prefill.values).flatMap(([field, entry]) =>
                 Object.entries(entry.values).map(([k, v]) => (
                   <li key={k}>
                     {VITAL_LABEL[k] ?? k}: <strong>{k === "temp_c" && typeof v === "number" ? v.toFixed(2) : String(v)}</strong>{" "}
-                    <span className="text-xs opacity-70">
-                      ({entry.sources.map((s) => `${s.type === "voice_manual_correction" ? "entered by" : "heard, confirmed by"} ${s.resolved_by_role}`).join("; ")}) · {field}
+                    <span className="text-xs text-muted">
+                      ({entry.sources.map((s) => `${s.type === "voice_manual_correction" ? "entered by" : "heard, confirmed by"} ${roleWords(s.resolved_by_role)}`).join("; ")}) · {field}
                     </span>
                   </li>
                 )),
@@ -610,19 +604,19 @@ function VoiceScreen() {
             </ul>
           )}
           {prefill.unresolved.length > 0 && (
-            <p role="alert" className="text-sm">
+            <p role="status" className="text-sm">
               {prefill.unresolved.length} heard value(s) not decided yet ({prefill.unresolved.map((u) => `${u.field}${u.state === "unsure" ? " — not sure" : ""}`).join(", ")}). They are not pre-filled.
             </p>
           )}
           {Object.keys(prefill.conflicts).length > 0 && (
-            <p role="alert" className="text-sm">
+            <p role="status" className="text-sm">
               Different values were confirmed for: {Object.keys(prefill.conflicts).join(", ")}. Nothing is pre-filled for these — check with the patient.
             </p>
           )}
-          <p className="text-xs opacity-70">{prefill.note}</p>
+          <p className="text-xs text-muted">{prefill.note}</p>
         </aside>
       )}
-    </section>
+    </IntakeShell>
   );
 }
 
