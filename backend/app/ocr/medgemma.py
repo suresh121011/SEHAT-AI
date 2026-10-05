@@ -118,6 +118,26 @@ class RawFindings:
 
 
 _FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
+# MedGemma 1.5 may emit a hidden reasoning block before its answer. Its text is never shown or parsed as findings.
+_THOUGHT = re.compile(r"<unused94>.*?(?:<unused95>|$)", re.DOTALL)
+
+
+def _json_object(text: str):
+    """The reply as one JSON object: the whole text, or exactly one {...} object with stray text around it (for
+    example a sentence before it). Free text without a JSON object is never turned into findings."""
+    text = _FENCE.sub("", text.strip())
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    start = text.find("{")
+    if start < 0:
+        raise BadResponse("not_json")
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        raise BadResponse("not_json") from None
+    return obj
 _MAX_FIELD = 500
 _MAX_DESC = 2000
 
@@ -129,14 +149,17 @@ def parse_output(raw: str | dict, image_type: str) -> RawFindings:
     else:
         if not isinstance(raw, str) or not raw.strip():
             raise BadResponse("empty")
-        try:
-            data = json.loads(_FENCE.sub("", raw.strip()))
-        except (ValueError, TypeError):
-            raise BadResponse("not_json") from None
+        stripped = _THOUGHT.sub("", raw).strip()
+        if not stripped:
+            raise BadResponse("thinking_only")  # the model only reasoned and never answered
+        data = _json_object(stripped)
     if not isinstance(data, dict):
         raise BadResponse("not_object")
     allowed = IMAGE_TYPES[image_type]["extract_fields"]
     fields_in = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+    for k in ("confidence", "image_quality"):  # some replies nest these inside "fields"
+        if k not in data and k in fields_in:
+            data = {**data, k: fields_in[k]}
     fields: dict[str, str] = {}
     for key in allowed:
         v = fields_in.get(key, data.get(key))  # tolerate fields at top level

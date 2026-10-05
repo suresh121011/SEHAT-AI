@@ -786,3 +786,46 @@ def test_live_local_medgemma_describes_a_synthetic_image():
     print("raw reply:", reply[:1500])
     print("shown fields:", f.fields, "withheld:", f.withheld_fields, "description withheld:", f.description_withheld, "confidence:", raw.confidence)
     assert isinstance(reply, str) and reply.strip()
+
+
+# ── Reply parsing hardening (2026-10-05, real local MedGemma replies) ─────────────────────────────────────────────
+
+_GOOD = '{"description": "Open wound on the shin.", "fields": {"location": "shin", "confidence": 0.6, "image_quality": "limited"}}'
+
+
+def test_hidden_thinking_block_is_dropped_before_parsing():
+    raw = "<unused94>thought\nThe user wants a wound description. Location: forearm.<unused95>" + _GOOD
+    r = medgemma.parse_output(raw, "wound_photo")
+    assert r.fields == {"location": "shin"} and "user wants" not in r.description
+    assert r.confidence == 0.6 and r.image_quality == "limited"  # nested inside "fields" in real replies
+
+
+def test_thinking_only_reply_is_rejected_never_shown():
+    raw = "<unused94>thought\nThe user wants me to describe the wound.\n- **location**: forearm\nConfidence: 0.9"  # truncated, no answer
+    with pytest.raises(medgemma.BadResponse, match="thinking_only"):
+        medgemma.parse_output(raw, "wound_photo")
+
+
+def test_free_text_without_json_is_rejected_never_copied_into_fields():
+    for raw in ("The wound looks clean. Confidence: 0.9 image_quality: adequate", "No abnormality. Confidence: 0.95"):
+        with pytest.raises(medgemma.BadResponse, match="not_json"):
+            medgemma.parse_output(raw, "wound_photo")
+
+
+def test_one_json_object_with_stray_text_around_it_is_accepted():
+    r = medgemma.parse_output("Here is the description:\n" + _GOOD + "\nThanks.", "wound_photo")
+    assert r.fields == {"location": "shin"}
+
+
+def test_pipeline_error_log_has_reason_codes_never_exception_text(caplog):
+    from app.ocr.engine import EngineError
+    from app.ocr.service import _log_internal
+
+    for exc in (RuntimeError("Patient Ramesh Kumar Hb 7.1 /Users/x/doc.png"), EngineError("model_integrity_failed")):
+        try:
+            raise exc
+        except Exception as e:  # noqa: BLE001
+            _log_internal(e)
+    text = caplog.text
+    assert "Ramesh" not in text and "7.1" not in text and "/Users/x" not in text
+    assert "reason=model_integrity_failed" in text and "reason=-" in text
