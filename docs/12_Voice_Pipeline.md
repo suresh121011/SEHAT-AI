@@ -148,6 +148,7 @@ The provider's reported language is recorded as a warning. It is never used to s
   - Tested: 102.2 °F converts to exactly 39.0 °C (not above 39), and 102.3 °F is above 39.
   - The UI shows 2 decimals and labels the value "exact value used".
   - A spoken value with no unit is inferred only within the engine's own domain: 25–45 is read as °C, 77–113 as °F.
+    **Since 2026-10-05 (pre-Phase 9 review), an inferred unit blocks one-click confirm**: `unit_inferred` is in `BLOCKING_FLAGS`. The reviewer enters the value with its unit ("Change value"), because the unit was a guess. This applies to "102 डिग्री" (°F inferred) and "तापमान अड़तीस" (°C inferred) alike. Values whose unit is implicit in the field (pulse /min, SpO2 %) are unaffected.
   - Any other value is `unit_unknown`. It must be corrected and cannot be confirmed.
 - **Flags** (each is tested):
   - `unit_inferred`, `unit_unknown`, `out_of_domain_range` (the existing `Vitals` bounds only), `non_integer`
@@ -323,6 +324,47 @@ Run on `http://localhost:3000` (demo accounts, synthetic speech only).
 | B11 | Say "ଶ୍ୱାସ ଅନେକ ବାର" or "सांस एक बार" (Odia/Hindi selected) → flag "can also mean 'times' or 'a'", Confirm disabled | PASS | NOT RUN | BLOCKED |
 | B12 | Nothing submits triage automatically (no POST to `/triage`) | PASS (log: no POST to `/triage`) | NOT RUN | BLOCKED |
 | B13 | Does this device have an Odia browser voice? (consent read-aloud, demo Beat 1) | **No Odia voice** (Chrome, macOS): read-aloud shows "unavailable"; the presenter reads the notice | NOT RUN | BLOCKED |
+
+### 9.5 Pre-Phase 9 verification (2026-10-05, synthetic speech, real browser)
+
+**Why the UI said "Voice input is turned off on this server":** configuration, not a defect.
+- The repo-root `.env` sets `VOICE_ENABLED=0` and `VOICE_LOCAL_ASR_ENABLED=0`, so `GET /voice/capabilities` reports `voice_enabled:false` and the voice data routes return 404 `FEATURE_DISABLED`.
+- The on-device model (IndicConformer-600M at the pinned revision) and its packages were already installed.
+
+**Enable for a test run** without editing `.env` (process environment wins over `.env`). From `backend/`:
+
+```
+ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-voice.db AI_PROVIDER=fake VOICE_ENABLED=1 VOICE_LOCAL_ASR_ENABLED=1 VOICE_CLOUD_STT_ENABLED=0 VOICE_TTS_ENABLED=0 ../.venv/bin/python -m uvicorn app.main:app --port 8100
+```
+
+Then start the frontend with `NEXT_PUBLIC_API_URL=http://localhost:8100/api/v1 npx next dev -p 3100`, from a separate checkout if another dev server already uses `frontend/.next`. Cloud voice needs `VOICE_CLOUD_STT_ENABLED=1` (and `VOICE_TTS_ENABLED=1` for spoken read-back), a Sarvam key in `SARVAM_API_KEY`, and the case's `voice_cloud` consent.
+
+**Observed results.** Synthetic speech was made with macOS `say` (Hindi voice "Lekha", English "Aman") and converted to 16 kHz mono WAV. It played through Chrome's fake microphone (`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=…`) via Playwright from a scratch environment.
+
+| Check | Result |
+|:---|:---|
+| Hindi, on-device engine: record → stop → transcript → read-back cards | **Pass** (browser). "मरीज को बुखार एक सौ दो डिग्री है" → 102 °F = 38.89 °C, flagged `unit_inferred`, `number_words`; pulse 110 and SpO2 90 from a second clip |
+| Confirm / correct / not sure / reject, each by a person; nothing confirmed automatically; no triage POST | **Pass** (browser + API). Re-deciding without `supersedes` → 409 `STALE_DECISION` |
+| Different confirmed values for one field → `conflicts`, nothing pre-filled | **Pass** (browser + API) |
+| English on the on-device engine | **Pass**: 422 `LANGUAGE_UNSUPPORTED`, no switch to the cloud |
+| Cloud engine requested while disabled | **Pass**: 503 `CLOUD_STT_UNAVAILABLE`. The `voice_cloud` consent refusal could not be reached with cloud off (covered by mocked tests) |
+| Silence / 35 s clip / not a WAV / wrong content type / medical officer uploading | **Pass**: `no_speech` / 413 / 400 / 415 / 403 |
+| Microphone permission denied | **Pass**: "Microphone permission was not granted. You can use a sample clip or type instead."; nothing uploaded |
+| Voice off: message shown, no record button, "Continue" available | **Pass with a mocked capabilities response** in the browser. The real unmocked `voice_enabled:false` response was observed from the default `.env` server |
+| Consent withdrawn → uploads, transcripts and prefill refused | **Pass**: 403 `CONSENT_REQUIRED` |
+| Backend log has no transcript text or audio | **Pass** (0 matches) |
+| Opt-in live test: `SEHAT_LIVE_LOCAL=1 ../.venv/bin/python -m pytest -m live -k local -q tests/voice` | **2 passed, 1 skipped** |
+| Cloud speech-to-text / spoken read-back (Sarvam) | **Not verified** (no live calls by decision; mocked tests only) |
+| Odia; leaving the page mid-recording; the 30 s auto-stop in a browser | **Not verified** |
+
+**Decisions taken / still needed:**
+- **Changed (approved by the project owner, 2026-10-05):** a spoken temperature whose unit was inferred can no longer be confirmed in one click (`unit_inferred` is now blocking, §5).
+  - **Browser-verified:** for "तापमान अड़तीस" the "…that's right" button is disabled and "Change value" is offered.
+  - **API-verified:** 38 °C and 102 °F give `can_confirm: false`; pulse and SpO2 stay confirmable.
+  - **Tests:** `tests/voice/test_extract.py::test_inferred_unit_is_parsed_but_never_one_click_confirmable`, plus the updated blocking-flag and full-stop tests.
+- **Still needed:** clinical confirmation of the 25–45 → °C convention itself before real use.
+- The transcript is read-only; values are corrected per value with "Change value", not by editing the transcript text. This keeps "what was heard" separate from "what was confirmed".
+- The correction form pre-selects the heard field (the value and unit start empty). §6's "no default value for any field" refers to the value.
 
 ## 10. Known limitations
 

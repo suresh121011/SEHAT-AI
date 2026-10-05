@@ -364,6 +364,68 @@ Outcome on the five images: printed report → 24 rows for review; full-resoluti
 medicines, both disputed and Amber; discharge cover card → 0 values (correct: none printed); two low-resolution
 pages → rejected with "text too small". The 13 px threshold rests on few pages (12 px failed, 14 px read well).
 
+### 9.6 Pre-Phase 9 verification (2026-10-05, synthetic documents, real engines, real browser)
+
+**Setup.** Backend from `backend/`:
+
+```
+ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-ocr.db AI_PROVIDER=fake OCR_ENABLED=1 OCR_SURYA_ENABLED=1 OCR_CHANDRA_ENABLED=1 OCR_RETENTION_DAYS=none ../.venv/bin/python -m uvicorn app.main:app --port 8100
+```
+
+The frontend is `next dev` on 3100 proxying to it. Browser runs used Playwright with the system Chrome, from a scratch environment.
+
+**Documents used.** Repo fixtures (`cbc_low_platelet.png`, `cbc_normal.png`, `two_page_scan.pdf`, `rx_handwritten.png`) and newly generated documents marked "SYNTHETIC TEST DOCUMENT – FICTIONAL PATIENT": a typed prescription (PNG/PDF) and a discharge summary (PNG and 2-page PDF).
+
+**Separate instances.** `OCR_DOCUMENT_DIR` defaults to `<repo>/data/documents`. Each instance's startup sweep deletes page files its own database doesn't know, so give each running instance its own `OCR_DOCUMENT_DIR`.
+
+| Type | Formats tested | Upload | OCR (engines, time) | Review / correction in the browser | Result |
+|:---|:---|:---|:---|:---|:---|
+| Lab report | PNG, PDF (2 pages) | Pass | Pass: PaddleOCR + Surya, 10–26 s; one disputed unit on the PDF, Amber | Pass: attestation gates confirm; source boxes shown; Hb confirmed; TLC corrected (machine reading kept) | **Pass** |
+| Prescription | PNG (handwriting-style), typed PNG and PDF | Pass | Pass: PaddleOCR + Chandra, 21–25 s; two handwriting rows disputed | Partial: confirm and "Not sure" work. There is no structured correction for a medicine (only reject or not sure). Experimental path | **Pass (experimental)** |
+| Discharge summary | PNG, PDF (2 pages) | Pass | Pass: Chandra + Surya + PaddleOCR, 44–89 s. **Duplicate rows fixed** (now 1 row per printed value) | Pass: a lab value confirmed, another corrected | **Pass (experimental)** |
+| X-ray / ECG | — | Not implemented (capability `false`) | — | — | **Not implemented** |
+
+**Bad inputs (API):**
+
+| Input | Result |
+|:---|:---|
+| Text file named `.png` | 415 `not_supported` |
+| Empty file | **400 `DOCUMENT_INVALID` `empty`** (was 415; fixed) |
+| Truncated PDF | 400 `corrupt` |
+| 6-page PDF | 400 `too_many_pages` |
+| 15.6 MB image | 413 `DOCUMENT_TOO_LARGE` |
+| Blank page | 422 `blank_page` |
+| Blurry page | 422 `blurry` |
+
+**Duplicates and consent:**
+- The same idempotency key and file returns the same document; the same key with a different file is 409.
+- The same file with a new key is processed again as a second document. There is no duplicate warning, although its SHA-256 is stored; this is a known limit.
+- With no consent, or after withdrawal, uploads get 403 `CONSENT_REQUIRED`.
+- Withdrawal during a Chandra run returns 409 `CONSENT_WITHDRAWN` and no files are kept.
+
+**Security (all passed):**
+- Page images: ANM and MO 200 with `no-store`/`nosniff`; supervisor and patient 404; no token 401. Another case's document id → 404. DELETE by supervisor or patient → 403.
+- Storage: folders 0700, files 0600, only re-encoded PNGs named `<doc>-<n>.png`. No original filename on disk or in the database.
+- No document text in the backend log (0 matches for names, IDs, drugs or values).
+
+**Triage independence.** Cases with documents had 0 triage runs. The same vitals gave the same result with and without confirmed or corrected document values. `scripts/e2e_ocr_proxy_check.py` passed 32/32 through the proxy.
+
+**UI fixes:**
+- The selected file's name, type and size are shown while it is read.
+- The page and size limits are shown before upload.
+- A decided row no longer says "Ready to check" (unit-tested in `evidence.test.ts`; not re-observed in the browser).
+
+**Regression tests:** `tests/ocr/test_prose.py` (dedupe helper `drop_prose_duplicates`, trailing-colon name) and `tests/ocr/test_api.py::test_invalid_documents_rejected_before_any_engine[empty]`.
+
+**Not verified:**
+- The browser error display for bad inputs.
+- Uploading a PDF in the browser.
+- Leaving the page mid-upload.
+- Keyboard use and narrow screens on this page.
+- Real (non-synthetic) documents (docs/15).
+
+**Low-severity items left:** two discharge medicine rows share one line-level highlight; there is no structured medicine correction in the UI.
+
 ## 10. Known limitations
 
 - Synthetic fixtures prove pipeline behaviour, **not accuracy** on real reports. Any accuracy evaluation needs

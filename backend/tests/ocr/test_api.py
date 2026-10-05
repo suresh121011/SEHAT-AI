@@ -326,12 +326,15 @@ def test_engine_failures_are_explicit_never_silent(ocr_client):
 @pytest.mark.parametrize("data,code", [
     (b"GIF89a" + b"x" * 100, "UNSUPPORTED_MEDIA_TYPE"),
     (b"\x89PNG\r\n\x1a\n" + b"garbage" * 30, "DOCUMENT_INVALID"),
+    (b"", "DOCUMENT_INVALID"),  # pre-Phase 9: an empty file was misreported as an unsupported type (415)
 ])
 def test_invalid_documents_rejected_before_any_engine(ocr_client, data, code):
     anm = token_for(ocr_client, "anm")
     case_id = _ready_case(ocr_client, anm)
     r = _upload(ocr_client, anm, case_id, data=data)
     assert r.json()["error"]["code"] == code
+    if not data:
+        assert r.status_code == 400 and r.json()["error"]["details"]["reason"] == "empty"
     assert ocr_client.app.state.ocr_engines.calls == []
 
 

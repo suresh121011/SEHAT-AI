@@ -99,6 +99,9 @@ BLOCKING_FLAGS = frozenset({
     # reading on oxygen read as room air can under-triage. The reviewer enters it and records the oxygen.
     "oxygen_context",
     "context_unclear", "bp_shorthand_possible",
+    # A unit the speaker did not say (e.g. a bare "38" read as °C by the 25–45 rule) is a guess: the reviewer
+    # enters the value with its unit instead of confirming in one click (pre-Phase 9 review, docs/12 §5–§6).
+    "unit_inferred",
 })
 
 

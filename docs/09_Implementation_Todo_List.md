@@ -736,6 +736,16 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 
 ---
 
+> **Pre-Phase 9 verification (2026-10-05, uncommitted):** voice (docs/12 §9.5), documents (docs/14 §9.6) and typed symptoms were run end to end in Chrome with synthetic data on a scratch database.
+> - **Fixed with tests:**
+>   - AI-extracted values could not be corrected in the intake UI (now "Edit value…");
+>   - discharge summaries showed duplicate lab rows;
+>   - an empty upload was reported as an unsupported type;
+>   - the upload screen showed no filename or size limit;
+>   - a stale "Ready to check" hint stayed after a decision;
+>   - a voice temperature with an inferred unit was one-click confirmable (policy change approved).
+> - **Not verified:** cloud voice (Sarvam), Odia speech, real documents.
+
 ### Phase 9: Referral + Closure Tracking (Hours 23–25) — Stretch
 
 > **Goal:** Referral packets with closure tracking
