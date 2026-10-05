@@ -37,7 +37,9 @@ export function HypotheticalUrgency({ urgency }: { urgency: Urgency | string }) 
   );
 }
 
-export type Provenance = "rules_engine" | "recorded_input" | "ai_suggested" | "ai_reviewed" | "ai_corrected" | "ocr_reviewed" | "reviewer_action" | "unavailable";
+export type Provenance =
+  | "rules_engine" | "recorded_input" | "ai_suggested" | "ai_reviewed" | "ai_corrected" | "keyword_suggested" | "keyword_reviewed" | "ocr_reviewed" | "reviewer_action"
+  | "unavailable";
 
 const PROV: Record<Provenance, { label: string; icon: IconName; cls: string }> = {
   rules_engine: { label: "Rules engine", icon: "scale", cls: "border-primary text-primary" },
@@ -45,6 +47,9 @@ const PROV: Record<Provenance, { label: string; icon: IconName; cls: string }> =
   ai_suggested: { label: "AI-suggested, not reviewed", icon: "sparkle", cls: "border-ai text-ai border-dashed bg-ai-bg" },
   ai_reviewed: { label: "AI-extracted, accepted by a person", icon: "sparkle", cls: "border-ai text-ai border-dashed" },
   ai_corrected: { label: "AI-extracted, corrected by a person", icon: "pencil", cls: "border-ai text-ai border-dashed" },
+  // Deterministic red-flag phrase match (docs/16 §2c): never labelled as AI.
+  keyword_suggested: { label: "Keyword rule — not AI model output, not reviewed", icon: "info", cls: "border-warning text-ink border-dashed" },
+  keyword_reviewed: { label: "Keyword rule — not AI model output, accepted by a person", icon: "info", cls: "border-warning text-ink" },
   ocr_reviewed: { label: "Lab report (OCR), checked by a person", icon: "document", cls: "border-info text-info" },
   reviewer_action: { label: "Human reviewer", icon: "people", cls: "border-human text-human bg-human-bg" },
   unavailable: { label: "Source unavailable", icon: "info", cls: "border-line text-muted border-dotted" },

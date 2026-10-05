@@ -508,7 +508,8 @@ def provenance(backend: str | None, model: str | None) -> dict:
 
 # Local medical vision (docs/18 §4a): reported, never pretended. MedGemma 1.5 does not cover ECG (model card).
 LOCAL_VISION = {"available": False, "reason": "local_model_not_installed", "candidate": "google/medgemma-1.5-4b-it",
-                "requires": "accepting the Health AI Developer Foundations terms and a pinned local build (not in this build)",
+                "requires": "a pinned, SHA-256-checked local build of the official weights on a loopback-only server, evaluated on synthetic "
+                            "images (not in this build; Hugging Face access to the gated weights is in place since 2026-10-05)",
                 "unsupported_image_types": ["ecg_strip"]}
 
 

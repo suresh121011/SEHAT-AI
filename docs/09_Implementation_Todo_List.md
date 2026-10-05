@@ -581,6 +581,7 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 - **Met with the fake provider:** schema-checked extraction with every field source-linked and grounded; basic MAKER voting; missing information per scenario; English follow-up questions; counterfactuals; a template note with raise-only urgency; human review per field.
 - **Not met:** follow-up questions in the patient's language, real IndicTrans2.
 - **Added 2026-10-05 (docs/16 §2a–§2b):** a live local LLM (`AI_PROVIDER=local`, synthetic cases only, general-purpose model), provenance on every AI output, and an optional NeMo Guardrails layer (`GUARDRAILS_ENABLED=1`; our deterministic detectors run as NeMo rails, fail closed, telemetry off). Local medical vision is **not** built (docs/18 §4a).
+- **Added 2026-10-05 (fix pass, docs/16 §2c, §8):** deterministic red-flag keyword suggester labelled "not AI model output" (hybrid red-flag recall 15/15 on the smoke set vs 0/15 model-only; grounding unchanged at 76 %); `GUARDRAILS_ENABLED=1` recommended for demos; tests isolated from a developer `.env`; local-model warm-up; **IndicTrans2 ran live** (hi/or, pinned and hash-verified). Still not built: local medical vision (gated access now granted; no pinned local build yet).
 
 ---
 

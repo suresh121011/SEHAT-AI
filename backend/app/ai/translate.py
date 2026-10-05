@@ -58,7 +58,10 @@ class Translator:
         batch = ip.preprocess_batch(sentences, src_lang=SRC_CODES[language], tgt_lang=TGT_CODE)
         inputs = tok(batch, truncation=True, padding="longest", return_tensors="pt")
         with torch.inference_mode():
-            out = model.generate(**inputs, num_beams=5, max_length=256)
+            # use_cache=False: the pinned remote code indexes past_key_values as legacy tuples, which breaks on the Cache
+            # objects transformers 4.5x passes (AttributeError in the decoder). The remote code is hash-pinned, so it is not
+            # patched; disabling the cache is slower but gives the same output.
+            out = model.generate(**inputs, num_beams=5, max_length=256, use_cache=False)
         decoded = tok.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         return ip.postprocess_batch(decoded, lang=TGT_CODE)
 

@@ -172,6 +172,24 @@ def test_readiness_reasons(tmp_path, server, install, reason):
     assert asyncio.run(p.readiness()) == reason
 
 
+def test_warm_up_sends_one_synthetic_request_and_reports_a_reason_code(tmp_path):
+    server = Server()
+    p = provider(tmp_path, server)
+    assert asyncio.run(p.warm_up()) == "ok" and p.describe()["warm_up"] == "ok"
+    chats = [r for r in server.requests if r.url.path == "/v1/chat/completions"]
+    assert len(chats) == 1 and "Warm-up text" in chats[0].content.decode()  # synthetic text only, never case data
+
+
+@pytest.mark.parametrize("server,install,status", [
+    (Server(), False, "skipped:model_not_installed"),
+    (Server(content="not json"), True, "failed:schema_invalid"),
+    (Server(chat={"model": "other", "choices": []}), True, "failed:RuntimeError"),
+])
+def test_warm_up_is_never_fatal(tmp_path, server, install, status):
+    p = provider(tmp_path, server, install=install)
+    assert asyncio.run(p.warm_up()) == status
+
+
 def test_readiness_server_not_started_and_unreachable(tmp_path):
     fake_install(tmp_path / "llm")
     (tmp_path / "llm" / API_KEY_FILE).unlink()
@@ -291,6 +309,14 @@ def local_client(tmp_path, monkeypatch):
     from app.main import create_app
 
     with TestClient(create_app()) as c:
+        async def warmed():  # the warm-up runs as a task on the app's loop; wait for it before tests count requests
+            await c.app.state.ai_warm_up
+
+        c.portal.call(warmed)
+        assert c.app.state.ai_provider.warm_up_status == "ok"
+        warm = [q for q in server.requests if q.url.path == "/v1/chat/completions"]
+        assert len(warm) == 1 and "Warm-up text" in warm[0].content.decode()  # synthetic text only
+        server.requests.clear()
         yield c, server
     get_settings.cache_clear()
 

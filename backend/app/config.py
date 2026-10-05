@@ -40,9 +40,9 @@ AI_PROVIDERS = ("none", "fake", "azure", "local")
 LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal IPs only: "localhost" resolves through /etc/hosts
 MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure")
 # A local medical-vision model is not installable in this build (docs/18 §4a): MEDGEMMA_BACKEND=local is refused by name.
-MEDGEMMA_LOCAL_UNAVAILABLE = ("MEDGEMMA_BACKEND=local is not available in this build: local MedGemma weights are gated (Health AI Developer "
-                              "Foundations terms) and no pinned local build exists yet (docs/18 §4a). Use fake (demo, not a model) or a cloud backend "
-                              "for synthetic images only")
+MEDGEMMA_LOCAL_UNAVAILABLE = ("MEDGEMMA_BACKEND=local is not available in this build: no pinned, hash-checked local MedGemma build "
+                              "exists yet (docs/18 §4a; access to the gated weights alone is not enough). Use fake (demo, not a model) or a cloud "
+                              "backend for synthetic images only")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -116,6 +116,8 @@ class Settings:
     local_llm_url: str = "http://127.0.0.1:8091"
     # Optional NeMo Guardrails layer around extraction (docs/16 §2b); needs requirements-guardrails.txt.
     guardrails_enabled: bool = False
+    # Deterministic red-flag keyword suggester (docs/16 §2c): candidates labelled keyword_rule, not AI output. On by default.
+    ai_keyword_red_flags: bool = True
     # Medical image visual-findings description (architecture §10A, docs/18). Off unless enabled. `fake` = canned
     # offline outputs (not a model). `google_ai` / `azure` send the image to a cloud model: only with
     # AI_CLOUD_ENABLED=1, AI_CLOUD_SYNTHETIC_DATA_ONLY=1 and credentials, and per request only with ai_assist consent
@@ -145,7 +147,10 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
-    load_dotenv(REPO_ROOT / ".env")
+    # SEHAT_DOTENV=0 reads the process environment only. The test suite sets it, so a developer .env (for example
+    # MEDGEMMA_ENABLED=1) cannot change test results or refill a variable a test removed.
+    if os.getenv("SEHAT_DOTENV", "1") != "0":
+        load_dotenv(REPO_ROOT / ".env")
 
     environment = _env("ENVIRONMENT", "development")
     if environment not in DEMO_AUTH_ENVIRONMENTS:
@@ -284,6 +289,7 @@ def _ai_settings() -> dict:
         "local_llm_model_dir": _path(_env("LOCAL_LLM_MODEL_DIR") or "./models/llm"),
         "local_llm_url": local_url,
         "guardrails_enabled": _flag("GUARDRAILS_ENABLED"),
+        "ai_keyword_red_flags": _flag("AI_KEYWORD_RED_FLAGS", default=True),
     }
 
 

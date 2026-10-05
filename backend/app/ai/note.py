@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from app import audit
 from app.ai import followup, guard
 from app.ai.adapter import provenance
-from app.ai.extract import case_scenario, gate, load_run, still_effective
+from app.ai.extract import REVIEWABLE_ORIGINS, case_scenario, gate, load_run, still_effective
 from app.ai.review import effective_value
 from app.auth import Principal
 from app.database import read_transaction, transaction
@@ -93,7 +93,7 @@ def build_claims(fields: list[dict]) -> tuple[list[dict], list[dict], list[dict]
         rv = f["review"]
         if rv and rv["outcome"] == "rejected":
             continue
-        v = effective_value(f["kind"], f["value"], rv) if f["origin"] == "model" else f["value"]
+        v = effective_value(f["kind"], f["value"], rv) if f["origin"] in REVIEWABLE_ORIGINS else f["value"]
         if v is None:
             needs_entry.append({"field_id": f["field_id"], "field": f["field"], "candidates": f["candidates"]})
             continue
@@ -104,10 +104,11 @@ def build_claims(fields: list[dict]) -> tuple[list[dict], list[dict], list[dict]
         if reason:
             blocked.append({"field_id": f["field_id"], "reason": reason})
             continue
-        state = "document_reviewed" if f["origin"] != "model" else ("reviewed" if rv and rv["outcome"] in ("accepted", "corrected") else "unreviewed_ai_extracted")
+        state = ("document_reviewed" if f["origin"] not in REVIEWABLE_ORIGINS else "reviewed" if rv and rv["outcome"] in ("accepted", "corrected")
+                 else "unreviewed_keyword_suggestion" if f["origin"] == "keyword_rule" else "unreviewed_ai_extracted")
         claims.append({"text": text, "field_ids": [f["field_id"]], "review_state": state, "status": f["status"], "agreement": f["agreement"],
                        "kind": f["kind"], "alarm": f["kind"] == "red_flag" and not v.get("negated")})
-    claims.sort(key=lambda c: (not c["alarm"], _ORDER.get(c["kind"], 1), c["review_state"] == "unreviewed_ai_extracted"))
+    claims.sort(key=lambda c: (not c["alarm"], _ORDER.get(c["kind"], 1), c["review_state"] in ("unreviewed_ai_extracted", "unreviewed_keyword_suggestion")))
     return claims, blocked, needs_entry
 
 

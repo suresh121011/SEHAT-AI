@@ -20,7 +20,11 @@ import { pendingAckCount, type MedicalImageItem, type MedicalImagesResp } from "
 import { roleLabel, voiceFieldWords, voiceSourceWords } from "@/lib/review";
 
 type AiValue = { field_id: string; field: string; value: unknown; basis: string; reviewed_by_role?: string; evidence?: { segment_id: string; quote: string }[] };
-type AiReviewedResp = { values: AiValue[]; unresolved: { field_id: string; field: string; status: string; priority_review: boolean; state: string }[]; conflicting_readings: string[] };
+type AiReviewedResp = {
+  values: AiValue[];
+  unresolved: { field_id: string; field: string; origin?: string; status: string; priority_review: boolean; state: string }[];
+  conflicting_readings: string[];
+};
 type DocValue = { field_id: string; name: string; outcome: string; value: Record<string, unknown> | null; source: { type: string; document_id: string; page_index: number; regions: Region[]; resolved_by_role: string | null } };
 type DocsResp = { values: DocValue[]; unresolved: { document_id: string; field_id?: string; state: string }[] };
 type VoiceSource = { type: string; transcription_id: string; transcript_chars: [number, number]; resolved_by_role: string };
@@ -57,6 +61,7 @@ function show(v: unknown): string {
 }
 
 function aiKind(basis: string): Provenance {
+  if (basis === "keyword_rule_accepted_by_reviewer") return "keyword_reviewed";
   return basis === "reviewer_corrected" ? "ai_corrected" : basis === "document_review" ? "ocr_reviewed" : "ai_reviewed";
 }
 
@@ -137,7 +142,11 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
                   <li key={u.field_id} className="rounded border border-dashed border-ai bg-ai-bg px-2 py-1.5 text-sm">
                     <div className="flex flex-wrap items-center gap-1">
                       <strong>{u.field.replaceAll("_", " ")}</strong>
-                      <ProvenanceBadge kind="ai_suggested" detail={u.status === "disputed" || u.status === "disputed_raise" ? "passes disagreed" : u.state} />
+                      {u.origin === "keyword_rule" ? (
+                        <ProvenanceBadge kind="keyword_suggested" detail={u.state} />
+                      ) : (
+                        <ProvenanceBadge kind="ai_suggested" detail={u.status === "disputed" || u.status === "disputed_raise" ? "passes disagreed" : u.state} />
+                      )}
                     </div>
                     <p className="text-xs text-ink">Not reviewed by a person; not used anywhere until a health worker or doctor decides on it.</p>
                   </li>

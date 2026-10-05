@@ -45,6 +45,7 @@ class LocalLlamaProvider(StructuredProvider):
         self.url = settings.local_llm_url
         self.timeout_s = settings.ai_timeout_s
         self._transport = transport
+        self.warm_up_status = "not_run"  # not_run | ok | skipped:<readiness reason> | failed:<reason code>
         self.schema = {"type": "json_schema", "json_schema": {"name": "sehat_extraction", "schema": strict_json_schema(ExtractionOutput, keep_constraints=True), "strict": True}}
 
     def _client(self) -> httpx.AsyncClient:
@@ -98,7 +99,29 @@ class LocalLlamaProvider(StructuredProvider):
             raise RuntimeError("incomplete reply")
         return content
 
+    async def warm_up(self) -> str:
+        """One SYNTHETIC request through the real path (schema grammar, model alias, finish reason) at startup, so the
+        first case does not pay the model/grammar load. Never fatal and never case data: every case is still gated by
+        `readiness`. Records a reason code only (docs/16 §2a)."""
+        from pydantic import ValidationError
+
+        from app.ai.schemas import ExtractionOutput
+        from app.privacy.pii import redact_segments
+
+        if (reason := await self.readiness()) is not None:
+            self.warm_up_status = f"skipped:{reason}"
+            return self.warm_up_status
+        try:
+            reply = await self.generate(redact_segments([("S1", "Warm-up text. Temperature 37 C.")]), temperature=0.1, pass_index=0)
+            ExtractionOutput.model_validate_json(reply.raw_json)
+            self.warm_up_status = "ok"
+        except ValidationError:
+            self.warm_up_status = "failed:schema_invalid"
+        except Exception as exc:  # reason code only: never model output
+            self.warm_up_status = f"failed:{type(exc).__name__}"
+        return self.warm_up_status
+
     def describe(self) -> dict:
-        return {**super().describe(), "prompt_version": self.prompt_version, "revision": self.model.revision, "license": self.model.license,
+        return {**super().describe(), "warm_up": self.warm_up_status, "prompt_version": self.prompt_version, "revision": self.model.revision, "license": self.model.license,
                 "smoke_gate": self.model.gate, "file_sha256_verified_at_startup": True,
                 "served_model_check": "alias only: the server is trusted to have loaded the verified file (docs/16 §2a.3)"}

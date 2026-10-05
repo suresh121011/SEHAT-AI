@@ -10,7 +10,7 @@ import pytest
 from app import review_queue
 from app.auth import Principal, Role, demo_user_id
 from app.config import get_settings
-from app.database import _connect, run_migrations, MIGRATIONS
+from app.database import MIGRATIONS, SCHEMA_VERSION, _connect, run_migrations
 from tests.privacy.helpers import audit_rows, auth
 from tests.review.test_review_api import (anm, mo, sup, clock, make_case, rerun, q, review, sign_off, override, ack, db, item_for,
                                           RED, YELLOW, GREEN, API)
@@ -140,7 +140,7 @@ def test_migration_9_on_populated_v8(tmp_path):
         kw = dict(old_urgency="RED", new_urgency="YELLOW", reason_code="other") if k == "override" else {}
         _fill(c, "review_events", event_id=f"e{i}", case_id="c1", triage_run_id="r1", kind=k, rules_urgency="RED", created_at=f"2026-01-01T00:00:0{i+1}", **kw)
     c.commit(); print("FKCHECK", c.execute("PRAGMA foreign_key_check").fetchall()); c.close()
-    assert asyncio.run(mig(MIGRATIONS)) == 10
+    assert asyncio.run(mig(MIGRATIONS)) == SCHEMA_VERSION
     c = sqlite3.connect(p)
     assert c.execute("SELECT COUNT(*) FROM review_events").fetchone()[0] == 3
     idx = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
@@ -148,8 +148,8 @@ def test_migration_9_on_populated_v8(tmp_path):
     for sql in ("UPDATE review_events SET kind='acknowledge'", "DELETE FROM review_events", "UPDATE triage_runs SET urgency='GREEN'", "DELETE FROM triage_runs"):
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             c.execute(sql)
-    # older build: all 8 steps skipped on a v10 DB
-    c.close(); assert asyncio.run(mig(MIGRATIONS[:8])) == 10
+    # older build: all 8 steps skipped on a fully migrated DB
+    c.close(); assert asyncio.run(mig(MIGRATIONS[:8])) == SCHEMA_VERSION
     c = sqlite3.connect(p)
     # rollback text: index recreatable when no run has 2 acks; fails after a second ack
     c.execute("CREATE UNIQUE INDEX idx_review_events_one_ack ON review_events(triage_run_id) WHERE kind = 'acknowledge'")

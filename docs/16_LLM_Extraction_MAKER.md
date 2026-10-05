@@ -112,7 +112,8 @@ time ≤ 30 s. Expected values and flags are the author's synthetic labels, not 
 **does not surface red-flag mentions**: the model is held to the schema grammar but never sees the allowed flag values, so
 it leaves the list empty. Listing the values raised recall to 5/15 but broke the grounding gate and doubled the worst
 latency, so it is not used. This is not a safety regression — red flags from AI are only candidates, and the rules
-engine always asks the red-flag screen (§6) — but the AI adds no red-flag help with this model. 20 synthetic cases are
+engine always asks the red-flag screen (§6) — but the AI adds no red-flag help with this model. **Update 2026-10-05:**
+red flags now come from a deterministic keyword suggester alongside the model (§2c): hybrid 15/15 on this set. 20 synthetic cases are
 far too few to estimate accuracy; nothing here is a clinical performance claim.
 
 The gate measures **grounding precision and latency only**. A model that says little scores well on it, and the shipped
@@ -144,9 +145,72 @@ queues behind the first.
 Memory: keep one model resident and start it before a demo (first load ≈ 2 s once cached; cold disk loads are slower).
 The local model, IndicConformer ASR (≈ 2.8 GB) and Chandra OCR all fit on 16 GB only if not all are busy at once.
 
+## 2c. Red-flag hybrid: deterministic keyword suggester (`AI_KEYWORD_RED_FLAGS=1`, 2026-10-05)
+
+`app/ai/redflag_keywords.py`. **Not an AI model and not a rule result.** The local model surfaced 0/15 expected red flags
+(§2a.4), and forcing the flag list into its prompt broke grounding and latency. So the model prompt stays on symptoms,
+vitals and medicines, and a curated list of phrases is matched against the **same redacted segments** the model saw:
+
+```
+redacted segments ─► model passes ─► schema ─► grounding ─► vote ─┐
+                 └─► keyword suggester (deterministic phrases) ───┴─► merge (provenance kept) ─► per-field human review
+                                                                       rules engine + mandatory red-flag screen decide urgency
+```
+
+- **What a hit is.** A candidate field `red_flag:<atp_flag>` with `origin: keyword_rule`, `status: keyword_suggested`,
+  `source_type: keyword_rule` and `provenance: {provider: rules_keyword, ai_model_output: false, label: "Keyword rule — not
+  AI model output", rules_version}`. It needs a per-field decision like every AI field, and the UI labels it as a keyword
+  rule, never as AI. Accepted, it is still only a hint for the red-flag screen (`form_hints`); **nothing is ticked**, no
+  triage run is created, and the rules engine still asks its own mandatory red-flag screen. Every hit maps to an existing
+  `AtpFlag`; quotes are verbatim sentences from the segment.
+- **Merge.** If the model already raised the same flag (non-negated), the model field gains `keyword_rule_corroborated`
+  instead of a duplicate. Otherwise the hit becomes its own field — also when the model reported that flag as negated, and
+  also when the model abstained (`insufficient_agreement`): raise-only, a negation from one source never hides an alarm
+  from the other. When every provider pass errors, the request is still a 503 and nothing is stored.
+- **Negation**, consistent with grounding: a clause that opens with a cue ("No chest pain", "Patient denies fainting or
+  seizures") suppresses the hit; "but"/"and"/"with"/punctuation end the scope, so "Denies fever but unable to pass urine"
+  keeps urinary retention (tested). A cue elsewhere in the clause keeps the hit with `negation_conflict`; a past-time cue
+  ("5 years ago", "history of") keeps it with `past_history_cue`. Time windows in flag names are not checked
+  (`time_window_not_checked` on chest pain, limb weakness, stroke signs, breathlessness).
+- **Storage:** migration 11 rebuilds `ai_fields` (SQLite cannot alter a CHECK) to allow origin `keyword_rule` and status
+  `keyword_suggested`; rows, review events and append-only triggers are preserved (tested on a populated v10 database).
+  The audit's `ai_extraction_recorded` gains `keyword_suggestions` (a count). Capabilities report `keyword_red_flags`.
+
+**Measured (2026-10-05).** Synthetic cases; the author wrote both rules and labels — a smoke check, not a clinical
+evaluation, and the list is **not clinician-validated**.
+
+| Set | Model only | Keyword only | Hybrid (what the reviewer sees) | Extra suggestions on positive cases | Negative cases with a suggestion |
+|:---|:---|:---|:---|:---|:---|
+| Smoke, 20 cases, live Qwen3-4B (same run as below) | 0/15 | 15/15 | **15/15** | 4 | **0/7** |
+| Held-out, 24 cases written **before** the rules, first run | — | 21/22 | — | 1 | 2/6 |
+| Held-out after two disclosed fixes (no longer held-out) | — | 22/22 | — | 0 | 1/6 |
+
+Same live run, model-only metrics (keyword rules add no model call, so they cannot change these): **60/60** schema-valid
+passes, grounding **76 %** (gate ≥ 70 %), values 20/21, median **17.5 s** / max 27.7 s (gate ≤ 30 s median) — gate passed.
+The 4 smoke extras are arguably clinically right but outside the narrow labels (slurred speech → `stroke_suspected_24h`,
+"breathless since 6 hours" → `sob_acute_12h`, abdominal pain with vaginal bleeding alongside the third-trimester flag,
+"sudden severe abdominal pain" → `severe_pain`). The held-out negative still suggested is "History of snake bite 5 years
+ago", surfaced with `past_history_cue` by design.
+
+The two post-held-out fixes, disclosed: (1) the PII redactor (Presidio NER) read sentence-initial "**Bitten** by a snake"
+as a person's name and replaced it with `[PERSON_REDACTED]` — the model sees that redacted text too, so this is a
+redaction limitation, not only a keyword one; "by a snake" was added. (2) "or" stopped ending the negation scope, matching
+grounding, so "Denies fainting or seizures" negates both. Reproduce: `scripts/measure_local_llm.py --keywords-only` (no
+server) or the full run with a server. Held-out cases: `scripts/redflag_heldout_cases.py`. Tests:
+`tests/ai/test_redflag_keywords.py`.
+
+**Decision (llm-council, 2026-10-05).** All five advisors preferred deterministic keyword assist to forcing flag lists
+into the model or a second model call: a phrase either appears in the text or it does not, it is auditable, and it costs
+no latency or grounding. The peer review added the caveat recorded above: a keyword list can miss phrasings it does not
+know exactly as a model can, so it is an assist, and **the rules engine's mandatory red-flag screen remains the safety
+net**. Review fatigue on that screen is the real residual risk and is not addressed by this change.
+
 ## 2b. Optional NeMo Guardrails layer (`GUARDRAILS_ENABLED=1`, 2026-10-05)
 
-`app/ai/guardrails.py`, installed with `backend/requirements-guardrails.txt` (nemoguardrails 0.24.1). Off by default.
+`app/ai/guardrails.py`, installed with `backend/requirements-guardrails.txt` (nemoguardrails 0.24.1). Off in code (so the
+app runs without the optional package); **`GUARDRAILS_ENABLED=1` is the recommended demo setting and is what
+`.env.example` ships** (2026-10-05). With 1 and the package missing, the server refuses to start and prints the install
+command.
 
 ```
 redacted segments ─► INPUT RAIL ─► provider passes ─► schema ─► grounding ─► vote ─► OUTPUT RAIL ─► store (T2) ─► human review
@@ -165,8 +229,15 @@ redacted segments ─► INPUT RAIL ─► provider passes ─► schema ─► 
   framework over our own patterns, which are heuristic and can be evaded. Capabilities say so
   (`guardrails.adds_new_detection: false`). Schema, grounding, MAKER, raise-only urgency and per-field review stay the
   main controls. As a cross-check, a rail result that disagrees with the detector it wraps is treated as a failure (503).
-- **Fail closed.** A blocked request stores nothing and returns `{stage, reason}`; the audit records
-  `guardrail_<reason>` only. The health worker continues on the manual form.
+- **Fail closed.** A blocked request stores nothing and returns `{stage, reason}`; the local audit log records
+  `ai_request_blocked` / `ai_output_discarded` with the reason code only (no case text; tested). NVIDIA usage telemetry is
+  a different thing and stays off. The health worker continues on the manual form.
+- **Whole-extraction blocking for the demo (llm-council, 2026-10-05):** all five advisors kept it. Salvaging part of an
+  output known to contain an override attempt means storing output from a prompt known to be adversarial; a loud 422 is
+  legible and auditable. Its cost is false positives, so ordinary clinical wording is now tested against the detectors.
+  One was found and fixed: "came without any review **of** old reports" matched the review-bypass pattern on the input
+  rail. One is kept on purpose: an extracted value worded as reported history ("previously diagnosed typhoid") is
+  blocked by the shared non-diagnostic filter — the safe direction; the health worker enters values by hand.
 - **Privacy.** Telemetry is forced off before import (`NEMO_GUARDRAILS_NO_USAGE_STATS=1`, `DO_NOT_TRACK=1`); tests check
   the package's own opt-out and that the rails open no network connection. The rails see redacted text only.
 - **Trade-off.** Blocking a whole request for one matching sentence loses AI help for that intake (never the intake
@@ -298,7 +369,18 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 - **Withdrawing consent after storage:** AI rows are kept but no longer served, because every AI endpoint re-checks `triage` and `ai_assist`. There is no purge or tombstone path yet. Deletion was deferred in Phase 3.
 - **Prompt injection:** instruction-like intake is flagged `possible_instruction_text`. Grounding and raise-only bound the damage, but no detector is complete.
 - **IndicTrans2 (P2):**
-  - The code path is tested with a mocked translator only. The model (`ai4bharat/indictrans2-indic-en-dist-200M`, MIT) is **gated** on Hugging Face, so it was not downloaded or run here.
+  - **Ran live on 2026-10-05** after the project owner was granted access to the gated repo. The pinned revision
+    `eb9e49d8…` was downloaded with `scripts/download_translation_models.py`; both weight files matched the SHA-256 the
+    Hub publishes for them and all 11 code/config files matched their git blob ids, before the startup manifest was
+    written. The `trust_remote_code` files were read first: they import only torch, transformers and sentencepiece, and
+    open no network connection. The opt-in live test passed for Hindi and Odia
+    (`RUN_LIVE_TRANSLATION_TESTS=1 … tests/ai/test_translation.py -k live`): "मरीज़ को तीन दिन से बुखार है। SpO2 88 है।" →
+    "The patient has a fever for three days." / "SpO2 is 88."; the Odia fever sentence → "The patient has a fever for
+    three days." Two sentences each: this shows the path works, not translation quality.
+  - Two bugs found by the first live run and fixed: `sentencepiece` was missing from `requirements-translation.txt`; and
+    the pinned remote code indexes `past_key_values` as legacy tuples, which crashes on transformers 4.57 cache objects,
+    so `generate` now runs with `use_cache=False` (slower, same output; the hash-pinned remote code is not patched).
+  - `TRANSLATION_ENABLED` stays 0 by default; translated fields remain flagged `machine_translated_unreviewed`.
   - Translation quality on clinical speech is unevaluated.
   - Transliterated names in translations may evade redaction.
 - **Follow-up questions:** English only. Hindi and Odia wording needs review first (docs/13).
@@ -390,8 +472,8 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 - **HTTP walkthrough:** `backend/scripts/e2e_ai_check.py` passed **18/18** against a live uvicorn server with `AI_PROVIDER=fake AI_FAKE_MODE=demo_disagreement`. Steps: provider label → consent → extraction (redacted, located quotes, red-flag mention) → disputed BP → review → reviewed view → rules triage → note (recorded GREEN; RED raise suggested, source-linked, alarms first; claims cited; sign-off required) → withdrawal → 403 → audit has no values → chain verifies.
 - **Fixed by the pre-PR audit:** (1) missing-information rules used OCR keys that the OCR pipeline never emits (`ocr:hb` instead of `ocr:hemoglobin`; glucose keys), so a reviewed OCR Hb was still listed as missing (safe, but wrong); a test now checks every OCR key against the OCR lexicon. (2) Note claims printed the raw OCR value dict; they now show comparator, value (or qualitative result), unit and the report's own printed flag, labelled "printed flag". The printed range stays in the field and is not repeated in the sentence, because a long range such as "1,50,000 - 4,50,000" would trip the identifier guard and block the claim.
 - **Not verified:**
-  - any real LLM
-  - the real IndicTrans2 model
+  - any real LLM (later done for the local model, §2a; Azure is still unrun)
+  - the real IndicTrans2 model (later done, 2026-10-05: §8)
   - extraction accuracy on real or realistic clinical text (no evaluation set; the fake's numbers would not be model accuracy anyway)
   - any UI
 

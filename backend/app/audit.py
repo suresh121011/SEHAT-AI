@@ -245,6 +245,7 @@ class AiExtractionDetails(_Details):
     disputed_raise: int = Field(ge=0)
     dropped_ungrounded: int = Field(ge=0)
     urgency_suggestion: Literal["RED", "YELLOW", "GREEN"] | None
+    keyword_suggestions: int = Field(default=0, ge=0)  # keyword_rule red-flag candidates (not model output), docs/16 §2c
 
 
 class AiFieldReviewDetails(_Details):

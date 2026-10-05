@@ -29,7 +29,8 @@ type Extraction = {
 };
 type AiField = {
   field_id: string;
-  origin: "model" | "ocr_reviewed";
+  origin: "model" | "ocr_reviewed" | "keyword_rule";
+  source_type?: "ai_extraction" | "keyword_rule" | "document_review";
   field: string;
   kind: string;
   status: string;
@@ -65,7 +66,7 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
-  const fields = ext.fields.filter((f) => f.origin === "model");
+  const fields = ext.fields.filter((f) => f.origin === "model" || f.origin === "keyword_rule");
   const [correcting, setCorrecting] = useState<string | null>(null);
   // Returns null on success, else the message. A failed correction shows its message inside the editor, next to
   // the field (Outsider review), not in the panel-level banner.
@@ -111,7 +112,11 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
               <span className="font-bold">{f.field.replace(/^(symptom|medication|red_flag):/, "").replaceAll("_", " ")}</span>
               <span>{show(f.value)}</span>
               <SourceTag kind={f.review?.outcome === "accepted" ? "ai_reviewed" : f.review?.outcome === "corrected" ? "ai_corrected" : "ai_pending"} />
-              {f.agreement && <span className="text-sm text-muted">the AI read it the same way {f.agreement.replace("/", " of ")} times</span>}
+              {f.origin === "keyword_rule" ? (
+                <span className="rounded border border-subtle px-2 text-sm font-bold">Keyword rule — not AI model output</span>
+              ) : (
+                f.agreement && <span className="text-sm text-muted">the AI read it the same way {f.agreement.replace("/", " of ")} times</span>
+              )}
             </div>
             {f.status === "disputed" || f.status === "disputed_raise" ? (
               <p className="mt-1 text-sm font-bold text-warning">
@@ -457,7 +462,7 @@ function FollowUpScreen() {
         </Button>
       )}
 
-      {ext && ext.fields.some((f) => f.origin === "model") && <AiFieldReview caseId={caseId!} ext={ext} onChanged={loadLatest} />}
+      {ext && ext.fields.some((f) => f.origin === "model" || f.origin === "keyword_rule") && <AiFieldReview caseId={caseId!} ext={ext} onChanged={loadLatest} />}
 
       {ext && questions.length === 0 && <Notice tone="success">No follow-up questions: the required information is present. Continue to the review step.</Notice>}
 

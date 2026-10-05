@@ -15,7 +15,7 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit, consent
-from app.ai import followup, guard, inputs, maker
+from app.ai import followup, guard, inputs, maker, redflag_keywords
 from app.ai.adapter import StructuredProvider, provenance
 from app.ai.prompts import PROMPT_VERSION
 from app.ai.schemas import SCHEMA_VERSION
@@ -25,6 +25,10 @@ from app.errors import ApiError, not_found
 from app.privacy import gateway
 from app.privacy.pii import RedactedPrompt, RedactedSegment
 
+# Field origins that need a per-field human decision, and how each is labelled. keyword_rule fields come from
+# app.ai.redflag_keywords: deterministic phrases, NOT AI model output (docs/16 §2c).
+REVIEWABLE_ORIGINS = frozenset({"model", "keyword_rule"})
+SOURCE_TYPES = {"model": "ai_extraction", "keyword_rule": "keyword_rule", "ocr_reviewed": "document_review"}
 NOTE = "AI-extracted candidates. Every value needs a human decision; nothing here changes urgency or submits triage."
 
 
@@ -107,7 +111,7 @@ async def _existing(conn, case_id: str, key: str, request_hash: str) -> str | No
 
 
 async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: ExtractionRequest, provider: StructuredProvider,
-                 passes: int, request_id: str | None, translator=None, rails=None) -> dict:
+                 passes: int, request_id: str | None, translator=None, rails=None, keyword_red_flags: bool = False) -> dict:
     key = str(body.idempotency_key)
     # Hash of the request (never stored raw): a retry must be the same request.
     request_hash = hashlib.sha256(body.model_dump_json(exclude={"idempotency_key"}).encode()).hexdigest()
@@ -134,6 +138,8 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
         res = await maker.run_passes(provider, prompt, passes)
         if rails is not None:
             await rails.check_output(res)
+        if keyword_red_flags:  # docs/16 §2c: deterministic candidates over the same redacted text; also when the model abstained
+            res.fields += redflag_keywords.merge(res.fields, redflag_keywords.suggest(prompt.segment_texts()))
         return res
 
     async def persist(c, prompt: RedactedPrompt, res: maker.VoteResult, authz_seq: int) -> str:
@@ -160,8 +166,8 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
             flags_f = list(f.flags) + (["machine_translated_unreviewed"] if any(sources[e["segment_id"]]["type"] == "transcript_translated" for e in f.evidence) else [])
             await c.execute(
                 "INSERT INTO ai_fields (field_id, extraction_id, case_id, ordinal, origin, field_key, kind, status, agreement, value_json, candidates_json, evidence_json, "
-                "critical, priority_review, flags_json, created_at) VALUES (?, ?, ?, ?, 'model', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), eid, case_id, ordinal, f.key, f.kind, f.status, f.agreement, json.dumps(f.value), json.dumps(f.candidates),
+                "critical, priority_review, flags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), eid, case_id, ordinal, f.origin, f.key, f.kind, f.status, f.agreement, json.dumps(f.value), json.dumps(f.candidates),
                  json.dumps(evidence), int(f.critical), int(f.priority_review), json.dumps(flags_f), now),
             )
             ordinal += 1
@@ -176,9 +182,10 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
         await audit.record(c, principal=principal, action="ai_extraction_recorded", outcome="success", case_id=case_id, request_id=request_id,
                            details=audit.AiExtractionDetails(
                                extraction_id=eid, provider=provider.name, status=res.status, passes_requested=res.passes_requested, passes_valid=res.passes_valid,
-                               segments=len(prompt.segments), skipped_sources=len(src.skipped), fields=len(res.fields),
+                               segments=len(prompt.segments), skipped_sources=len(src.skipped), fields=sum(f.origin == "model" for f in res.fields),
                                disputed=sum(f.status == "disputed" for f in res.fields), disputed_raise=sum(f.status == "disputed_raise" for f in res.fields),
-                               dropped_ungrounded=len(res.dropped), urgency_suggestion=res.urgency_suggestion))
+                               dropped_ungrounded=len(res.dropped), urgency_suggestion=res.urgency_suggestion,
+                               keyword_suggestions=sum(f.origin == "keyword_rule" for f in res.fields)))
         return eid
 
     raw_segments = [(s.segment_id, s.raw) for s in src.segments]
@@ -203,9 +210,12 @@ def field_view(r, review) -> dict:
         "field_id": r["field_id"], "origin": r["origin"], "field": r["field_key"], "kind": r["kind"], "status": r["status"], "agreement": r["agreement"],
         "value": json.loads(r["value_json"]), "candidates": json.loads(r["candidates_json"]), "evidence": json.loads(r["evidence_json"]),
         "critical": bool(r["critical"]), "priority_review": bool(r["priority_review"]), "flags": json.loads(r["flags_json"]),
-        "needs_review": r["origin"] == "model",
+        "needs_review": r["origin"] in REVIEWABLE_ORIGINS,
+        "source_type": SOURCE_TYPES.get(r["origin"], "unknown"),
         "review": None,
     }
+    if r["origin"] == "keyword_rule":
+        v["provenance"] = redflag_keywords.PROVENANCE
     if review is not None:
         v["review"] = {"event_id": review["event_id"], "outcome": review["outcome"], "corrected": json.loads(review["corrected_json"]) if review["corrected_json"] else None,
                        "actor_role": review["actor_role"], "created_at": review["created_at"]}

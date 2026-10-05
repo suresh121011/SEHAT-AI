@@ -68,7 +68,8 @@ Architecture §10A makes local MedGemma the primary image model. After a hardwar
 2026-10-05) this build **does not run a local medical vision model**, and says so instead of pretending:
 
 - `google/medgemma-1.5-4b-it` (released 2026-01-13) is **gated** under the Health AI Developer Foundations terms. The
-  project's Hugging Face token gets 403 until the project owner accepts them; accepting is the owner's legal decision.
+  project's Hugging Face token got 403 until the project owner accepted them; **access was granted on 2026-10-05**, so
+  the gate is no longer the blocker. No local build exists yet; the remaining requirements below still apply.
   Ungated third-party copies (MLX/GGUF mirrors) exist but would sidestep the gate, so they are **not used**.
 - Its model card lists chest X-ray, CT, MRI, histopathology, dermatology and fundus, **not ECG**, and states its outputs
   "are not intended to directly inform clinical diagnosis, patient management decisions, treatment recommendations, or
@@ -88,8 +89,11 @@ evaluation on synthetic images, and a migration for any new `not_available_reaso
 
 Each item carries `provenance: {provider, model, mode, synthetic, medical_model}`. `mode` is `fake` (canned demo text),
 `cloud` (google_ai / azure) or `none` (no backend was called: disabled, consent or attestation missing). `synthetic: true`
-and `medical_model: false` mark the fake; the UI then shows **"DEMO TEXT — canned example, not produced by any AI model"**
-above the card. Cloud output is labelled as a general model, not a validated medical device. Capabilities add
+and `medical_model: false` mark the fake; the UI then shows **"NO AI MODEL RAN — DEMO TEXT: a fixed canned example, not
+generated from this image"** above the card (front-loaded so a cropped screenshot still reads as a placeholder; council,
+2026-10-05). Imaging signals matched in canned text are labelled as coming from the demo text, on both the red and the
+yellow banner and above the signal list: the canned text still runs through the urgency keyword rules so the reviewer
+flow can be demonstrated, but the card never presents those signals as a reading of the uploaded image. Cloud output is labelled as a general model, not a validated medical device. Capabilities add
 `medgemma_mode` and `medgemma_synthetic`.
 
 ## 5. Prompts and parsing

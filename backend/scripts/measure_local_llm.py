@@ -4,6 +4,11 @@ grounding → vote. Needs a running server (scripts/start_local_llm.py). Prints 
 writes JSON to --out if given. Synthetic text only; nothing is stored in the database.
 
     ../.venv/bin/python scripts/measure_local_llm.py [--out results.json]
+    ../.venv/bin/python scripts/measure_local_llm.py --keywords-only   # no server: keyword suggester on smoke + held-out
+
+With a server, red-flag recall is reported three ways: model only, keyword rules only (app/ai/redflag_keywords.py,
+not a model) and the hybrid union the reviewer sees. Grounding and latency are model-only by definition: the keyword
+rules add no model call and their quotes are verbatim by construction.
 
 Gate (council, 2026-10-05): grounding pass rate ≥ 70 % and median 3-pass wall time ≤ 30 s. Also reported:
 schema-valid passes, field unanimity, expected-value recall, expected red-flag recall and false raises.
@@ -24,6 +29,7 @@ from app.ai import maker  # noqa: E402
 from app.ai.grounding import ground  # noqa: E402
 from app.ai.inputs import split_sentences  # noqa: E402
 from app.ai.local_provider import LocalLlamaProvider  # noqa: E402
+from app.ai.redflag_keywords import suggest  # noqa: E402
 from app.ai.schemas import ExtractionOutput  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.privacy.pii import redact_segments  # noqa: E402
@@ -53,8 +59,30 @@ CASES = [
 ]
 
 
+def _prompt(text: str):
+    return redact_segments([(f"S{i + 1}", text[s:e]) for i, (s, e) in enumerate(split_sentences(text))])
+
+
+def keyword_flags(text: str) -> set[str]:
+    return {h.flag for h in suggest(_prompt(text).segment_texts())}
+
+
+def keyword_report(name: str, cases) -> dict:
+    """Keyword rules alone over (id, text, ..., expected flags) cases. No model, no server."""
+    hits = total = extra = neg_hit = neg = 0
+    misses = []
+    for case in cases:
+        want, got = case[-1], keyword_flags(case[1])
+        hits, total, extra = hits + len(want & got), total + len(want), extra + len(got - want)
+        if not want:
+            neg, neg_hit = neg + 1, neg_hit + bool(got)
+        if got != want:
+            misses.append({"id": case[0], "missed": sorted(want - got), "extra": sorted(got - want)})
+    return {"set": name, "recall": f"{hits}/{total}", "extra_suggestions": extra, "negative_cases_with_suggestion": f"{neg_hit}/{neg}", "differences": misses}
+
+
 async def run_case(provider, text: str, passes: int) -> dict:
-    prompt = redact_segments([(f"S{i + 1}", text[s:e]) for i, (s, e) in enumerate(split_sentences(text))])
+    prompt = _prompt(text)
     segments = prompt.segment_texts()
     timings, grounded, abst = [], [], []
     kept = dropped = valid = 0
@@ -101,7 +129,11 @@ def score(case, res) -> dict:
             got = [f.value["value"]] + ([f.value["value2"]] if f.value.get("value2") is not None else [])
             hits += all(any(abs(g - n) < 1e-6 for g in got) for n in nums)
     surfaced = {k.split(":", 1)[1] for k, f in fields.items() if f.kind == "red_flag" and f.status in ("agreed", "disputed_raise") and f.priority_review}
+    keyword = keyword_flags(case[1])
+    hybrid = surfaced | keyword
     return {
+        "flags_keyword": sorted(keyword), "keyword_hits": len(want_flags & keyword), "hybrid_hits": len(want_flags & hybrid),
+        "hybrid_false_raises": sorted(hybrid - want_flags),
         "value_recall": (hits, total),
         "flags_expected": sorted(want_flags), "flags_surfaced": sorted(surfaced),
         "flag_hits": len(want_flags & surfaced), "false_raises": sorted(surfaced - want_flags),
@@ -111,6 +143,12 @@ def score(case, res) -> dict:
 
 
 async def main(argv: list[str]) -> int:
+    from redflag_heldout_cases import HELDOUT
+
+    keyword = [keyword_report("smoke", CASES), keyword_report("heldout", HELDOUT)]
+    if "--keywords-only" in argv:
+        print(json.dumps(keyword, indent=1))
+        return 0
     s = get_settings()
     provider = LocalLlamaProvider(s)
     reason = await provider.readiness()
@@ -139,14 +177,19 @@ async def main(argv: list[str]) -> int:
         "grounding_pass_rate": kept / (kept + dropped) if kept + dropped else 0.0,
         "field_unanimity": sum(r["agreed"] for r in rows) / max(1, sum(r["fields"] for r in rows)),
         "value_recall": f"{vh}/{vt}", "red_flag_recall": f"{fh}/{ft}",
+        "red_flag_recall_keyword_only": f"{sum(r['keyword_hits'] for r in rows)}/{ft}",
+        "red_flag_recall_hybrid": f"{sum(r['hybrid_hits'] for r in rows)}/{ft}",
+        "hybrid_false_raises_total": sum(len(r["hybrid_false_raises"]) for r in rows),
+        "hybrid_negative_cases_with_false_raise": f"{sum(bool(r['hybrid_false_raises']) for r in negatives)}/{len(negatives)}",
         "false_raises_total": sum(len(r["false_raises"]) for r in rows),
         "negative_cases_with_false_raise": f"{sum(bool(r['false_raises']) for r in negatives)}/{len(negatives)}",
         "insufficient_agreement": sum(r["status"] != "completed" for r in rows),
     }
     summary["gate_pass"] = summary["grounding_pass_rate"] >= 0.70 and summary["median_wall_s"] <= 30
     print(json.dumps(summary, indent=1))
+    print(json.dumps(keyword, indent=1))
     if "--out" in argv:
-        Path(argv[argv.index("--out") + 1]).write_text(json.dumps({"summary": summary, "rows": rows}, indent=1, default=str))
+        Path(argv[argv.index("--out") + 1]).write_text(json.dumps({"summary": summary, "keyword_only": keyword, "rows": rows}, indent=1, default=str))
     return 0
 
 

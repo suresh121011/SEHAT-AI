@@ -43,6 +43,7 @@ class VotedField:
     critical: bool
     priority_review: bool
     flags: list[str]
+    origin: str = "model"  # model (provider passes, voted) | keyword_rule (app.ai.redflag_keywords, not a model)
 
 
 @dataclass

@@ -84,7 +84,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       {!red && yellow && (
         <div role="status" className="flex items-start gap-2 rounded-lg border-2 border-warning bg-warning-bg px-3 py-2 font-bold text-warning">
           <Icon name="alert" size={18} className="mt-0.5" />
-          <span>Imaging signal for the reviewer to check</span>
+          <span>{demo ? "Imaging signal in the DEMO text — shown to test the reviewer flow, not from a real image reading" : "Imaging signal for the reviewer to check"}</span>
         </div>
       )}
 
@@ -105,7 +105,8 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       )}
 
       {raising.length > 0 && (
-        <ul className="space-y-1 text-sm" aria-label="Imaging signals for the reviewer">
+        <ul className="space-y-1 text-sm" aria-label={demo ? "Signals matched in the canned demo text (not from this image)" : "Imaging signals for the reviewer"}>
+          {demo && <li className="text-xs font-bold text-error">Matched in the canned demo text, not read from this image:</li>}
           {raising.map((s, i) => (
             <li key={`${s.signal}-${i}`} className={`rounded border-l-4 px-2 py-1 ${s.action === "RED_FLAG" ? "border-error bg-error-bg" : "border-warning bg-warning-bg"}`}>
               <strong>{s.signal.replaceAll("_", " ").toLowerCase()}</strong> <span className="text-xs">({s.action === "RED_FLAG" ? "red flag" : "yellow flag"})</span>

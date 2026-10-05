@@ -61,7 +61,8 @@ export const IMAGE_MIME_TYPES = ["image/png", "image/jpeg"];
 /** Plain-language source line for a findings card; never hides that demo text is not from a model. */
 export function findingsSourceLabel(f: { backend?: string | null; provenance?: MedicalImageItem["provenance"] }): string {
   const mode = f.provenance?.mode ?? (f.backend === "fake" ? "fake" : f.backend ? "cloud" : "none");
-  if (f.provenance?.synthetic || mode === "fake") return "DEMO TEXT — canned example, not produced by any AI model";
+  // Front-loaded (council, Outsider): the first words say nothing ran, so a cropped screenshot still reads as a placeholder.
+  if (f.provenance?.synthetic || mode === "fake") return "NO AI MODEL RAN — DEMO TEXT: a fixed canned example, not generated from this image";
   if (mode === "cloud") return "Cloud AI model (synthetic/demo images only) — general model, not a validated medical device";
   if (mode === "local") return "AI model on the SEHAT server";
   if (mode === "none") return "No AI model was used";

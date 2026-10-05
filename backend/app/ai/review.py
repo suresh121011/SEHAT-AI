@@ -12,7 +12,7 @@ import anyio
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit
-from app.ai.extract import field_view, gate, latest_reviews, still_effective
+from app.ai.extract import REVIEWABLE_ORIGINS, field_view, gate, latest_reviews, still_effective
 from app.auth import Principal
 from app.database import read_transaction, transaction
 from app.errors import ApiError, not_found
@@ -76,7 +76,7 @@ async def review(conn: aiosqlite.Connection, principal: Principal, case_id: str,
             row = await cur.fetchone()
         if row is None:
             raise not_found()
-        if row["origin"] != "model":
+        if row["origin"] not in REVIEWABLE_ORIGINS:
             raise ApiError(409, "REVIEWED_AT_SOURCE", "This value was reviewed in the document review; change it there")
         _check(row["kind"], body, row)
         latest = (await latest_reviews(conn, case_id)).get(field_id)
@@ -151,12 +151,14 @@ async def reviewed(conn: aiosqlite.Connection, principal: Principal, case_id: st
             values.append({"field_id": f["field_id"], "field": f["field"], "value": f["value"], "basis": "document_review", "evidence": f["evidence"], "form_hints": []})
             continue
         if rv is None or rv["outcome"] == "unsure":
-            unresolved.append({"field_id": f["field_id"], "field": f["field"], "status": f["status"], "priority_review": f["priority_review"], "state": "undecided" if rv is None else "unsure"})
+            unresolved.append({"field_id": f["field_id"], "field": f["field"], "origin": f["origin"], "status": f["status"], "priority_review": f["priority_review"],
+                               "state": "undecided" if rv is None else "unsure"})
             continue
         if rv["outcome"] == "rejected":
             continue
         v = effective_value(f["kind"], f["value"], rv)
-        values.append({"field_id": f["field_id"], "field": f["field"], "value": v, "basis": "reviewer_corrected" if rv["outcome"] == "corrected" else "ai_extracted_accepted_by_reviewer",
+        values.append({"field_id": f["field_id"], "field": f["field"], "origin": f["origin"], "value": v, "basis": "reviewer_corrected" if rv["outcome"] == "corrected" else
+                       "keyword_rule_accepted_by_reviewer" if f["origin"] == "keyword_rule" else "ai_extracted_accepted_by_reviewer",
                        "reviewed_by_role": rv["actor_role"], "evidence": f["evidence"], "form_hints": _hints(f, v) if isinstance(v, dict) else []})
     # Repeated readings of one vital (e.g. "spo2" and "spo2#2") that differ: no hint, a human chooses.
     readings: dict[str, set] = {}

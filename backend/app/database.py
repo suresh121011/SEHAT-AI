@@ -545,13 +545,44 @@ MEDICAL_IMAGE_STATEMENTS: tuple[str, ...] = (
     "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
 )
 
+# ── Step 11: red-flag keyword suggester (docs/16 §2c). ai_fields gains origin 'keyword_rule' (deterministic phrases, not
+# AI model output) and status 'keyword_suggested'. SQLite cannot alter a CHECK constraint, so the table is rebuilt as in
+# step 3: foreign keys off for the step (ai_field_review_events references it), every row copied unchanged, old table
+# dropped, renamed, append-only triggers recreated, then foreign_key_check before COMMIT. Rollback: older code still
+# reads the table; it shows keyword_rule rows without a review action (its review route accepts origin 'model' only).
+KEYWORD_RED_FLAG_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE ai_fields_v11 (
+    field_id          TEXT PRIMARY KEY,
+    extraction_id     TEXT NOT NULL REFERENCES ai_extraction_runs(extraction_id),
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    ordinal           INTEGER NOT NULL,
+    origin            TEXT NOT NULL CHECK (origin IN ('model', 'ocr_reviewed', 'keyword_rule')),
+    field_key         TEXT NOT NULL,
+    kind              TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('agreed', 'majority', 'disputed', 'disputed_raise', 'human_reviewed', 'keyword_suggested')),
+    agreement         TEXT,
+    value_json        TEXT NOT NULL,
+    candidates_json   TEXT NOT NULL,
+    evidence_json     TEXT NOT NULL,
+    critical          INTEGER NOT NULL,
+    priority_review   INTEGER NOT NULL,
+    flags_json        TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+)""",
+    "INSERT INTO ai_fields_v11 SELECT * FROM ai_fields",
+    "DROP TABLE ai_fields",
+    "ALTER TABLE ai_fields_v11 RENAME TO ai_fields",
+    *_append_only("ai_fields"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
-                                           TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS)
+                                           TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
+                                           KEYWORD_RED_FLAG_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
 # COMMIT, so a step that leaves a dangling reference still rolls back.
-FK_OFF_STEPS = frozenset({3})
+FK_OFF_STEPS = frozenset({3, 11})
 
 TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")

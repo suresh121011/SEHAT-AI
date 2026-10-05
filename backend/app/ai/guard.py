@@ -53,7 +53,8 @@ def looks_like_instructions(text: str) -> bool:
 OVERRIDE = [re.compile(p, _I) for p in (
     r"\b(?:set|change|mark|lower|downgrade|reduce|make)\s+(?:the\s+|this\s+)?(?:urgency|triage|priority|case)\s+(?:to|as)\b",
     r"\b(?:override|ignore|bypass|disable)\s+(?:the\s+|all\s+)?(?:safety\s+)?(?:rules?|rules engine|protocol|triage|guardrails?|filters?)\b",
-    r"\b(?:skip|bypass|no need for|without|don'?t need)\s+(?:a\s+|the\s+|any\s+)?(?:human\s+|doctor\s+|clinician\s+|medical officer\s+)?(?:review|sign-?off|approval)\b",
+    # "(?!\s+of\b)": "came without any review of old reports" is history, not an instruction (false positive, 2026-10-05)
+    r"\b(?:skip|bypass|no need for|without|don'?t need)\s+(?:a\s+|the\s+|any\s+)?(?:human\s+|doctor\s+|clinician\s+|medical officer\s+)?(?:review|sign-?off|approval)\b(?!\s+of\b)",
     r"\bmark (?:it |this |the case )?(?:as )?(?:green|non-urgent|not urgent|low priority)\b",
 )]
 DIAGNOSIS_REQUEST = [re.compile(p, _I) for p in (

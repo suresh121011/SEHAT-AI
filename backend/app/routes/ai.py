@@ -10,7 +10,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, Depends, Request
 
-from app.ai import extract, guardrails, note, providers, review
+from app.ai import extract, guardrails, note, providers, redflag_keywords, review
 from app.auth import Principal, Role, get_current_principal, require_roles
 from app.config import Settings, get_settings
 from app.database import get_db
@@ -34,6 +34,7 @@ async def capabilities(request: Request, _: Principal = Depends(get_current_prin
         **await providers.capability(_provider(request)),
         "maker_passes": settings.ai_maker_passes,
         "guardrails": guardrails.status(getattr(request.app.state, "guardrails", None)),
+        "keyword_red_flags": ({"enabled": True, **redflag_keywords.PROVENANCE} if settings.ai_keyword_red_flags else {"enabled": False}),
         "translation": "enabled" if getattr(request.app.state, "translator", None) is not None else "disabled",
         "input_languages": ["en"] + (["hi", "or"] if getattr(request.app.state, "translator", None) is not None else []),
         "note": "AI output is untrusted: schema-checked, grounded in quotes, voted across passes and reviewed field by field. Urgency comes from the rules engine; AI may only raise it.",
@@ -46,7 +47,7 @@ async def create_extraction(case_id: uuid.UUID, body: extract.ExtractionRequest,
     provider = providers.require_provider(_provider(request))
     await providers.require_ready(provider)
     return await extract.create(db, principal, str(case_id), body, provider, settings.ai_maker_passes, _rid(request), getattr(request.app.state, "translator", None),
-                                getattr(request.app.state, "guardrails", None))
+                                getattr(request.app.state, "guardrails", None), keyword_red_flags=settings.ai_keyword_red_flags)
 
 
 @router.get("/cases/{case_id}/ai/extractions")

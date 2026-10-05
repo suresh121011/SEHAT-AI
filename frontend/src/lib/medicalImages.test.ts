@@ -149,8 +149,8 @@ test("AI availability note follows the capabilities", () => {
 });
 
 test("findingsSourceLabel never presents demo text as model output", () => {
-  assert.match(findingsSourceLabel({ backend: "fake", provenance: { provider: "fake", model: "fake-canned-v1", mode: "fake", synthetic: true } }), /^DEMO TEXT/);
-  assert.match(findingsSourceLabel({ backend: "fake" }), /^DEMO TEXT/); // older server without provenance
+  assert.match(findingsSourceLabel({ backend: "fake", provenance: { provider: "fake", model: "fake-canned-v1", mode: "fake", synthetic: true } }), /^NO AI MODEL RAN — DEMO TEXT/);
+  assert.match(findingsSourceLabel({ backend: "fake" }), /^NO AI MODEL RAN/); // older server without provenance
   assert.match(findingsSourceLabel({ backend: "google_ai", provenance: { provider: "google_ai", model: "m", mode: "cloud", synthetic: false } }), /^Cloud AI model/);
   assert.equal(findingsSourceLabel({ backend: null, provenance: { provider: null, model: null, mode: "none", synthetic: false } }), "No AI model was used");
 });

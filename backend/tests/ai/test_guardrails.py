@@ -38,7 +38,12 @@ def test_input_detector_blocks_system_directed_text(text, reason):
 
 
 @pytest.mark.parametrize("text", ["Fever for 3 days, temperature 39.4 C.", "Is it serious? She is worried.", "No chest pain.",
-                                  "Chest pain since 2 hours, crushing.", "Taking paracetamol 500 mg twice daily."])
+                                  "Chest pain since 2 hours, crushing.", "Taking paracetamol 500 mg twice daily.",
+                                  # ordinary clinical wording near the override/diagnosis patterns (council: test false positives)
+                                  "Came without any review of old reports.", "She was reviewed at the PHC yesterday.",
+                                  "Previous doctor diagnosed typhoid last year.", "Taking medicine prescribed by the PHC.",
+                                  "Patient wants to go home, says she cannot wait.", "Mark on the left arm from the injection.",
+                                  "No need to worry said the neighbour, but fever continues."])
 def test_input_detector_passes_ordinary_patient_speech(text):
     assert guard.check_input(text) is None
 
@@ -50,6 +55,18 @@ def test_input_detector_passes_ordinary_patient_speech(text):
 ])
 def test_output_detector(text, reason):
     assert guard.check_output(text) == reason
+
+
+@pytest.mark.parametrize("text", ["no fever", "not able to walk", "chest pain since morning", "known case of hypertension", "metformin 500 mg",
+                                  "cannot wait to pass urine", "without review of reports"])
+def test_output_detector_passes_ordinary_extracted_values(text):
+    assert guard.check_output(text) is None
+
+
+def test_output_detector_known_false_positive_fails_toward_blocking():
+    """Documented (docs/16 §2b): reported history worded as a diagnosis is blocked by the shared non-diagnostic filter.
+    That blocks the whole extraction (422, nothing stored) — the safe direction; the health worker enters values by hand."""
+    assert guard.check_output("previously diagnosed typhoid") == "diagnostic_language"
 
 
 # ── NeMo rails (real package, no model) ──────────────────────────────────────────────────────────
@@ -168,6 +185,12 @@ def test_api_input_block_releases_and_stores_nothing(rails_client, monkeypatch):
     assert r.status_code == 422 and r.json()["error"]["code"] == "GUARDRAIL_BLOCKED"
     assert r.json()["error"]["details"] == {"stage": "input", "reason": "instruction_text"}
     assert called == [] and count("ai_extraction_runs", case_id) == 0 and count("ai_fields", case_id) == 0
+    from tests.ai.helpers import db
+
+    with db() as c:  # a block is recorded locally (reason code only, no case text); NVIDIA telemetry stays off
+        rows = c.execute("SELECT outcome, details_json FROM audit_log WHERE action = 'ai_request_blocked' AND case_id = ?", (case_id,)).fetchall()
+    assert len(rows) == 1 and rows[0]["outcome"] == "denied" and "instruction_text" in rows[0]["details_json"]
+    assert "Ignore" not in rows[0]["details_json"] and "green" not in rows[0]["details_json"]
     caps = rails_client.get("/api/v1/ai/capabilities", headers=auth(tok)).json()["guardrails"]
     assert caps["enabled"] and caps["adds_new_detection"] is False and caps["telemetry"] == "disabled" and caps["llm_self_check"] is False
 

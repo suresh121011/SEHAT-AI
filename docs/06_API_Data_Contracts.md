@@ -70,7 +70,7 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
 | GET | `/ai/capabilities` | Provider (`none`/`fake`/`azure`), kind, MAKER passes, translation state | any signed-in role |
-| POST | `/cases/{case_id}/ai/extractions` | `{idempotency_key, intake_text?, include_voice?, include_ocr_reviewed?}` → grounded, MAKER-voted fields (needs `ai_assist` consent) | anm (creator), medical_officer |
+| POST | `/cases/{case_id}/ai/extractions` | `{idempotency_key, intake_text?, include_voice?, include_ocr_reviewed?}` → grounded, MAKER-voted fields plus deterministic red-flag candidates (`origin: keyword_rule`, `source_type`, `provenance.ai_model_output: false`; docs/16 §2c) (needs `ai_assist` consent) | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/ai/extractions[/{extraction_id}]` | Runs; one run with fields, missing information and follow-up questions | anm (creator), medical_officer |
 | POST | `/cases/{case_id}/ai/fields/{field_id}/review` | `{outcome: accepted\|corrected\|rejected\|unsure, corrected?, supersedes?}` | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/ai/reviewed` | Reviewed values with sources and triage-form hints (view only; never submits) | anm (creator), medical_officer |
