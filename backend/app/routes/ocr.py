@@ -81,6 +81,9 @@ async def capabilities(_: Principal = Depends(get_current_principal), settings: 
         "medgemma_model": medgemma.model_for(settings) if mg_on else None,
         "medgemma_ready": medgemma.backend_ready(settings),
         "medgemma_cloud": mg_cloud,
+        "medgemma_mode": None if not mg_on else "fake" if settings.medgemma_backend == "fake" else "cloud" if mg_cloud else "unknown",
+        "medgemma_synthetic": mg_on and settings.medgemma_backend == "fake",  # canned demo text, not a model
+        "local_vision": medgemma.LOCAL_VISION,
         "supported_image_types": list(ALL_TYPES),
         "max_bytes": settings.ocr_max_bytes,
         "retention_days": settings.ocr_retention_days,  # None = kept until a reviewer deletes the document

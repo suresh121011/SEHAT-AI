@@ -35,6 +35,8 @@ export type MedicalImageItem = {
   source_image_url: string;
   backend: string;
   model: string;
+  /** Where the description came from. `synthetic` = canned demo text, not produced by any model. Older servers omit it. */
+  provenance?: { provider: string | null; model: string | null; mode: "fake" | "cloud" | "local" | "none" | "unknown"; synthetic: boolean; medical_model?: boolean | null };
   prompt_version: string;
   guard_version: string;
   rule_sets_run: string[];
@@ -55,6 +57,16 @@ export const IMAGE_TYPES: { key: ImageType; label: string; icon: ImageIcon }[] =
 ];
 
 export const IMAGE_MIME_TYPES = ["image/png", "image/jpeg"];
+
+/** Plain-language source line for a findings card; never hides that demo text is not from a model. */
+export function findingsSourceLabel(f: { backend?: string | null; provenance?: MedicalImageItem["provenance"] }): string {
+  const mode = f.provenance?.mode ?? (f.backend === "fake" ? "fake" : f.backend ? "cloud" : "none");
+  if (f.provenance?.synthetic || mode === "fake") return "DEMO TEXT — canned example, not produced by any AI model";
+  if (mode === "cloud") return "Cloud AI model (synthetic/demo images only) — general model, not a validated medical device";
+  if (mode === "local") return "AI model on the SEHAT server";
+  if (mode === "none") return "No AI model was used";
+  return "Source of this description is unknown — treat it with extra care";
+}
 
 /** Shown when the server sent no disclaimer (older backend); the disclaimer box is never left empty. */
 export const FALLBACK_DISCLAIMER =

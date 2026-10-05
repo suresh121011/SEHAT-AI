@@ -11,6 +11,7 @@ import { Icon } from "@/components/Icon";
 import {
   FALLBACK_DISCLAIMER,
   confidenceBand,
+  findingsSourceLabel,
   hasRedFlag,
   hasYellowFlag,
   humanizeField,
@@ -53,19 +54,21 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
   const status = statusCopy(f);
   const imageUrl = safeImageUrl(f.source_image_url);
   const headingId = `mg-${f.document_id}`;
+  const demo = Boolean(f.provenance?.synthetic) || f.backend === "fake";
 
   return (
     <article aria-labelledby={headingId} className="space-y-3 rounded-lg border-2 border-warning/60 bg-card p-4">
       <header className="space-y-1 border-b border-warning/40 pb-2">
         <h3 id={headingId} className="flex flex-wrap items-center gap-2 text-lg font-bold text-warning">
-          <span aria-hidden="true">🩻</span> AI Image Findings
+          <span aria-hidden="true">🩻</span> {demo ? "Demo Image Findings (canned text)" : "AI Image Findings"}
           <span className="inline-flex items-center gap-1 rounded-full border border-warning/60 bg-warning-bg px-2 py-0.5 text-sm font-bold text-ink">
             <Icon name={imageTypeIcon(f.image_class || f.declared_type)} size={16} />
             {label}
           </span>
         </h3>
+        <p className={`text-sm font-bold ${demo ? "text-error" : "text-ink"}`}>{findingsSourceLabel(f)}</p>
         <p className="text-xs text-muted">
-          Visual description by AI ({f.backend || "unknown backend"}
+          {demo ? "Canned demo text" : "Visual description by AI"} ({f.backend || "unknown backend"}
           {f.model ? ` · ${f.model}` : ""}
           {f.prompt_version ? ` · prompt ${f.prompt_version}` : ""}
           {f.guard_version ? ` · filter ${f.guard_version}` : ""}) · uploaded {f.created_at ? new Date(f.created_at).toLocaleString() : "time unknown"}. Not a diagnosis.
@@ -75,7 +78,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       {red && (
         <div role="alert" className="flex items-start gap-2 rounded-lg border-2 border-error bg-error px-3 py-2 font-bold text-white animate-pulse motion-reduce:animate-none">
           <span aria-hidden="true">⚠️</span>
-          <span>Critical imaging signal detected — escalated to reviewer</span>
+          <span>{demo ? "Critical imaging signal in the DEMO text — shown to test the reviewer flow, not from a real image reading" : "Critical imaging signal detected — escalated to reviewer"}</span>
         </div>
       )}
       {!red && yellow && (

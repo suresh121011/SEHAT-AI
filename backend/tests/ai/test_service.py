@@ -100,7 +100,8 @@ def env(monkeypatch):
     get_settings.cache_clear()
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-with-enough-length-for-hs256")
-    for k in list(AZURE_ENV) + ["AI_MAKER_PASSES", "AI_FAKE_MODE"]:
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # a developer .env may enable it (it has its own tests)
+    for k in list(AZURE_ENV) + ["AI_MAKER_PASSES", "AI_FAKE_MODE", "LOCAL_LLM_MODEL", "LOCAL_LLM_URL", "LOCAL_LLM_MODEL_DIR"]:
         # blank = unset (flags: "0"), and stops a developer's .env from filling it in
         monkeypatch.setenv(k, "0" if k in ("AI_CLOUD_ENABLED", "AI_CLOUD_SYNTHETIC_DATA_ONLY") else "")
     yield monkeypatch

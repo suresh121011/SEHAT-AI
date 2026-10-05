@@ -379,7 +379,7 @@ def row_view(row, acknowledged: bool) -> dict:
         "keyword_rules_validated": medgemma.KEYWORD_RULES_VALIDATED,
         "source_image_url": source_image_url(row["case_id"], row["document_id"]),
         "media_type": row["media_type"],
-        "backend": row["backend"], "model": row["model_id"], "prompt_version": row["prompt_version"], "guard_version": row["guard_version"],
+        "backend": row["backend"], "model": row["model_id"], "provenance": medgemma.provenance(row["backend"], row["model_id"]), "prompt_version": row["prompt_version"], "guard_version": row["guard_version"],
         "rule_sets_run": json.loads(row["rule_sets_run"]) if row["rule_sets_run"] else [],
         "requires_acknowledgement": bool(row["requires_acknowledgement"]), "acknowledged": acknowledged,
         "created_at": row["created_at"], "completed_at": row["completed_at"],

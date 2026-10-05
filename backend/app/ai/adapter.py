@@ -10,6 +10,17 @@ from typing import final
 from app.privacy.pii import RedactedPrompt
 
 
+_CLOUD_PROVIDERS = frozenset({"azure"})
+
+
+def provenance(provider: str, model_id: str | None) -> dict:
+    """Where an AI output came from, in one shape for every provider (docs/16 §2). `synthetic` is true only for the
+    fake (a keyword matcher, not a model). Derived from the stored provider name, so old rows get it too."""
+    mode = {"fake": "fake", "local": "local", "none": "none"}.get(provider, "cloud" if provider in _CLOUD_PROVIDERS else "unknown")
+    revision = model_id.split("@", 1)[1] if model_id and "@" in model_id else None
+    return {"provider": provider, "model": model_id, "revision": revision, "mode": mode, "synthetic": provider == "fake"}
+
+
 @dataclass(frozen=True)
 class ProviderReply:
     raw_json: str
@@ -39,4 +50,5 @@ class StructuredProvider:
         raise NotImplementedError
 
     def describe(self) -> dict:
-        return {"provider": self.name, "provider_kind": self.kind, "model_id": self.model_id, "cloud": self.cloud}
+        return {"provider": self.name, "provider_kind": self.kind, "model_id": self.model_id, "cloud": self.cloud,
+                "provenance": provenance(self.name, self.model_id)}

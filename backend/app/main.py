@@ -22,7 +22,9 @@ API_PREFIX = "/api/v1"
 # Third-party loggers that could emit input text at DEBUG/INFO (docs/11 §G).
 # aiosqlite logs every SQL statement WITH its parameters at DEBUG (case data, transcripts, OCR values);
 # found by the Phase 5 log-canary test. Kept at WARNING whatever LOG_LEVEL is.
-_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel", "aiosqlite", "RapidOCR", "rapidocr", "httpx", "python_multipart", "PIL")
+# nemoguardrails logs every rail event WITH the (redacted) case text at INFO; found by the local-AI walkthrough (docs/16 §2b).
+_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel", "aiosqlite", "RapidOCR", "rapidocr", "httpx", "python_multipart", "PIL",
+                  "nemoguardrails")
 
 
 def _quiet_third_party_loggers() -> None:
@@ -59,6 +61,11 @@ async def lifespan(app: FastAPI):
     from app.ai.providers import build_provider
 
     app.state.ai_provider = build_provider(settings)  # None when AI_PROVIDER=none (AI endpoints answer 503)
+    from app.ai.guardrails import build_guardrails
+
+    app.state.guardrails = build_guardrails(settings)  # None unless GUARDRAILS_ENABLED=1; refuses to start if not installed
+    if app.state.guardrails is not None:
+        await app.state.guardrails.warm_up()
     app.state.translator = None
     if settings.translation_enabled:
         from app.ai.translate import build_translator

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  findingsSourceLabel,
   IMAGE_TYPES,
   aiAvailabilityNote,
   imageTypeAvailability,
@@ -145,4 +146,15 @@ test("AI availability note follows the capabilities", () => {
   assert.match(aiAvailabilityNote({ ...base, medgemma_enabled: true, medgemma_cloud: true, medgemma_backend: "google_ai" }) ?? "", /synthetic.*cloud AI service \(google_ai/);
   assert.match(aiAvailabilityNote({ ...base, medgemma_enabled: true, medgemma_backend: "fake" }) ?? "", /not a real model/);
   assert.equal(aiAvailabilityNote({ ...base, ocr_enabled: false }), null);
+});
+
+test("findingsSourceLabel never presents demo text as model output", () => {
+  assert.match(findingsSourceLabel({ backend: "fake", provenance: { provider: "fake", model: "fake-canned-v1", mode: "fake", synthetic: true } }), /^DEMO TEXT/);
+  assert.match(findingsSourceLabel({ backend: "fake" }), /^DEMO TEXT/); // older server without provenance
+  assert.match(findingsSourceLabel({ backend: "google_ai", provenance: { provider: "google_ai", model: "m", mode: "cloud", synthetic: false } }), /^Cloud AI model/);
+  assert.equal(findingsSourceLabel({ backend: null, provenance: { provider: null, model: null, mode: "none", synthetic: false } }), "No AI model was used");
+});
+
+test("findingsSourceLabel: unknown mode is not reported as 'no AI'", () => {
+  assert.match(findingsSourceLabel({ backend: "something", provenance: { provider: "something", model: null, mode: "unknown", synthetic: false } }), /unknown/);
 });

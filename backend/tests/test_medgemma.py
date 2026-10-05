@@ -146,7 +146,7 @@ def test_confirmed_case_of_is_blocked_by_the_shared_guard():
 
 
 def test_medgemma_disabled_returns_not_available(ocr_client, monkeypatch):
-    monkeypatch.delenv("MEDGEMMA_ENABLED", raising=False)
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # not delenv: a developer .env would refill it
     get_settings.cache_clear()
     stub = StubBackend(FX["st_elevation"]["output"])
     ocr_client.app.state.medgemma_backend = stub
@@ -415,7 +415,7 @@ def test_pdf_and_bad_images_rejected_for_image_types(ocr_client, monkeypatch):
 
 
 def test_stored_image_is_metadata_stripped_and_served_safely(ocr_client, monkeypatch):
-    monkeypatch.delenv("MEDGEMMA_ENABLED", raising=False)
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # not delenv: a developer .env would refill it
     get_settings.cache_clear()
     anm = token_for(ocr_client, "anm")
     case_id = _ready_case(ocr_client, anm)
@@ -436,7 +436,7 @@ def test_stored_image_is_metadata_stripped_and_served_safely(ocr_client, monkeyp
 
 def test_capabilities_report_medgemma(ocr_client, monkeypatch):
     anm = token_for(ocr_client, "anm")
-    monkeypatch.delenv("MEDGEMMA_ENABLED", raising=False)
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # not delenv: a developer .env would refill it
     get_settings.cache_clear()
     caps = ocr_client.get(f"{API}/intake/document/capabilities", headers=auth(anm)).json()
     assert "xray_ecg" not in caps["document_types"]
@@ -462,7 +462,7 @@ def test_fake_backend_end_to_end_without_injection(ocr_client, monkeypatch):
 
 
 def test_delete_and_retention_cover_images(ocr_client, monkeypatch):
-    monkeypatch.delenv("MEDGEMMA_ENABLED", raising=False)
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # not delenv: a developer .env would refill it
     get_settings.cache_clear()
     anm = token_for(ocr_client, "anm")
     case_id = _ready_case(ocr_client, anm)
@@ -564,7 +564,7 @@ def test_startup_sweep_removes_orphan_image_files_and_keeps_known_ones(ocr_clien
     from app.database import _connect
     from app.ocr import service
 
-    monkeypatch.delenv("MEDGEMMA_ENABLED", raising=False)
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")  # not delenv: a developer .env would refill it
     get_settings.cache_clear()
     anm = token_for(ocr_client, "anm")
     case_id = _ready_case(ocr_client, anm)
@@ -583,3 +583,46 @@ def test_startup_sweep_removes_orphan_image_files_and_keeps_known_ones(ocr_clien
     asyncio.run(run())
     assert not orphan.exists()
     assert (root / case_id / f"{kept['document_id']}.img").exists()
+
+
+# ── Provenance and local vision (docs/18 §4a, §9) ────────────────────────────────────────────────
+
+
+def test_fake_output_is_labelled_synthetic_not_a_model(ocr_client, monkeypatch):
+    _enable(monkeypatch)
+    anm = token_for(ocr_client, "anm")
+    case_id = _ready_case(ocr_client, anm)
+    body = _img(ocr_client, anm, case_id, "chest_xray").json()
+    assert body["provenance"] == {"provider": "fake", "model": "fake-canned-v1", "mode": "fake", "synthetic": True, "medical_model": False}
+    listed = ocr_client.get(f"{API}/cases/{case_id}/medical-images", headers=auth(anm)).json()["medical_images"][0]
+    assert listed["provenance"]["synthetic"] is True
+    caps = ocr_client.get(f"{API}/intake/document/capabilities", headers=auth(anm)).json()
+    assert caps["medgemma_mode"] == "fake" and caps["medgemma_synthetic"] is True
+
+
+def test_provenance_modes():
+    assert medgemma.provenance("google_ai", "gemini-x")["mode"] == "cloud" and medgemma.provenance("google_ai", "gemini-x")["synthetic"] is False
+    assert medgemma.provenance("azure", "dep")["mode"] == "cloud"
+    assert medgemma.provenance(None, None)["mode"] == "none"
+
+
+def test_disabled_image_has_no_provider(ocr_client, monkeypatch):
+    monkeypatch.setenv("MEDGEMMA_ENABLED", "0")
+    get_settings.cache_clear()
+    anm = token_for(ocr_client, "anm")
+    case_id = _ready_case(ocr_client, anm)
+    body = _img(ocr_client, anm, case_id, "chest_xray").json()
+    assert body["status"] == "not_available" and body["provenance"]["mode"] == "none" and body["provenance"]["synthetic"] is False
+
+
+def test_local_backend_is_refused_by_name_never_faked(monkeypatch):
+    _enable(monkeypatch, "local", OCR_ENABLED="1", OCR_RETENTION_DAYS="none")
+    with pytest.raises(RuntimeError, match="MEDGEMMA_BACKEND=local is not available in this build"):
+        get_settings()
+    get_settings.cache_clear()
+
+
+def test_capabilities_report_local_vision_unavailable(ocr_client):
+    caps = ocr_client.get(f"{API}/intake/document/capabilities", headers=auth(token_for(ocr_client, "anm"))).json()
+    assert caps["local_vision"]["available"] is False and caps["local_vision"]["reason"] == "local_model_not_installed"
+    assert "ecg_strip" in caps["local_vision"]["unsupported_image_types"]

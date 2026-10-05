@@ -499,6 +499,19 @@ def backend_ready(settings) -> bool:
         return False
 
 
+def provenance(backend: str | None, model: str | None) -> dict:
+    """Where an image description came from (docs/18 §9). `synthetic` = canned demo text, not produced by any model.
+    `none` = no backend was called (disabled, consent or attestation missing)."""
+    mode = "none" if backend is None else "fake" if backend == "fake" else "cloud" if backend in CLOUD_BACKENDS else "unknown"
+    return {"provider": backend, "model": model, "mode": mode, "synthetic": backend == "fake", "medical_model": False if backend == "fake" else None}
+
+
+# Local medical vision (docs/18 §4a): reported, never pretended. MedGemma 1.5 does not cover ECG (model card).
+LOCAL_VISION = {"available": False, "reason": "local_model_not_installed", "candidate": "google/medgemma-1.5-4b-it",
+                "requires": "accepting the Health AI Developer Foundations terms and a pinned local build (not in this build)",
+                "unsupported_image_types": ["ecg_strip"]}
+
+
 def model_for(settings) -> str | None:
     if settings.medgemma_backend == "fake":
         return FakeImageBackend.model

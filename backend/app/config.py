@@ -35,8 +35,14 @@ SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
 # Azure OpenAI endpoint host suffixes that may receive the API key and redacted case text (docs/16 §7).
 # Kept in code on purpose, like SARVAM_ALLOWED_HOSTS.
 AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
-AI_PROVIDERS = ("none", "fake", "azure")
+AI_PROVIDERS = ("none", "fake", "azure", "local")
+# AI_PROVIDER=local talks to a llama-server on this machine only (docs/16 §2a). Loopback hosts only, in code.
+LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal IPs only: "localhost" resolves through /etc/hosts
 MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure")
+# A local medical-vision model is not installable in this build (docs/18 §4a): MEDGEMMA_BACKEND=local is refused by name.
+MEDGEMMA_LOCAL_UNAVAILABLE = ("MEDGEMMA_BACKEND=local is not available in this build: local MedGemma weights are gated (Health AI Developer "
+                              "Foundations terms) and no pinned local build exists yet (docs/18 §4a). Use fake (demo, not a model) or a cloud backend "
+                              "for synthetic images only")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -93,7 +99,8 @@ class Settings:
     # Phase 6 AI extraction (docs/16). `none` = no model is called (AI endpoints answer 503). `fake` = the
     # deterministic offline keyword extractor (not an LLM). `azure` = Azure OpenAI via Semantic Kernel, only
     # with AI_CLOUD_ENABLED=1, complete credentials, an allowed host and AI_CLOUD_SYNTHETIC_DATA_ONLY=1.
-    # There is never a fallback from one provider to another.
+    # `local` = a pinned open-weights model on a loopback-only llama-server (docs/16 §2a); case text stays on
+    # this machine but is still redacted first. There is never a fallback from one provider to another.
     ai_provider: str = "none"
     ai_cloud_enabled: bool = False
     ai_cloud_synthetic_data_only: bool = False
@@ -103,6 +110,12 @@ class Settings:
     # Phase 6 P2: IndicTrans2 (indic → en), local only. Off unless enabled.
     translation_enabled: bool = False
     translation_model_dir: Path = REPO_ROOT / "models" / "translation"
+    # AI_PROVIDER=local (docs/16 §2a): model key from app.ai.local_models, its directory, and the loopback server.
+    local_llm_model: str = "qwen3-4b-instruct-2507-q4km"
+    local_llm_model_dir: Path = REPO_ROOT / "models" / "llm"
+    local_llm_url: str = "http://127.0.0.1:8091"
+    # Optional NeMo Guardrails layer around extraction (docs/16 §2b); needs requirements-guardrails.txt.
+    guardrails_enabled: bool = False
     # Medical image visual-findings description (architecture §10A, docs/18). Off unless enabled. `fake` = canned
     # offline outputs (not a model). `google_ai` / `azure` send the image to a cloud model: only with
     # AI_CLOUD_ENABLED=1, AI_CLOUD_SYNTHETIC_DATA_ONLY=1 and credentials, and per request only with ai_assist consent
@@ -227,7 +240,7 @@ def _ai_settings() -> dict:
     """AI provider settings (docs/16 §7). Every refusal names exactly what is missing; values are never echoed."""
     provider = (_env("AI_PROVIDER") or "none").lower()  # blank = default
     if provider not in AI_PROVIDERS:
-        raise RuntimeError("AI_PROVIDER must be one of: none, fake, azure")
+        raise RuntimeError("AI_PROVIDER must be one of: none, fake, azure, local")
     passes = _env("AI_MAKER_PASSES") or "3"
     if not passes.isdigit() or not 3 <= int(passes) <= 5:
         raise RuntimeError("AI_MAKER_PASSES must be a whole number from 3 to 5")
@@ -248,7 +261,14 @@ def _ai_settings() -> dict:
         raise RuntimeError("AI_FAKE_MODE must be honest or demo_disagreement")
     if fake_mode != "honest" and provider != "fake":
         raise RuntimeError("AI_FAKE_MODE applies only to AI_PROVIDER=fake")
-    timeout = float(_env("AI_TIMEOUT_S") or "30")
+    from app.ai.local_models import MODELS as LOCAL_MODELS
+
+    local_model = _env("LOCAL_LLM_MODEL") or "qwen3-4b-instruct-2507-q4km"
+    if local_model not in LOCAL_MODELS:
+        raise RuntimeError(f"LOCAL_LLM_MODEL must be one of: {', '.join(LOCAL_MODELS)}")
+    local_url = _local_llm_url(_env("LOCAL_LLM_URL") or "http://127.0.0.1:8091")
+    # Local: 3 passes share one laptop GPU (measured max 25.8 s, docs/16 §2a.4), so the default is 60 s there.
+    timeout = float(_env("AI_TIMEOUT_S") or ("60" if provider == "local" else "30"))
     if not 1 <= timeout <= 120:
         raise RuntimeError("AI_TIMEOUT_S must be between 1 and 120 seconds")
     return {
@@ -260,7 +280,29 @@ def _ai_settings() -> dict:
         "ai_timeout_s": timeout,
         "translation_enabled": _flag("TRANSLATION_ENABLED"),
         "translation_model_dir": _path(_env("TRANSLATION_MODEL_DIR") or "./models/translation"),
+        "local_llm_model": local_model,
+        "local_llm_model_dir": _path(_env("LOCAL_LLM_MODEL_DIR") or "./models/llm"),
+        "local_llm_url": local_url,
+        "guardrails_enabled": _flag("GUARDRAILS_ENABLED"),
     }
+
+
+def _local_llm_url(value: str) -> str:
+    """LOCAL_LLM_URL must be http://<loopback host>:<port> with nothing else, so redacted case text can only go to
+    this machine. Returns the normalised URL; the value is not echoed."""
+    error = RuntimeError("LOCAL_LLM_URL must be http://127.0.0.1:<port> (or http://[::1]:<port>); no path, credentials or query")
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise error
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise error from None
+    host = (parts.hostname or "").lower()
+    if (parts.scheme.lower() != "http" or host not in LOCAL_LLM_HOSTS or port is None or parts.username is not None
+            or parts.password is not None or parts.path not in ("", "/") or parts.query or parts.fragment):
+        raise error
+    return f"http://{'[::1]' if host == '::1' else host}:{port}"
 
 
 def _medgemma_settings(ocr_enabled: bool) -> dict:
@@ -277,6 +319,8 @@ def _medgemma_settings(ocr_enabled: bool) -> dict:
     if enabled:
         if not ocr_enabled:
             raise RuntimeError("MEDGEMMA_ENABLED=1 requires OCR_ENABLED=1 (images are uploaded through the document route)")
+        if backend == "local":
+            raise RuntimeError(MEDGEMMA_LOCAL_UNAVAILABLE)
         if backend not in MEDGEMMA_BACKENDS:
             raise RuntimeError("MEDGEMMA_BACKEND must be one of: fake, google_ai, azure")
         if not 1 <= timeout <= 120:

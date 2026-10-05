@@ -234,7 +234,7 @@ class AiExtractionDetails(_Details):
     """Counts and enums only: no values, quotes or segment text."""
 
     extraction_id: str
-    provider: Literal["fake", "azure"]
+    provider: Literal["fake", "azure", "local"]
     status: Literal["completed", "insufficient_agreement"]
     passes_requested: int = Field(ge=0)
     passes_valid: int = Field(ge=0)

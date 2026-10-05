@@ -26,13 +26,16 @@ GET  /cases/{id}/ai/reviewed                     view only; triage-form hints; n
 POST /cases/{id}/ai/notes                        server-template note; rules urgency first; enforce_raise_only
 ```
 
-## 2. Providers: `none | fake | azure`
+## 2. Providers: `none | fake | azure | local`
 
 | `AI_PROVIDER` | What runs | Notes |
 |:---|:---|:---|
 | `none` (default) | Nothing | AI endpoints return `503 AI_NOT_CONFIGURED`. |
 | `fake` | `app/ai/fake_provider.py`, a deterministic keyword/regex extractor | Offline. Labelled `provider_kind: "deterministic keyword extractor (not an LLM)"` in every response, with `provider_is_fake: true`, and note drafts add a `provider_notice`. `AI_FAKE_MODE=demo_disagreement` makes pass 2 disagree on the first measurement, to demonstrate a disputed value. |
 | `azure` | `app/ai/azure_provider.py`: Azure OpenAI through Semantic Kernel, using strict JSON-schema structured output | Config-gated. See §7. **Not run live** in this build. |
+| `local` | `app/ai/local_provider.py`: a pinned open-weights GGUF model on a loopback-only `llama-server` on this machine | See §2a. **Run live on synthetic cases** (§2a.4). General-purpose model, **not a medical model**. |
+
+Every run, capability answer and note draft carries `provenance: {provider, model, revision, mode, synthetic}`, where `mode` is `local`, `cloud`, `fake` or `none`, and `synthetic: true` only for the fake (a keyword matcher, not a model).
 
 There is **no fallback** between providers. If every pass fails, the request returns `502 AI_ADAPTER_ERROR`.
 
@@ -44,6 +47,136 @@ There is **no fallback** between providers. If every pass fails, the request ret
 The provider prompt (`app/ai/prompts.py`, versioned) passes segments as delimited data and says they are not instructions. This does not prevent prompt injection. The real controls are the strict schema, grounding, and the raise-only boundary.
 
 **Because the fake is deterministic, its three passes always agree.** MAKER voting is therefore exercised only through test perturbations and `demo_disagreement` mode. Agreement figures from the fake say nothing about model reliability.
+
+## 2a. Local open-weights provider (`AI_PROVIDER=local`, 2026-10-05)
+
+### 2a.1 What runs
+
+```
+backend (FastAPI) ── RedactedPrompt ──► LocalLlamaProvider ── HTTP, Bearer key ──► llama-server on 127.0.0.1:8091
+                                         (app/ai/local_provider.py)                  (scripts/start_local_llm.py)
+                                                                                      pinned GGUF, SHA-256 checked
+```
+
+- Same contract and safety path as every provider (§1–§6): redaction first even though nothing leaves the machine,
+  strict schema, grounding, MAKER voting, raise-only urgency, per-field human review. No fallback to the fake or a cloud.
+- The JSON schema is sent **with** its constraints (`strict_json_schema(..., keep_constraints=True)`): llama.cpp turns it
+  into a sampling grammar, so lengths, item counts and the segment-id pattern hold. Azure still gets the stripped form.
+- The local prompt adds one line, "write the JSON on a single line" (`prompt_version …+compact`, stored per run):
+  pretty-printed JSON cost indentation tokens on a laptop.
+- `GET /ai/capabilities` adds `ready` and `not_ready_reason` (`model_not_installed`, `server_not_started`,
+  `server_unreachable`, `server_auth_failed`, `wrong_model_loaded`, `server_error`). An extraction checks the same before
+  any case text is processed and answers **503 `LOCAL_MODEL_UNAVAILABLE`**; a pass that times out or returns an
+  incomplete/other-model reply abstains; all passes failing is 502 `AI_ADAPTER_ERROR`.
+
+### 2a.2 Model decision (hardware: Apple M5, 10 CPU cores, 8-core GPU/Metal 4, 16 GB unified memory, macOS 27.0.1)
+
+| Model (pinned) | Size | Licence | Result on this machine | Decision |
+|:---|--:|:---|:---|:---|
+| **Qwen3-4B-Instruct-2507** Q4_K_M (`unsloth/Qwen3-4B-Instruct-2507-GGUF@a06e946b`) | 2.50 GB | Apache-2.0 | passes the gate (§2a.4); server RSS ≈ 5.0 GB with 3 slots × 6144 ctx | **default** |
+| Gemma 4 E4B-it Q4_0 (`ggml-org/gemma-4-E4B-it-GGUF@b8093469`), named in architecture §6 | 4.59 GB | Apache-2.0 | loads on llama.cpp b11146; **0/60 passes finished within 90 s** (≈1000 tokens per pass); cause not investigated further | rejected for now |
+| Gemma 4 E2B-it Q4_0 (`ggml-org/gemma-4-E2B-it-GGUF@b4243c15`) | 2.84 GB | Apache-2.0 | pinned, not measured | available, unmeasured |
+
+All three are general-purpose instruct models, **not medical models**, and not clinically validated. Runtime: Homebrew
+llama.cpp 0.5.0 (build 11146), Metal. Single-stream decoding ≈ 40 tokens/s (Qwen) and ≈ 35 tokens/s (E4B); three parallel
+MAKER slots share that (≈ 12 tokens/s each), so three passes cost about three times one pass.
+
+### 2a.3 Server hardening
+
+`scripts/start_local_llm.py` re-checks the file's SHA-256, writes a fresh random API key (0600), then runs llama-server
+with `--host 127.0.0.1 --api-key-file … --no-webui --no-slots --offline --reasoning off -cram 0`, never `-v`. Checked live:
+listening on 127.0.0.1 only; no key → 401; `/slots` → 501; after the 20-case runs the server log contained none of the
+case words. `LOCAL_LLM_URL` must be `http://<loopback>:<port>` (refused otherwise, value not echoed); httpx ignores proxy
+variables; every reply must name the pinned alias. See docs/11 addendum.
+
+What is and is not verified: the download script, the start script and the backend at startup each check the file's
+SHA-256 against the pin; the backend then trusts the server it talks to. It checks only the alias and the API key, so a
+process that bound the port first (a misconfigured second server, or a hostile local process) would receive the key and
+redacted text. Run nothing else on `LOCAL_LLM_URL`'s port. `LOCAL_LLM_URL` accepts literal loopback IPs only, not
+`localhost`.
+
+### 2a.4 Measurement gate (council, 2026-10-05) and results — a smoke test, not a model evaluation
+
+`scripts/measure_local_llm.py`: 20 synthetic English cases (7 with no red flag), real redaction → provider (3 passes at
+0.1/0.2/0.3) → schema → grounding → vote. Gate agreed **before** measuring: grounding pass rate ≥ 70 % and median 3-pass
+time ≤ 30 s. Expected values and flags are the author's synthetic labels, not clinical ground truth.
+
+| Run | Median / max | Valid passes | Grounding | Values found | Red flags | Flags not in labels | False raise on a negative case |
+|:---|:---|:---|:---|:---|:---|:---|:---|
+| Qwen, first try (stripped schema, pretty JSON, 30 s timeout) | 28.4 / 30.0 s | 22/60 | — (12 cases had < 2 valid passes) | 6/21 | 2/15 | 1 | 0/7 |
+| **Qwen, constrained schema + compact JSON (shipped)** | **17.7 / 25.8 s** | **60/60** | **77 %** | **19/21** | **0/15** | 0 | **0/7** |
+| Qwen + red-flag values listed in the prompt | 24.3 / 66.6 s | 60/60 | 52 % ✗ | 16/21 | 5/15 | 4 (2 arguably correct) | 0/7 |
+| Gemma 4 E4B (same settings as the shipped row, 90 s timeout) | 90 / 90 s | 0/60 | — | 0/21 | 0/15 | 0 | 0/7 |
+
+**Reading this honestly:** the shipped configuration finds most measurements and symptoms with verbatim quotes, but it
+**does not surface red-flag mentions**: the model is held to the schema grammar but never sees the allowed flag values, so
+it leaves the list empty. Listing the values raised recall to 5/15 but broke the grounding gate and doubled the worst
+latency, so it is not used. This is not a safety regression — red flags from AI are only candidates, and the rules
+engine always asks the red-flag screen (§6) — but the AI adds no red-flag help with this model. 20 synthetic cases are
+far too few to estimate accuracy; nothing here is a clinical performance claim.
+
+The gate measures **grounding precision and latency only**. A model that says little scores well on it, and the shipped
+model passed with 0/15 red-flag recall. That is acceptable **only because** the rules engine asks the red-flag screen
+itself; if that ever changed, recall and false-raise criteria would have to join the gate. The registry records each
+model's result (`gate: passed | failed | unmeasured`), `--list` prints it, the start script warns on anything but
+`passed`, and capabilities show it as `smoke_gate`.
+
+### 2a.5 Setup
+
+```
+# from backend/
+../.venv/bin/python scripts/download_local_llm.py --list
+../.venv/bin/python scripts/download_local_llm.py qwen3-4b-instruct-2507-q4km     # ~2.5 GB, pinned, SHA-256 checked
+../.venv/bin/python scripts/start_local_llm.py                                    # separate terminal; Ctrl-C stops it
+# .env: AI_PROVIDER=local (AI_TIMEOUT_S defaults to 60 for local; optionally GUARDRAILS_ENABLED=1, §2b)
+../.venv/bin/python scripts/measure_local_llm.py                                  # optional: the gate above
+RUN_LIVE_LOCAL_MODEL_TESTS=1 ../.venv/bin/python -m pytest -m live tests/ai/test_local_provider.py
+../.venv/bin/python scripts/e2e_local_ai_check.py http://localhost:8101           # HTTP walkthrough (8 checks)
+```
+
+Startup order: start the model server first (it re-hashes the file, prints the llama.cpp build — tested with 11146 —
+and sends one synthetic warm-up request before printing "ready"), then the backend (it re-hashes the file too, ≈ 1–2 s,
+and warms up the guardrails when enabled). If the model server is stopped, the backend keeps running and extraction
+answers 503 `LOCAL_MODEL_UNAVAILABLE`; restarting the model server needs no backend restart (the key is re-read).
+Run one extraction per case at a time: three passes fill the three server slots, and a second concurrent extraction
+queues behind the first.
+
+Memory: keep one model resident and start it before a demo (first load ≈ 2 s once cached; cold disk loads are slower).
+The local model, IndicConformer ASR (≈ 2.8 GB) and Chandra OCR all fit on 16 GB only if not all are busy at once.
+
+## 2b. Optional NeMo Guardrails layer (`GUARDRAILS_ENABLED=1`, 2026-10-05)
+
+`app/ai/guardrails.py`, installed with `backend/requirements-guardrails.txt` (nemoguardrails 0.24.1). Off by default.
+
+```
+redacted segments ─► INPUT RAIL ─► provider passes ─► schema ─► grounding ─► vote ─► OUTPUT RAIL ─► store (T2) ─► human review
+                      │ blocked → 422 GUARDRAIL_BLOCKED, provider never called, nothing stored
+                      │ rail error / timeout / disagreement with its detector → 503 GUARDRAIL_UNAVAILABLE, nothing released
+```
+
+- **What NeMo does here, honestly.** `LLMRails.check_async` runs one input rail and one output rail, both written as custom
+  Python actions that call deterministic detectors in `app/ai/guard.py`:
+  - `check_input`: instructions to the model, attempts to change urgency / override the rules / skip review, and requests
+    for a diagnosis or a prescription. Ordinary patient speech ("is it serious?", "no chest pain") is not matched.
+  - `check_output`: everything the note guard blocks (diagnosis, prescription, instruction, identifier patterns) plus
+    urgency-lowering ("not urgent", "can wait", "safe to send home") and review-bypass language, applied to every
+    model-produced string (values and candidates; numbers and enum values carry no free text).
+- **NeMo adds no detection of its own**: no LLM self-check rail, no dialog rails, no embedding model. It is a standard rail
+  framework over our own patterns, which are heuristic and can be evaded. Capabilities say so
+  (`guardrails.adds_new_detection: false`). Schema, grounding, MAKER, raise-only urgency and per-field review stay the
+  main controls. As a cross-check, a rail result that disagrees with the detector it wraps is treated as a failure (503).
+- **Fail closed.** A blocked request stores nothing and returns `{stage, reason}`; the audit records
+  `guardrail_<reason>` only. The health worker continues on the manual form.
+- **Privacy.** Telemetry is forced off before import (`NEMO_GUARDRAILS_NO_USAGE_STATS=1`, `DO_NOT_TRACK=1`); tests check
+  the package's own opt-out and that the rails open no network connection. The rails see redacted text only.
+- **Trade-off.** Blocking a whole request for one matching sentence loses AI help for that intake (never the intake
+  itself). This is the requested fail-closed behaviour. It also over-blocks: a quoted patient question such as "what
+  disease do I have?" or a value like "can wait" blocks the whole extraction, although raise-only already makes AI
+  "lowering" harmless. With `GUARDRAILS_ENABLED=0` (the default) **none of the new input/output detectors run**:
+  instruction-like text is only flagged (`possible_instruction_text`), as before. Making the detectors unconditional is a
+  product decision left open (council review, 2026-10-05).
+- **Not covered:** image descriptions (they keep their own field-level guard, docs/18 §6) and the template note (already
+  guarded). Tests: `tests/ai/test_guardrails.py` (28, real nemoguardrails, no model).
 
 ## 3. Extraction schema (`app/ai/schemas.py`)
 
@@ -145,7 +278,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 
 ## 8. Limits and known gaps (honest)
 
-- **Not run against any real LLM.** The Azure path is covered by one mocked Semantic Kernel contract test (strict `response_format`, temperature per pass, only redacted text sent).
+- **Azure not run against a real deployment.** The local provider has run live on 20 synthetic cases (§2a.4); the Azure path is covered by one mocked Semantic Kernel contract test (strict `response_format`, temperature per pass, only redacted text sent).
 - **Redaction misses:** 5 known name/DOB misses (lowercase or uncued Indian names). That is why real patient text must not go to a cloud model and Azure requires `AI_CLOUD_SYNTHETIC_DATA_ONLY=1`.
 - **Romanised Hinglish:** it passes the Latin-script check, but both redaction and the fake handle it poorly. **Untested.**
 - **Redaction removes clinical data:**
@@ -173,7 +306,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
   - an LLM-written note (template only)
   - HASSUM semantic entropy
   - CRAG / GraphRAG
-  - NeMo Guardrails
+  - NeMo Guardrails with an LLM self-check rail (the optional layer in §2b runs our deterministic detectors only)
   - SNOMED / RxNorm codes in the note
   - a frontend (Phase 8)
 
@@ -220,6 +353,9 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
 | Code | Meaning |
 |:---|:---|
 | `503 AI_NOT_CONFIGURED` | No provider configured |
+| `503 LOCAL_MODEL_UNAVAILABLE` | `AI_PROVIDER=local` but the model or its server is not ready (`details.reason`); nothing was sent |
+| `422 GUARDRAIL_BLOCKED` | An optional guardrail blocked the input or output (`details.stage`, `details.reason`); nothing stored (§2b) |
+| `503 GUARDRAIL_UNAVAILABLE` | The guardrail layer failed, timed out or disagreed with its detector; nothing released (§2b) |
 | `502 AI_ADAPTER_ERROR` | Every provider pass failed (no fallback) |
 | `422 AI_NO_INPUT` | Nothing to extract |
 | `409 IDEMPOTENCY_KEY_REUSED` | The same key was sent with a different request (a request hash is stored, never the text) |

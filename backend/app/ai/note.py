@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app import audit
 from app.ai import followup, guard
+from app.ai.adapter import provenance
 from app.ai.extract import case_scenario, gate, load_run, still_effective
 from app.ai.review import effective_value
 from app.auth import Principal
@@ -178,6 +179,7 @@ async def draft(conn: aiosqlite.Connection, principal: Principal, case_id: str, 
         note = {
             "note_id": note_id, "case_id": case_id, "extraction_id": extraction_id, "status": "draft_pending_review",
             "provider": run["provider"], "provider_kind": run["provider_kind"], "provider_is_fake": run["provider"] == "fake",
+            "provenance": provenance(run["provider"], run["model_id"]),
             "urgency": urgency,
             "summary": text, "summary_omitted_claims": omitted,
             "claims": claims, "blocked_claims": blocked,

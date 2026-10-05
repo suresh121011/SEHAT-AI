@@ -62,6 +62,36 @@ This build has **no local MedGemma**. Its only real backends are cloud models, s
 first (future work). Running MedGemma locally is future work. The `pipeline: "medgemma"` label and the
 `"MedGemma image analysis"` source string follow the §10A contract; they do **not** mean a MedGemma model ran.
 
+### 4a. Local medical vision: not available in this build (decision 2026-10-05)
+
+Architecture §10A makes local MedGemma the primary image model. After a hardware and licence review (llm-council,
+2026-10-05) this build **does not run a local medical vision model**, and says so instead of pretending:
+
+- `google/medgemma-1.5-4b-it` (released 2026-01-13) is **gated** under the Health AI Developer Foundations terms. The
+  project's Hugging Face token gets 403 until the project owner accepts them; accepting is the owner's legal decision.
+  Ungated third-party copies (MLX/GGUF mirrors) exist but would sidestep the gate, so they are **not used**.
+- Its model card lists chest X-ray, CT, MRI, histopathology, dermatology and fundus, **not ECG**, and states its outputs
+  "are not intended to directly inform clinical diagnosis, patient management decisions, treatment recommendations, or
+  any other direct clinical practice applications". A local build would therefore never describe `ecg_strip`.
+- A generic vision model (for example Gemma 4) is **not** used for medical findings: it is not a medical model and its
+  output would look like one.
+- Hardware (Apple M5, 16 GB unified memory) could hold a 4-bit 4B vision model, but not next to the local text model,
+  OCR and ASR during a demo without swapping (§12).
+
+What exists instead: `MEDGEMMA_BACKEND=local` **refuses to start** with that reason (never a silent fallback to `fake`),
+and `GET /intake/document/capabilities` reports `local_vision: {available: false, reason: "local_model_not_installed",
+candidate, requires, unsupported_image_types: ["ecg_strip"]}`. Enabling it later needs: the HAI-DEF terms accepted, a
+pinned official revision converted locally (as Chandra is, docs/14), a SHA-256 manifest, a loopback-only server, an
+evaluation on synthetic images, and a migration for any new `not_available_reason`.
+
+### 4b. Provenance (every image item)
+
+Each item carries `provenance: {provider, model, mode, synthetic, medical_model}`. `mode` is `fake` (canned demo text),
+`cloud` (google_ai / azure) or `none` (no backend was called: disabled, consent or attestation missing). `synthetic: true`
+and `medical_model: false` mark the fake; the UI then shows **"DEMO TEXT — canned example, not produced by any AI model"**
+above the card. Cloud output is labelled as a general model, not a validated medical device. Capabilities add
+`medgemma_mode` and `medgemma_synthetic`.
+
 ## 5. Prompts and parsing
 
 The five prompts and `extract_fields` lists are §10A verbatim. A JSON instruction is appended: return `description`,
@@ -161,7 +191,7 @@ reads, acknowledges and deletes; triage consent must be in effect to read.
 
 ## 12. Limitations
 
-- No local MedGemma. The cloud backends are for synthetic/demo images only, and `ai_assist` consent is a stand-in for a
+- No local medical vision model (§4a). The cloud backends are for synthetic/demo images only, and `ai_assist` consent is a stand-in for a
   future dedicated image purpose.
 - Filename-based classification is a weak cross-check. Content-based classification is not implemented.
 - The guard is pattern-based and can be evaded. It also over-withholds some negated mentions (for example "no evidence of fracture" is withheld).

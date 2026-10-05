@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit, consent
 from app.ai import followup, guard, inputs, maker
-from app.ai.adapter import StructuredProvider
+from app.ai.adapter import StructuredProvider, provenance
 from app.ai.prompts import PROMPT_VERSION
 from app.ai.schemas import SCHEMA_VERSION
 from app.auth import Principal
@@ -107,7 +107,7 @@ async def _existing(conn, case_id: str, key: str, request_hash: str) -> str | No
 
 
 async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: ExtractionRequest, provider: StructuredProvider,
-                 passes: int, request_id: str | None, translator=None) -> dict:
+                 passes: int, request_id: str | None, translator=None, rails=None) -> dict:
     key = str(body.idempotency_key)
     # Hash of the request (never stored raw): a retry must be the same request.
     request_hash = hashlib.sha256(body.model_dump_json(exclude={"idempotency_key"}).encode()).hexdigest()
@@ -129,7 +129,12 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
     async def run(prompt: RedactedPrompt):
         if not prompt.segments:
             return maker.VoteResult("completed", 0, 0)
-        return await maker.run_passes(provider, prompt, passes)
+        if rails is not None:  # optional NeMo layer (docs/16 §2b): raises PolicyBlocked → nothing released or stored
+            await rails.check_input(prompt)
+        res = await maker.run_passes(provider, prompt, passes)
+        if rails is not None:
+            await rails.check_output(res)
+        return res
 
     async def persist(c, prompt: RedactedPrompt, res: maker.VoteResult, authz_seq: int) -> str:
         if (existing := await _existing(c, case_id, key, request_hash)) is not None:
@@ -141,7 +146,7 @@ async def create(conn: aiosqlite.Connection, principal: Principal, case_id: str,
             "INSERT INTO ai_extraction_runs (extraction_id, case_id, created_by, actor_role, idempotency_key, provider, provider_kind, model_id, prompt_version, "
             "schema_version, passes_requested, passes_valid, status, consent_seq, segments_json, skipped_json, dropped_json, abstentions_json, urgency_json, flags_json, created_at, "
             "request_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (eid, case_id, principal.user_id, principal.role.value, key, provider.name, provider.kind, provider.model_id, PROMPT_VERSION, SCHEMA_VERSION,
+            (eid, case_id, principal.user_id, principal.role.value, key, provider.name, provider.kind, provider.model_id, getattr(provider, "prompt_version", PROMPT_VERSION), SCHEMA_VERSION,
              res.passes_requested, res.passes_valid, res.status, authz_seq,
              json.dumps([{"segment_id": s.segment_id, "text": s.text, "redacted_total": s.redacted_total, "source": sources[s.segment_id]} for s in prompt.segments]),
              json.dumps(src.skipped), json.dumps(res.dropped), json.dumps(res.abstentions),
@@ -223,6 +228,7 @@ def run_view(run, fields: list[dict]) -> dict:
     return {
         "extraction_id": run["extraction_id"], "case_id": run["case_id"], "status": run["status"], "created_at": run["created_at"],
         "provider": run["provider"], "provider_kind": run["provider_kind"], "model_id": run["model_id"], "provider_is_fake": run["provider"] == "fake",
+        "provenance": provenance(run["provider"], run["model_id"]),
         "prompt_version": run["prompt_version"], "schema_version": run["schema_version"],
         "maker": {"passes_requested": run["passes_requested"], "passes_valid": run["passes_valid"], "abstentions": json.loads(run["abstentions_json"])},
         "segments": json.loads(run["segments_json"]), "skipped_sources": json.loads(run["skipped_json"]), "dropped": json.loads(run["dropped_json"]),

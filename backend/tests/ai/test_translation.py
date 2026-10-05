@@ -6,7 +6,7 @@ import json
 import pytest
 
 from app.ai.fake_provider import FakeProvider
-from app.ai.translate import MODEL_ID, MODEL_REVISION, build_translator
+from app.ai.translate import MODEL_ID, MODEL_REVISION, REMOTE_CODE, build_translator
 from tests.ai.helpers import add_transcript, by_field, extract
 from tests.privacy.helpers import grant, new_case, token_for
 
@@ -73,7 +73,22 @@ def test_enabled_without_the_pinned_model_refuses_to_start(tmp_path):
     with pytest.raises(RuntimeError, match="pinned revision"):
         build_translator(S())
     (tmp_path / "SEHAT_MANIFEST.json").write_text(json.dumps({"repo": MODEL_ID, "revision": MODEL_REVISION}))
+    with pytest.raises(RuntimeError, match="no file hashes"):
+        build_translator(S())
+    import hashlib
+
+    files = {}
+    for name in REMOTE_CODE + ("config.json",):
+        (tmp_path / name).write_text(f"# synthetic {name}")
+        files[name] = hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+    (tmp_path / "SEHAT_MANIFEST.json").write_text(json.dumps({"repo": MODEL_ID, "revision": MODEL_REVISION, "files": files}))
     assert build_translator(S()).model_id.startswith(MODEL_ID)
+    (tmp_path / "modeling_indictrans.py").write_text("import os  # tampered")
+    with pytest.raises(RuntimeError, match="does not match"):
+        build_translator(S())
+    (tmp_path / "modeling_indictrans.py").unlink()
+    with pytest.raises(RuntimeError, match="missing"):
+        build_translator(S())
 
 
 def test_capabilities_report_translation_state(ai_client, setup):
@@ -84,3 +99,21 @@ def test_capabilities_report_translation_state(ai_client, setup):
     ai_client.app.state.translator = MockTranslator()
     caps = ai_client.get("/api/v1/ai/capabilities", headers=auth(tok)).json()
     assert caps["translation"] == "enabled" and caps["input_languages"] == ["en", "hi", "or"]
+
+
+# ── Live (opt-in; needs the gated model downloaded with scripts/download_translation_models.py) ──────────
+
+
+@pytest.mark.live
+@pytest.mark.skipif(__import__("os").environ.get("RUN_LIVE_TRANSLATION_TESTS") != "1", reason="set RUN_LIVE_TRANSLATION_TESTS=1 after downloading IndicTrans2")
+@pytest.mark.parametrize("language,text", [("hi", HINDI), ("or", "ରୋଗୀଙ୍କୁ ତିନି ଦିନ ହେଲା ଜ୍ୱର ହେଉଛି।")])
+def test_live_indictrans2_translates_hi_and_or(language, text):
+    import asyncio
+
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    translator = build_translator(get_settings())
+    pieces = asyncio.run(translator.translate_transcript(text, language))
+    assert pieces and all(english.strip() and english.isascii() for _, english in pieces)
+    print(language, [english for _, english in pieces])  # for the human running the test: quality is NOT asserted

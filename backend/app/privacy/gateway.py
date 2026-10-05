@@ -32,6 +32,23 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
+class PolicyBlocked(Exception):
+    """Raised inside `run` by a policy layer (the optional guardrails, docs/16 §2b) to release NO output. The gateway
+    audits it (reason code only) and answers 422 GUARDRAIL_BLOCKED, or 503 GUARDRAIL_UNAVAILABLE when the layer
+    itself failed. Nothing is persisted."""
+
+    def __init__(self, stage: str, reason: str, status: int = 422):
+        super().__init__(reason)
+        self.stage, self.reason, self.status = stage, reason, status
+
+    def api_error(self) -> ApiError:
+        if self.status == 503:
+            return ApiError(503, "GUARDRAIL_UNAVAILABLE", "The safety rails could not run, so no AI output was released; enter values manually",
+                            {"stage": self.stage, "reason": self.reason})
+        return ApiError(422, "GUARDRAIL_BLOCKED", "A safety rail blocked this request, so no AI output was released; enter values manually",
+                        {"stage": self.stage, "reason": self.reason})
+
+
 def _withdrawn() -> ApiError:
     return ApiError(409, "CONSENT_WITHDRAWN", "Consent changed while the request was being processed; output discarded")
 
@@ -156,8 +173,11 @@ async def submit_structured(
 
     result = None
     failed = False
+    blocked: PolicyBlocked | None = None
     try:
         result = await run(prompt)
+    except PolicyBlocked as exc:
+        blocked = exc
     except Exception:
         failed = True
 
@@ -166,6 +186,10 @@ async def submit_structured(
     async with transaction(conn):
         if not await _still_authorized(conn, case_id, authz_seq):
             await audit.record(conn, principal=principal, action="ai_output_discarded", outcome="denied", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="consent_changed"))
+        elif blocked is not None:
+            await audit.record(conn, principal=principal, action="ai_request_blocked" if blocked.stage == "input" else "ai_output_discarded",
+                               outcome="denied" if blocked.status == 422 else "failure", case_id=case_id, request_id=request_id,
+                               details=audit.ReasonDetails(reason_code=f"guardrail_{blocked.reason}"[:48]))
         elif failed:
             await audit.record(conn, principal=principal, action="ai_request_blocked", outcome="failure", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="adapter_error"))
         else:
@@ -174,6 +198,8 @@ async def submit_structured(
             await audit.record(conn, principal=principal, action="ai_output_returned", outcome="success", case_id=case_id, request_id=request_id, details=audit.ReasonDetails(reason_code="returned"))
     if returned:
         return persisted
+    if blocked is not None and await _still_authorized(conn, case_id, authz_seq):
+        raise blocked.api_error()
     if failed and await _still_authorized(conn, case_id, authz_seq):
         raise ApiError(502, "AI_ADAPTER_ERROR", "The AI provider failed; no output returned and no fallback provider was used")
     raise _withdrawn()

@@ -22,6 +22,7 @@ type Extraction = {
   provider: string;
   provider_kind: string;
   provider_is_fake: boolean;
+  provenance?: { provider: string; model: string | null; mode: "local" | "cloud" | "fake" | "none" | "unknown"; synthetic: boolean };
   follow_up_questions: Question[];
   missing_information: { field_name: string; label: string; is_danger_sign: boolean }[];
   fields: AiField[];
@@ -352,6 +353,17 @@ function FollowUpScreen() {
       if (err instanceof ApiError && err.code === "AI_NOT_CONFIGURED") {
         setState("unavailable");
         setWhy("No AI provider is configured on this server, so follow-up questions cannot be generated. Continue to the review step and ask the questions on the form.");
+      } else if (err instanceof ApiError && err.code === "LOCAL_MODEL_UNAVAILABLE") {
+        setState("unavailable");
+        setWhy("The AI model on the SEHAT server is not available right now, so nothing was generated and no other AI was used. Continue to the review step and enter the values yourself.");
+      } else if (err instanceof ApiError && err.code === "GUARDRAIL_UNAVAILABLE") {
+        setState("unavailable");
+        setWhy("The AI safety check could not run, so no AI output was released. Continue to the review step and enter the values yourself.");
+      } else if (err instanceof ApiError && err.code === "GUARDRAIL_BLOCKED") {
+        setState("error");
+        setWhy(err.details?.stage === "output"
+          ? "The AI's answer was stopped by a safety check (for example it read like a diagnosis, a treatment, or a reason to lower urgency), so nothing was shown or saved. Enter the values yourself on the review step."
+          : "A safety check stopped this text before it reached the AI (for example an instruction to change urgency or skip review, or a request for a diagnosis). Nothing was saved. Enter the values yourself on the review step.");
       } else if (err instanceof ApiError && err.code === "AI_NO_INPUT") {
         setState("error");
         setWhy("There is nothing to work from yet. Type a short description of the symptoms (English), or record voice first.");
@@ -407,6 +419,9 @@ function FollowUpScreen() {
         <p>
           AI extracts facts from the English text and checked transcripts; a fixed list of questions then covers what is still missing. AI never decides urgency.
           {ext?.provider_is_fake && " On this demo server the “AI” is a simple keyword matcher, not a real AI model."}
+          {ext?.provenance?.mode === "local" && " Values come from a general-purpose open AI model running on the SEHAT server (not a medical model); the text is not sent to any outside company."}
+          {ext?.provenance && ext.provenance.mode !== "none" && " AI does not decide danger signs: the red-flag screen on the review step always covers them, and AI may miss them."}
+          {ext?.provenance?.mode === "cloud" && " Values come from a cloud AI model; names and ID numbers are removed first, and only synthetic test data may be used."}
         </p>
       </Notice>
 
