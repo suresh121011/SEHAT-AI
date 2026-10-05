@@ -62,33 +62,46 @@ This build has **no local MedGemma**. Its only real backends are cloud models, s
 first (future work). Running MedGemma locally is future work. The `pipeline: "medgemma"` label and the
 `"MedGemma image analysis"` source string follow the §10A contract; they do **not** mean a MedGemma model ran.
 
-### 4a. Local medical vision: not available in this build (decision 2026-10-05)
+### 4a. Local medical vision: `MEDGEMMA_BACKEND=local` (built 2026-10-05; smoke-tested only)
 
-Architecture §10A makes local MedGemma the primary image model. After a hardware and licence review (llm-council,
-2026-10-05) this build **does not run a local medical vision model**, and says so instead of pretending:
+Architecture §10A makes local MedGemma the primary image model. The first review (llm-council, 2026-10-05) kept it out
+until the gated weights were accessible and a pinned local build existed. Both are now true; this is what was built and
+what it does **not** claim.
 
-- `google/medgemma-1.5-4b-it` (released 2026-01-13) is **gated** under the Health AI Developer Foundations terms. The
-  project's Hugging Face token got 403 until the project owner accepted them; **access was granted on 2026-10-05**, so
-  the gate is no longer the blocker. No local build exists yet; the remaining requirements below still apply.
-  Ungated third-party copies (MLX/GGUF mirrors) exist but would sidestep the gate, so they are **not used**.
-- Its model card lists chest X-ray, CT, MRI, histopathology, dermatology and fundus, **not ECG**, and states its outputs
-  "are not intended to directly inform clinical diagnosis, patient management decisions, treatment recommendations, or
-  any other direct clinical practice applications". A local build would therefore never describe `ecg_strip`.
-- A generic vision model (for example Gemma 4) is **not** used for medical findings: it is not a medical model and its
-  output would look like one.
-- Hardware (Apple M5, 16 GB unified memory) could hold a 4-bit 4B vision model, but not next to the local text model,
-  OCR and ASR during a demo without swapping (§12).
-
-What exists instead: `MEDGEMMA_BACKEND=local` **refuses to start** with that reason (never a silent fallback to `fake`),
-and `GET /intake/document/capabilities` reports `local_vision: {available: false, reason: "local_model_not_installed",
-candidate, requires, unsupported_image_types: ["ecg_strip"]}`. Enabling it later needs: the HAI-DEF terms accepted, a
-pinned official revision converted locally (as Chandra is, docs/14), a SHA-256 manifest, a loopback-only server, an
-evaluation on synthetic images, and a migration for any new `not_available_reason`.
+- **Model:** `google/medgemma-1.5-4b-it` at revision `91850547…`, the **official** gated repo (Health AI Developer
+  Foundations terms, accepted by the project owner on 2026-10-05). Ungated third-party copies are not used. Model card:
+  chest X-ray, CT, MRI, histopathology, dermatology and fundus — **not ECG** — and "not intended to directly inform
+  clinical diagnosis, patient management decisions, treatment recommendations, or any other direct clinical practice
+  applications". It is a medical-domain research model, **not a validated medical device**.
+- **Install** (`backend/scripts/download_medgemma_local.py`, explicit, never automatic): downloads that revision,
+  checks both weight shards and both tokenizer files against the SHA-256 the Hub publishes (pinned in the script),
+  refuses to convert on any mismatch, converts **locally** to MLX 8-bit with the OCR worker's mlx-vlm (post-training
+  quantization, as for Chandra, docs/14), and writes `SEHAT_ENGINE_MANIFEST.json` with the SHA-256 of **every** file of
+  the converted build. Weights live under `models/` (git-ignored).
+- **Runtime:** the existing local OCR worker (`.venv-ocr`) — Unix socket 0600 with a per-spawn token, no TCP port,
+  Python-level network egress blocked, Hugging Face forced offline, one large engine resident at a time (Surya,
+  Chandra or MedGemma), worker killed on timeout. Before loading, every manifest file is re-hashed and an unlisted
+  weight shard is refused (tested). The image travels in the request body and is not written to disk by the worker.
+  The prompt is the server's fixed per-type prompt; no case text is sent.
+- **Gates:** `MEDGEMMA_BACKEND=local` refuses to start unless the manifest and `.venv-ocr` exist (never a fallback to
+  fake or cloud). A call needs **AI-assist consent** (as for local text AI); the cloud-only synthetic attestation is not
+  required because the image does not leave this machine. **ECG strips are never sent** to it: they get status
+  `unsupported_type` (audited as `unsupported_image_type`) and the reviewer sees the raw image. Default timeout 120 s
+  (first call hashes ≈ 5 GB and loads the model).
+- **Everything downstream is unchanged:** parsing, the field-level non-diagnostic guard (§6), the negation-aware urgency
+  keyword rules (not clinician-validated, §7), acknowledgement before sign-off (§8), retention. Provenance:
+  `{mode: local, medical_model: true, validated_medical_device: false, synthetic: false}`; the card reads "Local
+  MedGemma (medical AI research model on this machine) — not a validated medical device; the image did not leave this
+  machine". Capabilities: `local_vision {available, active, model, unsupported_image_types, validated_medical_device}`.
+- **Not done:** any evaluation of description quality. The live check (§11) runs one procedurally drawn synthetic
+  picture, which shows the runtime works and nothing about accuracy. Real or realistic images need a governed
+  evaluation first (as docs/15 for OCR). Memory: the 8-bit build (≈ 5 GB) shares 16 GB with the local text model,
+  OCR and ASR; the worker keeps one large engine resident.
 
 ### 4b. Provenance (every image item)
 
 Each item carries `provenance: {provider, model, mode, synthetic, medical_model}`. `mode` is `fake` (canned demo text),
-`cloud` (google_ai / azure) or `none` (no backend was called: disabled, consent or attestation missing). `synthetic: true`
+`cloud` (google_ai / azure), `local` (MedGemma on this machine, §4a) or `none` (no backend was called: disabled, consent or attestation missing). `synthetic: true`
 and `medical_model: false` mark the fake; the UI then shows **"NO AI MODEL RAN — DEMO TEXT: a fixed canned example, not
 generated from this image"** above the card (front-loaded so a cropped screenshot still reads as a placeholder; council,
 2026-10-05). Imaging signals matched in canned text are labelled as coming from the demo text, on both the red and the
@@ -190,13 +203,22 @@ reads, acknowledges and deletes; triage consent must be in effect to read.
 | API path (upload, gates, failure, mismatch, acknowledgement, sign-off 409, delete, retention, capabilities, metadata strip) | Tested with the `fake` backend and AsyncMock doubles |
 | `GoogleAIBackend` / `AzureVisionBackend` | Contract-tested against a fake SDK module / fake SK service only |
 | Live Gemini or Azure call | **Not exercised** (no key, no synthetic image set). `VERIFICATION.medgemma = "mocked_only"` |
+| Local MedGemma install (§4a) | 2026-10-05: official revision `91850547`, 4/4 LFS files = Hub SHA-256, converted to MLX 8-bit (5.71 GB, 13 files, manifest); worker refuses tampered / unlisted files (tested) |
+| Local MedGemma live run | 2026-10-05, opt-in `RUN_LIVE_MEDGEMMA_TESTS=1 … -k live_local`: one **procedurally drawn** picture (ellipses and arcs, not a radiograph). First call 15.2 s (hash + load + generate), warm call 7.5 s, Apple M5 16 GB. The reply parsed and passed the guard. **It described the drawing as a normal chest X-ray** ("lung fields: clear", "abnormalities: none identified") **with self-reported confidence 0.95.** |
 | Output quality on real images | **Not evaluated.** No accuracy claim of any kind |
 | Keyword rules | **Not clinician-validated** |
 
 ## 12. Limitations
 
-- No local medical vision model (§4a). The cloud backends are for synthetic/demo images only, and `ai_assist` consent is a stand-in for a
-  future dedicated image purpose.
+- **False reassurance is the main risk of the local model.** The one live run above shows it will call an image normal
+  with high self-reported confidence even when the image is not a radiograph at all. Mitigations in this build: a
+  "nothing found" description never lowers urgency (raise-only; the rules engine decides), the card always says a
+  normal description rules nothing out, a self-reported "high" confidence is no longer shown in success-green, and the
+  reviewer must look at the image. There is no check that an upload is the declared image type beyond the filename
+  hint (§3). For a demo, `fake` (clearly labelled canned text) is the honest default; use `local` only to show that the
+  model runs, with synthetic images, never as evidence of accuracy.
+- The cloud backends are for synthetic/demo images only, and `ai_assist` consent is a stand-in for a future dedicated
+  image purpose.
 - Filename-based classification is a weak cross-check. Content-based classification is not implemented.
 - The guard is pattern-based and can be evaded. It also over-withholds some negated mentions (for example "no evidence of fracture" is withheld).
   The reviewer always has the image itself.

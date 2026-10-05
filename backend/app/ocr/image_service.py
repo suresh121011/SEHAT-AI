@@ -134,7 +134,16 @@ def _gate(settings: Settings, backend, snap: consent.ConsentSnapshot, synthetic_
             return "consent_ai_assist_missing"
         if not synthetic_attestation:
             return "synthetic_attestation_missing"
+    elif _is_model(backend):
+        # A real model on this machine (docs/18 §4a): AI-assist consent as for local text AI. The image never leaves this
+        # machine, so the cloud-only synthetic attestation is not required.
+        if not snap.is_effective("ai_assist"):
+            return "consent_ai_assist_missing"
     return None
+
+
+def _is_model(backend) -> bool:
+    return getattr(backend, "name", None) in medgemma.LOCAL_BACKENDS
 
 
 # ── upload ────────────────────────────────────────────────────────────────────────────────────────
@@ -259,8 +268,11 @@ async def _process(conn, principal, case_id, document_id, image_type, media, sto
         raise ApiError(500, "IMAGE_STORAGE_FAILED", "The image could not be stored", {"reason": "storage_failed"}) from None
 
     failure: str | None = None
+    unsupported = False
     raw: medgemma.RawFindings | None = None
-    if reason is None:
+    if reason is None and image_type in getattr(backend, "unsupported_image_types", ()):
+        unsupported = True  # e.g. ECG with local MedGemma (its model card excludes ECG): the model is never called
+    elif reason is None:
         try:
             with anyio.fail_after(settings.medgemma_timeout_s):
                 reply = await backend.describe(stored, media, medgemma.build_prompt(image_type), image_type=image_type)
@@ -269,6 +281,8 @@ async def _process(conn, principal, case_id, document_id, image_type, media, sto
             failure = "backend_timeout"
         except medgemma.BadResponse:
             failure = "bad_response"
+        except medgemma.UnsupportedImageType:
+            unsupported = True
         except Exception as exc:  # noqa: BLE001 - never leave the row pending; never echo the provider error
             failure = "backend_error"
             _log_internal(exc)
@@ -276,13 +290,18 @@ async def _process(conn, principal, case_id, document_id, image_type, media, sto
     consent_changed = abandoned = False
     async with transaction(conn):
         snap = await consent.snapshot(conn, case_id)
-        consent_changed = snap.authz_seq != authz_seq or not snap.is_effective("triage") or (reason is None and cloud and not snap.is_effective("ai_assist"))
+        consent_changed = snap.authz_seq != authz_seq or not snap.is_effective("triage") or (reason is None and (cloud or _is_model(backend)) and not snap.is_effective("ai_assist"))
         row = await (await conn.execute("SELECT status FROM medical_images WHERE document_id = ?", (document_id,))).fetchone()
         if row is None or row[0] != "pending":
             abandoned = True
         elif consent_changed:
             await _finalize_failed(conn, principal, case_id, document_id, image_type, mismatch, backend_name if reason is None else None, model,
                                    "consent_changed", request_id, outcome="denied")
+        elif unsupported:
+            await conn.execute("UPDATE medical_images SET status = 'unsupported_type', completed_at = ? WHERE document_id = ?", (_now(), document_id))
+            await audit.record(conn, principal=principal, action="medgemma_image_not_available", outcome="success", case_id=case_id, request_id=request_id,
+                               details=audit.MedgemmaNotAvailableDetails(document_id=document_id, image_class=image_type, reason="unsupported_image_type",
+                                                                         classifier_mismatch=mismatch))
         elif reason is not None:
             await conn.execute("UPDATE medical_images SET status = 'not_available', completed_at = ? WHERE document_id = ?", (_now(), document_id))
             await audit.record(conn, principal=principal, action="medgemma_image_not_available", outcome="success", case_id=case_id, request_id=request_id,
@@ -349,7 +368,8 @@ def _note(row, withheld: dict, band: str | None) -> str | None:
     if status == "failed":
         return FAILED_NOTES.get(row["failure_code"] or "", FAILED_NOTES["backend_error"])
     if status == "unsupported_type":
-        return "Image type not supported. Displaying raw image to reviewer."
+        return ("This image type is not supported by the configured image model (for local MedGemma: ECG is outside its model card), "
+                "so it was not described. Displaying the raw image to the reviewer.")
     if status == "pending":
         return "The image is being described."
     parts = [DESCRIBED_NOTE]

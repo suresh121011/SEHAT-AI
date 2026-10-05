@@ -38,11 +38,13 @@ AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com
 AI_PROVIDERS = ("none", "fake", "azure", "local")
 # AI_PROVIDER=local talks to a llama-server on this machine only (docs/16 §2a). Loopback hosts only, in code.
 LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal IPs only: "localhost" resolves through /etc/hosts
-MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure")
+MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure", "local")
 # A local medical-vision model is not installable in this build (docs/18 §4a): MEDGEMMA_BACKEND=local is refused by name.
-MEDGEMMA_LOCAL_UNAVAILABLE = ("MEDGEMMA_BACKEND=local is not available in this build: no pinned, hash-checked local MedGemma build "
-                              "exists yet (docs/18 §4a; access to the gated weights alone is not enough). Use fake (demo, not a model) or a cloud "
-                              "backend for synthetic images only")
+# MEDGEMMA_BACKEND=local (docs/18 §4a): MedGemma 1.5 4B converted here to MLX 8-bit from the official, SHA-checked weights,
+# run by the local OCR worker (.venv-ocr, Unix socket, egress blocked). Fixed path, like the Chandra build (docs/14).
+MEDGEMMA_LOCAL_DIR = REPO_ROOT / "models" / "medgemma" / "medgemma-1.5-4b-it-mlx-8bit"
+MEDGEMMA_LOCAL_NOT_INSTALLED = ("MEDGEMMA_BACKEND=local but the local MedGemma build is not installed: accept the model terms on Hugging Face, "
+                                "then run backend/scripts/download_medgemma_local.py (docs/18 §4a). No fallback to fake or cloud")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -317,7 +319,8 @@ def _medgemma_settings(ocr_enabled: bool) -> dict:
     backend = (_env("MEDGEMMA_BACKEND") or "google_ai").lower()
     model = _env("MEDGEMMA_MODEL") or "gemini-3.8-flash"
     key = _env("GOOGLE_AI_API_KEY")
-    timeout_raw = _env("MEDGEMMA_TIMEOUT_S") or "30"
+    # local: model load (+ a one-time hash of the 8-bit build) and generation on this machine take longer than a cloud call
+    timeout_raw = _env("MEDGEMMA_TIMEOUT_S") or ("120" if backend == "local" else "30")
     try:
         timeout = float(timeout_raw)
     except ValueError:
@@ -325,10 +328,13 @@ def _medgemma_settings(ocr_enabled: bool) -> dict:
     if enabled:
         if not ocr_enabled:
             raise RuntimeError("MEDGEMMA_ENABLED=1 requires OCR_ENABLED=1 (images are uploaded through the document route)")
-        if backend == "local":
-            raise RuntimeError(MEDGEMMA_LOCAL_UNAVAILABLE)
         if backend not in MEDGEMMA_BACKENDS:
-            raise RuntimeError("MEDGEMMA_BACKEND must be one of: fake, google_ai, azure")
+            raise RuntimeError("MEDGEMMA_BACKEND must be one of: fake, google_ai, azure, local")
+        if backend == "local":
+            if not (MEDGEMMA_LOCAL_DIR / "SEHAT_ENGINE_MANIFEST.json").is_file():
+                raise RuntimeError(MEDGEMMA_LOCAL_NOT_INSTALLED)
+            if not _path(_env("OCR_WORKER_PYTHON", "./.venv-ocr/bin/python")).is_file():
+                raise RuntimeError("MEDGEMMA_BACKEND=local requires the OCR worker venv (.venv-ocr, docs/14 §9): it runs the model")
         if not 1 <= timeout <= 120:
             raise RuntimeError("MEDGEMMA_TIMEOUT_S must be between 1 and 120 seconds")
         if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,100}", model):

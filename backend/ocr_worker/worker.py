@@ -1,4 +1,5 @@
-"""SEHAT AI local OCR worker (docs/14 §4) — runs Surya OCR 2 and Chandra OCR 2 on this machine.
+"""SEHAT AI local OCR worker (docs/14 §4) — runs Surya OCR 2 and Chandra OCR 2 on this machine, and the local
+MedGemma 1.5 image describer when MEDGEMMA_BACKEND=local (docs/18 §4a).
 
 Why a separate process: Surya 0.22 and Chandra need transformers 5.x; the voice model needs transformers <5
 (requirements-voice.txt). So these engines live in `.venv-ocr` and the backend talks to this worker.
@@ -8,7 +9,7 @@ Security and privacy (council R3.6):
   random token the backend generated when it spawned the worker (env SEHAT_OCR_WORKER_TOKEN).
 - Hugging Face / Datalab hubs are forced offline: models load from pinned local paths only.
 - Surya's llama-server is started on 127.0.0.1 with a random --api-key (Surya's client is patched to send it).
-- One large engine resident at a time (Surya or Chandra); the other is unloaded first (16 GB machine).
+- One large engine resident at a time (Surya, Chandra or MedGemma); the others are unloaded first (16 GB machine).
 - Page images arrive in the request body and are never written to disk; nothing is logged about content.
 
 Run (the backend does this; manual use is for the spike only):
@@ -42,6 +43,11 @@ SURYA_SHA256 = {
     "surya-2-mmproj.gguf": "98c0563673b1657ff6d021d1e5f04af06cbf61bb40c63ac613e8bb71b42fb2c0",
 }
 CHANDRA_MANIFEST = CHANDRA_DIR / "SEHAT_ENGINE_MANIFEST.json"
+# Local MedGemma 1.5 4B: converted HERE to MLX 8-bit from the official, SHA-checked weights (scripts/download_medgemma_local.py).
+MEDGEMMA_DIR = Path(os.environ.get("SEHAT_MEDGEMMA_DIR", REPO_ROOT / "models" / "medgemma" / "medgemma-1.5-4b-it-mlx-8bit"))
+MEDGEMMA_MANIFEST = MEDGEMMA_DIR / "SEHAT_ENGINE_MANIFEST.json"
+MEDGEMMA_MAX_TOKENS = 700
+_MANIFEST_ENGINES = {"chandra": (CHANDRA_DIR, CHANDRA_MANIFEST), "medgemma": (MEDGEMMA_DIR, MEDGEMMA_MANIFEST)}
 _verified: set[str] = set()
 
 
@@ -68,17 +74,22 @@ def _verify_engine(name: str) -> None:
             if _sha256(f) != sha:
                 raise IntegrityError(fname)
     else:
-        if not CHANDRA_MANIFEST.is_file():
-            raise FileNotFoundError("chandra manifest")
-        manifest = json.loads(CHANDRA_MANIFEST.read_text())
-        for fname, sha in manifest.get("files", {}).items():
-            f = CHANDRA_DIR / fname
+        directory, manifest_path = _MANIFEST_ENGINES[name]
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"{name} manifest")
+        manifest = json.loads(manifest_path.read_text())
+        files = manifest.get("files", {})
+        for fname, sha in files.items():
+            f = directory / fname
             if not f.is_file():
                 raise FileNotFoundError(fname)
             if _sha256(f) != sha:
                 raise IntegrityError(fname)
-        if "model.safetensors" not in manifest.get("files", {}):
+        if not any(f.endswith(".safetensors") for f in files) or "config.json" not in files:
             raise IntegrityError("manifest incomplete")
+        # every weight file on disk must be in the manifest: an added shard would otherwise load unchecked
+        if any(p.name not in files for p in directory.glob("*.safetensors")):
+            raise IntegrityError("unlisted weights")
     _verified.add(name)
 
 
@@ -152,6 +163,7 @@ class Engines:
         self.resident: str | None = None
         self._surya = None
         self._chandra = None
+        self._medgemma = None
 
     # ── residency ──
     def _unload(self) -> None:
@@ -163,6 +175,7 @@ class Engines:
             self._surya = None
         _kill_children()  # Surya's stop() does not always end its llama-server (seen 2026-10-01)
         self._chandra = None
+        self._medgemma = None
         self.resident = None
         gc.collect()
         try:
@@ -190,17 +203,23 @@ class Engines:
             llb.OpenAI = _client  # Surya's client otherwise sends api_key="EMPTY"
             mgr = SuryaInferenceManager()
             self._surya = (mgr, RecognitionPredictor(mgr))
-        else:
+        elif name == "chandra":
             from mlx_vlm import load
 
             model, processor = load(str(CHANDRA_DIR))
             self._chandra = (model, processor)
+        else:
+            from mlx_vlm import load
+
+            model, processor = load(str(MEDGEMMA_DIR))
+            self._medgemma = (model, processor)
         self.resident = name
 
     def status(self) -> dict:
         return {
             "surya": {"installed": (SURYA_GGUF_DIR / "surya-2.gguf").is_file(), "model": "datalab-to/surya-ocr-2-gguf@6a3a4c30"},
             "chandra": {"installed": (CHANDRA_DIR / "model.safetensors").is_file(), "model": "datalab-to/chandra-ocr-2@af93b47 (local MLX 8-bit)"},
+            "medgemma": {"installed": MEDGEMMA_MANIFEST.is_file(), "model": "google/medgemma-1.5-4b-it@91850547 (local MLX 8-bit)"},
             "resident": self.resident,
         }
 
@@ -250,6 +269,29 @@ class Engines:
         return {"engine": "chandra-ocr-2-mlx-8bit", "html": html}
 
 
+    def medgemma_describe(self, body: bytes) -> dict:
+        """Body: JSON {image_b64, prompt, temperature}. The image is decoded in memory and never written to disk;
+        the prompt is the server's fixed per-type prompt (app.ocr.medgemma.build_prompt), never case text."""
+        import base64
+
+        from mlx_vlm import generate
+        from mlx_vlm.prompt_utils import apply_chat_template
+        from PIL import Image
+
+        req = json.loads(body)
+        img = Image.open(io.BytesIO(base64.b64decode(req["image_b64"], validate=True))).convert("RGB")
+        temperature = float(req.get("temperature", 0.0))
+        if not 0.0 <= temperature <= 1.0:
+            raise ValueError("temperature")
+        with self.lock:
+            self._ensure("medgemma")
+            model, processor = self._medgemma
+            prompt = apply_chat_template(processor, model.config, str(req["prompt"]), num_images=1)
+            res = generate(model, processor, prompt, [img], max_tokens=MEDGEMMA_MAX_TOKENS, temperature=temperature, verbose=False)
+        text = res.text if hasattr(res, "text") else str(res)
+        return {"engine": "medgemma-1.5-4b-it-mlx-8bit", "text": text}
+
+
 ENGINES = Engines()
 TOKEN = os.environ.get("SEHAT_OCR_WORKER_TOKEN", "")
 
@@ -285,7 +327,8 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > MAX_BODY:
             return self._reply(413, {"error": "bad_size"})
         body = self.rfile.read(length)
-        routes = {"/surya/page": ENGINES.surya_page, "/chandra/page": ENGINES.chandra_page, "/chandra/crop": ENGINES.chandra_crop}
+        routes = {"/surya/page": ENGINES.surya_page, "/chandra/page": ENGINES.chandra_page, "/chandra/crop": ENGINES.chandra_crop,
+                  "/medgemma/describe": ENGINES.medgemma_describe}
         fn = routes.get(self.path)
         if fn is None:
             return self._reply(404, {"error": "not_found"})

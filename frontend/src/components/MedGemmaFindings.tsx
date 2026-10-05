@@ -34,7 +34,9 @@ type Props = {
 };
 
 const BAND: Record<ConfidenceBand, { bar: string; text: string; label: string }> = {
-  high: { bar: "bg-success", text: "text-success", label: "High" },
+  // Not green: high SELF-reported confidence is not evidence of a correct reading. Local MedGemma reported 95 % on a
+  // drawing that was not an X-ray and called it normal (docs/18 §11, 2026-10-05).
+  high: { bar: "bg-muted", text: "text-ink", label: "High" },
   moderate: { bar: "bg-warning", text: "text-warning", label: "Moderate" },
   low: { bar: "bg-error", text: "text-error", label: "Low" },
 };
@@ -160,6 +162,12 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
           <div className="h-2 overflow-hidden rounded bg-skeleton" role="img" aria-label={`Model's self-reported confidence: ${BAND[band].label}`}>
             <div className={`h-full ${BAND[band].bar}`} style={{ width: `${Math.max(4, Math.min(100, Math.round((f.confidence ?? (band === "high" ? 0.9 : band === "moderate" ? 0.65 : 0.3)) * 100)))}%` }} />
           </div>
+          {!demo && (
+            <p className="text-xs font-bold text-ink">
+              A “normal” or “nothing found” description never rules anything out. In testing, this kind of model called a drawing that was not an
+              X-ray normal, with high confidence. Look at the image.
+            </p>
+          )}
           {band === "low" && (
             <p className="flex items-start gap-1 text-xs font-bold text-error">
               <Icon name="alert" size={14} className="mt-0.5" /> Low self-reported confidence: check every finding against the original image. Findings are still shown.

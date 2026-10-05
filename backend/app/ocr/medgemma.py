@@ -352,7 +352,15 @@ def requires_acknowledgement(signals: list[dict], mismatch: bool) -> bool:
 # ── backends ──────────────────────────────────────────────────────────────────────────────────────
 
 CLOUD_BACKENDS = ("google_ai", "azure")
-BACKENDS = ("fake",) + CLOUD_BACKENDS
+LOCAL_BACKENDS = ("local",)
+BACKENDS = ("fake",) + CLOUD_BACKENDS + LOCAL_BACKENDS
+LOCAL_MODEL_ID = "google/medgemma-1.5-4b-it:91850547-mlx-q8-local"  # official weights, converted here to MLX 8-bit
+# The MedGemma 1.5 model card lists chest X-ray, CT, MRI, histopathology, dermatology and fundus — not ECG.
+LOCAL_UNSUPPORTED_TYPES = ("ecg_strip",)
+
+
+class UnsupportedImageType(Exception):
+    """The configured model is not meant for this image type: nothing is sent to it (status `unsupported_type`)."""
 
 
 class ImageBackend(Protocol):
@@ -471,6 +479,45 @@ class AzureVisionBackend:
         return reply.content
 
 
+class LocalMedGemmaBackend:
+    """MedGemma 1.5 4B on THIS machine (docs/18 §4a), run by the local OCR worker (.venv-ocr, mlx-vlm): Unix socket with a
+    per-spawn token, network egress blocked, every file of the locally converted 8-bit build checked against its manifest
+    before loading, worker killed on timeout. A medical-domain research model — not a validated medical device; its card
+    says outputs are not intended to directly inform diagnosis or patient management. ECG images are never sent."""
+
+    name = "local"
+    cloud = False
+    model = LOCAL_MODEL_ID
+    unsupported_image_types = LOCAL_UNSUPPORTED_TYPES
+
+    def __init__(self, settings, worker=None):
+        self.timeout_s = settings.medgemma_timeout_s
+        self._settings = settings
+        self._worker = worker
+
+    def _get_worker(self):
+        if self._worker is None:
+            from app.config import REPO_ROOT
+            from app.ocr.worker_client import get_worker
+
+            s = self._settings
+            self._worker = get_worker(s.ocr_worker_python, REPO_ROOT / "backend" / "ocr_worker" / "worker.py", s.ocr_model_dir / "run", s.ocr_model_dir)
+        return self._worker
+
+    async def describe(self, image_bytes: bytes, mime: str, prompt: str, *, image_type: str) -> str:
+        import base64
+
+        if image_type in self.unsupported_image_types:
+            raise UnsupportedImageType(image_type)
+        body = json.dumps({"image_b64": base64.b64encode(image_bytes).decode(), "prompt": prompt, "temperature": TEMPERATURE}).encode()
+        worker = self._get_worker()
+        res = await anyio.to_thread.run_sync(lambda: worker.call("/medgemma/describe", body, self.timeout_s))
+        text = res.get("text") if isinstance(res, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            raise BadResponse("empty")
+        return text
+
+
 def build_image_backend(settings) -> ImageBackend | None:
     """Explicit, from settings only. None when MEDGEMMA_ENABLED=0 (then nothing is ever called)."""
     if not settings.medgemma_enabled:
@@ -481,6 +528,8 @@ def build_image_backend(settings) -> ImageBackend | None:
         return GoogleAIBackend(settings)
     if settings.medgemma_backend == "azure":
         return AzureVisionBackend(settings)
+    if settings.medgemma_backend == "local":
+        return LocalMedGemmaBackend(settings)
     return None
 
 
@@ -490,6 +539,8 @@ def backend_ready(settings) -> bool:
         return False
     import importlib.util
 
+    if settings.medgemma_backend == "local":
+        return local_installed() and settings.ocr_worker_python.is_file()
     mod = {"fake": None, "google_ai": "google.genai", "azure": "semantic_kernel"}.get(settings.medgemma_backend, "")
     if mod is None:
         return True
@@ -502,20 +553,35 @@ def backend_ready(settings) -> bool:
 def provenance(backend: str | None, model: str | None) -> dict:
     """Where an image description came from (docs/18 §9). `synthetic` = canned demo text, not produced by any model.
     `none` = no backend was called (disabled, consent or attestation missing)."""
-    mode = "none" if backend is None else "fake" if backend == "fake" else "cloud" if backend in CLOUD_BACKENDS else "unknown"
-    return {"provider": backend, "model": model, "mode": mode, "synthetic": backend == "fake", "medical_model": False if backend == "fake" else None}
+    mode = ("none" if backend is None else "fake" if backend == "fake" else "cloud" if backend in CLOUD_BACKENDS
+            else "local" if backend in LOCAL_BACKENDS else "unknown")
+    medical = False if backend == "fake" else True if backend in LOCAL_BACKENDS else None
+    return {"provider": backend, "model": model, "mode": mode, "synthetic": backend == "fake", "medical_model": medical,
+            **({"validated_medical_device": False} if backend in LOCAL_BACKENDS else {})}
 
 
-# Local medical vision (docs/18 §4a): reported, never pretended. MedGemma 1.5 does not cover ECG (model card).
-LOCAL_VISION = {"available": False, "reason": "local_model_not_installed", "candidate": "google/medgemma-1.5-4b-it",
-                "requires": "a pinned, SHA-256-checked local build of the official weights on a loopback-only server, evaluated on synthetic "
-                            "images (not in this build; Hugging Face access to the gated weights is in place since 2026-10-05)",
-                "unsupported_image_types": ["ecg_strip"]}
+def local_installed() -> bool:
+    from app.config import MEDGEMMA_LOCAL_DIR
+
+    return (MEDGEMMA_LOCAL_DIR / "SEHAT_ENGINE_MANIFEST.json").is_file()
+
+
+def local_vision(settings) -> dict:
+    """Local medical vision status (docs/18 §4a): reported, never pretended. `available` means installed (manifest present);
+    the files are hash-checked again by the worker before every load. MedGemma 1.5 does not cover ECG (model card)."""
+    installed = local_installed()
+    active = settings.medgemma_enabled and settings.medgemma_backend == "local"
+    return {"available": installed, "active": active, "reason": None if installed else "local_model_not_installed",
+            "candidate": "google/medgemma-1.5-4b-it", "model": LOCAL_MODEL_ID if installed else None,
+            "requires": None if installed else "backend/scripts/download_medgemma_local.py (gated weights; terms accepted on Hugging Face)",
+            "unsupported_image_types": list(LOCAL_UNSUPPORTED_TYPES), "validated_medical_device": False}
 
 
 def model_for(settings) -> str | None:
     if settings.medgemma_backend == "fake":
         return FakeImageBackend.model
+    if settings.medgemma_backend == "local":
+        return LOCAL_MODEL_ID
     if settings.medgemma_backend == "azure":
         return settings.azure_openai_deployment_name or None
     return settings.medgemma_model

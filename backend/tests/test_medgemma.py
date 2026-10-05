@@ -615,14 +615,174 @@ def test_disabled_image_has_no_provider(ocr_client, monkeypatch):
     assert body["status"] == "not_available" and body["provenance"]["mode"] == "none" and body["provenance"]["synthetic"] is False
 
 
-def test_local_backend_is_refused_by_name_never_faked(monkeypatch):
+# ── Local MedGemma (docs/18 §4a). No model runs here: the real backend class talks to a fake worker. ─────────────
+
+@pytest.fixture
+def no_local_build(tmp_path, monkeypatch):
+    import app.config as config
+
+    monkeypatch.setattr(config, "MEDGEMMA_LOCAL_DIR", tmp_path / "absent")
+    return tmp_path
+
+
+@pytest.fixture
+def local_build(tmp_path, monkeypatch):
+    import app.config as config
+
+    d = tmp_path / "mg"
+    d.mkdir()
+    (d / "SEHAT_ENGINE_MANIFEST.json").write_text("{}")
+    py = tmp_path / "python"
+    py.write_text("")
+    monkeypatch.setattr(config, "MEDGEMMA_LOCAL_DIR", d)
+    monkeypatch.setenv("OCR_WORKER_PYTHON", str(py))
+    return d
+
+
+def test_local_backend_refuses_to_start_when_not_installed_never_faked(monkeypatch, no_local_build):
     _enable(monkeypatch, "local", OCR_ENABLED="1", OCR_RETENTION_DAYS="none")
-    with pytest.raises(RuntimeError, match="MEDGEMMA_BACKEND=local is not available in this build"):
+    with pytest.raises(RuntimeError, match="local MedGemma build is not installed.*No fallback"):
         get_settings()
     get_settings.cache_clear()
 
 
-def test_capabilities_report_local_vision_unavailable(ocr_client):
+def test_local_backend_starts_when_installed_with_a_longer_default_timeout(monkeypatch, local_build):
+    _enable(monkeypatch, "local", OCR_ENABLED="1", OCR_RETENTION_DAYS="none")
+    s = get_settings()
+    assert s.medgemma_backend == "local" and s.medgemma_timeout_s == 120.0
+    assert isinstance(medgemma.build_image_backend(s), medgemma.LocalMedGemmaBackend) and medgemma.backend_ready(s)
+    get_settings.cache_clear()
+
+
+def test_capabilities_report_local_vision_unavailable(ocr_client, no_local_build):
     caps = ocr_client.get(f"{API}/intake/document/capabilities", headers=auth(token_for(ocr_client, "anm"))).json()
     assert caps["local_vision"]["available"] is False and caps["local_vision"]["reason"] == "local_model_not_installed"
-    assert "ecg_strip" in caps["local_vision"]["unsupported_image_types"]
+    assert "ecg_strip" in caps["local_vision"]["unsupported_image_types"] and caps["local_vision"]["validated_medical_device"] is False
+
+
+def test_capabilities_report_local_vision_installed(ocr_client, local_build):
+    lv = ocr_client.get(f"{API}/intake/document/capabilities", headers=auth(token_for(ocr_client, "anm"))).json()["local_vision"]
+    assert lv["available"] is True and lv["model"] == medgemma.LOCAL_MODEL_ID and lv["unsupported_image_types"] == ["ecg_strip"]
+
+
+class FakeWorker:
+    def __init__(self, text='{"description": "Both lung fields are expanded.", "fields": {}, "confidence": 0.5, "image_quality": "adequate"}'):
+        self.text, self.calls = text, []
+
+    def call(self, path, body, timeout_s):
+        self.calls.append((path, json.loads(body), timeout_s))
+        return {"engine": "medgemma-1.5-4b-it-mlx-8bit", "text": self.text}
+
+
+def _local(worker):
+    from types import SimpleNamespace
+
+    return medgemma.LocalMedGemmaBackend(SimpleNamespace(medgemma_timeout_s=120.0), worker=worker)
+
+
+def test_local_backend_sends_image_and_fixed_prompt_only():
+    import asyncio
+    import base64
+
+    w = FakeWorker()
+    out = asyncio.run(_local(w).describe(b"\x89PNGdata", "image/png", "PROMPT", image_type="chest_xray"))
+    assert out == w.text
+    path, body, timeout = w.calls[0]
+    assert path == "/medgemma/describe" and base64.b64decode(body["image_b64"]) == b"\x89PNGdata" and body["prompt"] == "PROMPT"
+    assert set(body) == {"image_b64", "prompt", "temperature"} and timeout == 120.0
+
+
+def test_local_backend_never_sends_ecg_and_rejects_empty_replies():
+    import asyncio
+
+    w = FakeWorker()
+    with pytest.raises(medgemma.UnsupportedImageType):
+        asyncio.run(_local(w).describe(b"x", "image/png", "P", image_type="ecg_strip"))
+    assert w.calls == []
+    with pytest.raises(medgemma.BadResponse):
+        asyncio.run(_local(FakeWorker(text="  ")).describe(b"x", "image/png", "P", image_type="chest_xray"))
+
+
+def test_local_provenance_is_a_medical_model_but_not_a_validated_device():
+    p = medgemma.provenance("local", medgemma.LOCAL_MODEL_ID)
+    assert p["mode"] == "local" and p["synthetic"] is False and p["medical_model"] is True and p["validated_medical_device"] is False
+
+
+def test_api_local_ecg_is_unsupported_and_never_sent(ocr_client, monkeypatch):
+    _enable(monkeypatch)
+    w = FakeWorker()
+    ocr_client.app.state.medgemma_backend = _local(w)
+    anm = token_for(ocr_client, "anm")
+    case_id = new_case(ocr_client, anm)
+    assert grant(ocr_client, anm, case_id, ai=True).status_code == 200
+    body = _img(ocr_client, anm, case_id, "ecg_strip", filename="ecg_strip.png").json()
+    assert body["status"] == "unsupported_type" and "ECG is outside its model card" in body["note"] and w.calls == []
+    assert body["urgency_signals"] == [] and not body.get("raw_description")
+    assert json.loads(_actions(ocr_client, "medgemma_image_not_available")[-1]["details_json"])["reason"] == "unsupported_image_type"
+
+
+def test_api_local_needs_ai_assist_consent_but_no_cloud_attestation(ocr_client, monkeypatch):
+    _enable(monkeypatch)
+    w = FakeWorker()
+    ocr_client.app.state.medgemma_backend = _local(w)
+    anm = token_for(ocr_client, "anm")
+    no_ai = _ready_case(ocr_client, anm)  # triage consent only
+    body = _img(ocr_client, anm, no_ai, "chest_xray").json()
+    assert body["status"] == "not_available" and body["not_available_reason"] == "consent_ai_assist_missing" and w.calls == []
+
+    case_id = new_case(ocr_client, anm)
+    assert grant(ocr_client, anm, case_id, ai=True).status_code == 200
+    body = _img(ocr_client, anm, case_id, "chest_xray").json()  # no synthetic attestation: the image stays on this machine
+    assert body["status"] == "described" and len(w.calls) == 1
+    assert body["provenance"]["mode"] == "local" and body["provenance"]["synthetic"] is False and body["provenance"]["medical_model"] is True
+
+
+def synthetic_chest_like_png() -> bytes:
+    """Procedurally drawn, obviously synthetic chest-radiograph-like picture (no patient, no real image): two dark lung
+    fields, a spine and rib arcs on a light background. Exercises the runtime only; it says nothing about accuracy."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    img = Image.new("L", (512, 512), 200)
+    d = ImageDraw.Draw(img)
+    d.ellipse((90, 90, 240, 430), fill=60)
+    d.ellipse((272, 90, 422, 430), fill=60)
+    d.rectangle((246, 40, 266, 480), fill=225)
+    for y in range(110, 420, 32):
+        d.arc((80, y - 40, 250, y + 40), 200, 340, fill=170, width=6)
+        d.arc((262, y - 40, 432, y + 40), 200, 340, fill=170, width=6)
+    buf = io.BytesIO()
+    img.filter(ImageFilter.GaussianBlur(3)).convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.mark.live
+@pytest.mark.skipif(__import__("os").environ.get("RUN_LIVE_MEDGEMMA_TESTS") != "1",
+                    reason="set RUN_LIVE_MEDGEMMA_TESTS=1 after scripts/download_medgemma_local.py (runs the real local model)")
+def test_live_local_medgemma_describes_a_synthetic_image():
+    """Runtime smoke test of the real local model through the real worker. Prints the output for the human running it;
+    asserts only that the reply parses and passes through the non-diagnostic guard. NOT an evaluation."""
+    import asyncio
+    import time
+
+    from app.ocr.worker_client import shutdown_all
+
+    from dataclasses import replace
+
+    get_settings.cache_clear()
+    s = replace(get_settings(), medgemma_enabled=True, medgemma_backend="local", medgemma_timeout_s=120.0)  # independent of .env
+    backend = medgemma.LocalMedGemmaBackend(s)
+    try:
+        t = time.perf_counter()
+        reply = asyncio.run(backend.describe(synthetic_chest_like_png(), "image/png", medgemma.build_prompt("chest_xray"), image_type="chest_xray"))
+        first = time.perf_counter() - t
+        t = time.perf_counter()
+        asyncio.run(backend.describe(synthetic_chest_like_png(), "image/png", medgemma.build_prompt("chest_xray"), image_type="chest_xray"))
+        warm = time.perf_counter() - t
+    finally:
+        shutdown_all()
+    raw = medgemma.parse_output(reply, "chest_xray")
+    f = medgemma.filter_findings(raw)
+    print(f"\nfirst call {first:.1f}s (verify + load + generate), warm call {warm:.1f}s")
+    print("raw reply:", reply[:1500])
+    print("shown fields:", f.fields, "withheld:", f.withheld_fields, "description withheld:", f.description_withheld, "confidence:", raw.confidence)
+    assert isinstance(reply, str) and reply.strip()

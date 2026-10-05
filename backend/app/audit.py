@@ -192,7 +192,7 @@ class MedgemmaAnalyzedDetails(_Details):
 
     document_id: str
     image_class: MedicalImageType
-    backend: Literal["fake", "google_ai", "azure"]
+    backend: Literal["fake", "google_ai", "azure", "local"]
     model: str = Field(pattern=r"^[A-Za-z0-9._:/-]{1,100}$")
     status: Literal["described", "failed"]
     reason_code: str | None = Field(default=None, pattern=_CODE)
@@ -219,7 +219,7 @@ class MedgemmaBlockedDetails(_Details):
 class MedgemmaNotAvailableDetails(_Details):
     document_id: str
     image_class: MedicalImageType
-    reason: Literal["disabled", "consent_ai_assist_missing", "synthetic_attestation_missing"]
+    reason: Literal["disabled", "consent_ai_assist_missing", "synthetic_attestation_missing", "unsupported_image_type"]
     classifier_mismatch: bool
 
 

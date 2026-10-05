@@ -153,6 +153,11 @@ test("findingsSourceLabel never presents demo text as model output", () => {
   assert.match(findingsSourceLabel({ backend: "fake" }), /^NO AI MODEL RAN/); // older server without provenance
   assert.match(findingsSourceLabel({ backend: "google_ai", provenance: { provider: "google_ai", model: "m", mode: "cloud", synthetic: false } }), /^Cloud AI model/);
   assert.equal(findingsSourceLabel({ backend: null, provenance: { provider: null, model: null, mode: "none", synthetic: false } }), "No AI model was used");
+  const local = findingsSourceLabel({ backend: "local", provenance: { provider: "local", model: "m", mode: "local", synthetic: false, medical_model: true } });
+  assert.match(local, /^Local MedGemma/);
+  assert.match(local, /not a validated medical device/);
+  const note = aiAvailabilityNote({ ocr_enabled: true, document_types: {}, medgemma_enabled: true, medgemma_backend: "local", medgemma_ready: true, medgemma_cloud: false });
+  assert.match(note ?? "", /ECG strips are not described/);
 });
 
 test("findingsSourceLabel: unknown mode is not reported as 'no AI'", () => {

@@ -64,7 +64,8 @@ export function findingsSourceLabel(f: { backend?: string | null; provenance?: M
   // Front-loaded (council, Outsider): the first words say nothing ran, so a cropped screenshot still reads as a placeholder.
   if (f.provenance?.synthetic || mode === "fake") return "NO AI MODEL RAN — DEMO TEXT: a fixed canned example, not generated from this image";
   if (mode === "cloud") return "Cloud AI model (synthetic/demo images only) — general model, not a validated medical device";
-  if (mode === "local") return "AI model on the SEHAT server";
+  if (mode === "local")
+    return "Local MedGemma (medical AI research model on this machine) — not a validated medical device; the image did not leave this machine";
   if (mode === "none") return "No AI model was used";
   return "Source of this description is unknown — treat it with extra care";
 }
@@ -223,6 +224,9 @@ export function aiAvailabilityNote(caps: ImageCaps | null | undefined): string |
   if (caps.medgemma_ready === false) return "Medical image AI is enabled but not ready. Images are saved; an AI description may not be produced.";
   if (caps.medgemma_cloud) {
     return `Images marked as synthetic / test images are sent to a cloud AI service (${caps.medgemma_backend ?? "configured backend"}${caps.medgemma_model ? `, ${caps.medgemma_model}` : ""}) for a visual description. Other images are saved without one.`;
+  }
+  if (caps.medgemma_backend === "local") {
+    return "Images are described on this machine by MedGemma, a medical AI research model (not a validated medical device), with AI-assist consent. ECG strips are not described: they are outside that model's scope. The image does not leave this machine.";
   }
   return `Images are described by ${caps.medgemma_backend === "fake" ? "a canned offline demo backend (not a real model)" : (caps.medgemma_backend ?? "the configured backend")}.`;
 }
