@@ -286,10 +286,12 @@ class Engines:
         with self.lock:
             self._ensure("medgemma")
             model, processor = self._medgemma
-            prompt = apply_chat_template(processor, model.config, str(req["prompt"]), num_images=1)
+            # Prefill the model turn with "{": MedGemma 1.5 otherwise sometimes opens a hidden thinking block
+            # ("<unused94>thought ...") and runs out of tokens before any JSON (seen for wound/skin images, 2026-10-05).
+            prompt = apply_chat_template(processor, model.config, str(req["prompt"]), num_images=1) + "{"
             res = generate(model, processor, prompt, [img], max_tokens=MEDGEMMA_MAX_TOKENS, temperature=temperature, verbose=False)
         text = res.text if hasattr(res, "text") else str(res)
-        return {"engine": "medgemma-1.5-4b-it-mlx-8bit", "text": text}
+        return {"engine": "medgemma-1.5-4b-it-mlx-8bit", "text": "{" + text}
 
 
 ENGINES = Engines()

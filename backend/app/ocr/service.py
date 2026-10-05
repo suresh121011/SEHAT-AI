@@ -468,7 +468,11 @@ def _log_internal(exc: BaseException) -> None:
 
     app = [f for f in traceback.extract_tb(exc.__traceback__) if "/app/" in f.filename]
     where = f"{Path(app[-1].filename).name}:{app[-1].lineno} in {app[-1].name}" if app else "unknown"
-    logging.getLogger("sehat.ocr").error("ocr_pipeline_error type=%s at=%s", type(exc).__name__, where)
+    # Fixed reason codes only (EngineError.reason is one of a closed set). Never str(exc): exception messages can carry
+    # document text, model output or paths, and nothing about content is logged (docs/14 §8).
+    reason = getattr(exc, "reason", None)
+    reason = reason if isinstance(reason, str) and reason.replace("_", "").isalnum() and len(reason) <= 40 else "-"
+    logging.getLogger("sehat.ocr").error("ocr_pipeline_error type=%s at=%s reason=%s", type(exc).__name__, where, reason)
 
 
 def _acquire_slot() -> None:
