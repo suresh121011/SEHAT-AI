@@ -99,6 +99,40 @@ const PATHS: Record<string, React.ReactNode> = {
   chart: <path d="M4 20h16M7 20v-6M12 20V8M17 20v-9" />,
   list: <path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" />,
   print: <path d="M7 9V3.5h10V9M7 17H4.5V9h15v8H17M7 14h10v6.5H7V14Z" />,
+  // Medical image types (MedGemma visual findings).
+  xray: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
+      <path d="M12 6v12M8 8.5c1.5 0 2.5.5 4 1.5 1.5-1 2.5-1.5 4-1.5M7.5 11.5c2 0 3 .5 4.5 1.5 1.5-1 2.5-1.5 4.5-1.5M8 14.5c1.5 0 2.5.5 4 1.5 1.5-1 2.5-1.5 4-1.5" />
+    </>
+  ),
+  ecg: <path d="M2.5 12h4l2-5 3 10 2.5-7 1.5 2h6" />,
+  scan: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3.5v3M12 17.5v3" />
+    </>
+  ),
+  bandage: (
+    <>
+      <rect x="2.8" y="8.5" width="18.4" height="7" rx="3.5" transform="rotate(-45 12 12)" />
+      <path d="M10.6 10.6h.01M13.4 13.4h.01M13.4 10.6h.01M10.6 13.4h.01" />
+    </>
+  ),
+  skin: (
+    <>
+      <path d="M3.5 7.5c3-2 5.5-2 8.5 0s5.5 2 8.5 0M3.5 7.5V20h17V7.5" />
+      <circle cx="12" cy="14" r="2.5" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+      <circle cx="9" cy="9.5" r="1.8" />
+      <path d="m3.5 17 5-4.5 4 3.5 3-2.5 5 4" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;

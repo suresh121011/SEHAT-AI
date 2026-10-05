@@ -55,6 +55,11 @@ AuditAction = Literal[
     "red_escalation_acknowledged",
     "red_escalation_overdue",
     "triage_corrected",
+    "medgemma_image_analyzed",
+    "medgemma_diagnosis_blocked",
+    "medgemma_image_not_available",
+    "medgemma_findings_acknowledged",
+    "medgemma_image_deleted",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -178,11 +183,58 @@ class OcrDeletedDetails(_Details):
     files_failed: int = Field(ge=0)
 
 
+MedicalImageType = Literal["chest_xray", "ecg_strip", "ct_report_image", "wound_photo", "skin_lesion"]
+_CODE = r"^[a-z_]{1,48}$"
+
+
+class MedgemmaAnalyzedDetails(_Details):
+    """Codes, counts, backend and model only: never description text, field values or the image (docs/18 §9)."""
+
+    document_id: str
+    image_class: MedicalImageType
+    backend: Literal["fake", "google_ai", "azure", "local"]
+    model: str = Field(pattern=r"^[A-Za-z0-9._:/-]{1,100}$")
+    status: Literal["described", "failed"]
+    reason_code: str | None = Field(default=None, pattern=_CODE)
+    confidence_band: Literal["high", "moderate", "low"] | None = None
+    field_count: int = Field(ge=0)
+    withheld_field_count: int = Field(ge=0)
+    description_withheld: bool
+    signal_codes: list[str] = Field(default_factory=list, max_length=16)
+    red_count: int = Field(ge=0)
+    yellow_count: int = Field(ge=0)
+    review_note_count: int = Field(ge=0)
+    classifier_mismatch: bool
+    rule_sets: list[MedicalImageType] = Field(default_factory=list, max_length=5)
+
+
+class MedgemmaBlockedDetails(_Details):
+    document_id: str
+    reasons: list[str] = Field(max_length=8)
+    withheld_field_count: int = Field(ge=0)
+    dropped_sentence_count: int = Field(ge=0)
+    description_withheld: bool
+
+
+class MedgemmaNotAvailableDetails(_Details):
+    document_id: str
+    image_class: MedicalImageType
+    reason: Literal["disabled", "consent_ai_assist_missing", "synthetic_attestation_missing", "unsupported_image_type"]
+    classifier_mismatch: bool
+
+
+class MedgemmaAcknowledgedDetails(_Details):
+    document_id: str
+    requires_acknowledgement: bool
+    classifier_mismatch: bool
+    signal_count: int = Field(ge=0)
+
+
 class AiExtractionDetails(_Details):
     """Counts and enums only: no values, quotes or segment text."""
 
     extraction_id: str
-    provider: Literal["fake", "azure"]
+    provider: Literal["fake", "azure", "local"]
     status: Literal["completed", "insufficient_agreement"]
     passes_requested: int = Field(ge=0)
     passes_valid: int = Field(ge=0)
@@ -193,6 +245,7 @@ class AiExtractionDetails(_Details):
     disputed_raise: int = Field(ge=0)
     dropped_ungrounded: int = Field(ge=0)
     urgency_suggestion: Literal["RED", "YELLOW", "GREEN"] | None
+    keyword_suggestions: int = Field(default=0, ge=0)  # keyword_rule red-flag candidates (not model output), docs/16 §2c
 
 
 class AiFieldReviewDetails(_Details):

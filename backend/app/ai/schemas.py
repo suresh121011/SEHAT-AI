@@ -86,13 +86,16 @@ _UNSUPPORTED_STRICT_KEYS = {"default", "title", "minLength", "maxLength", "patte
                             "exclusiveMinimum", "exclusiveMaximum", "format", "description"}
 
 
-def strict_json_schema(model: type[BaseModel]) -> dict:
+def strict_json_schema(model: type[BaseModel], keep_constraints: bool = False) -> dict:
     """JSON schema for provider structured output (strict mode): every object closed and every property
-    required. Constraint keywords are removed for the provider; the server re-validates the full model."""
+    required. Constraint keywords are removed for Azure strict mode; `keep_constraints=True` keeps them for
+    llama.cpp, whose grammar enforces lengths, item counts and patterns (docs/16 §2a). Either way the server
+    re-validates the full model."""
+    drop = {"default", "title", "description"} if keep_constraints else _UNSUPPORTED_STRICT_KEYS
 
     def walk(node):
         if isinstance(node, dict):
-            out = {k: walk(v) for k, v in node.items() if k not in _UNSUPPORTED_STRICT_KEYS}
+            out = {k: walk(v) for k, v in node.items() if k not in drop}
             if out.get("type") == "object" and "properties" in out:
                 out["additionalProperties"] = False
                 out["required"] = list(out["properties"])

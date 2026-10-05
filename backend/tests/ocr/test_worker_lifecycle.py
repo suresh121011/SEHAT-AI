@@ -184,6 +184,36 @@ def test_engine_files_with_wrong_hash_are_refused(tmp_path, engine):
     assert out.stdout.strip() == "refused", out.stderr[-500:]
 
 
+def _medgemma_verify(tmp_path, files: dict[str, bytes], manifest: dict) -> str:
+    import hashlib
+    import json
+    from pathlib import Path
+
+    d = tmp_path / "mg"
+    d.mkdir(parents=True)
+    for name, data in files.items():
+        (d / name).write_bytes(data)
+    (d / "SEHAT_ENGINE_MANIFEST.json").write_text(json.dumps({"files": {n: (hashlib.sha256(files[n]).hexdigest() if v is None else v)
+                                                                         for n, v in manifest.items()}}))
+    worker_dir = Path(__file__).parents[2] / "ocr_worker"
+    code = f"import sys; sys.path.insert(0, {str(worker_dir)!r}); import worker\n" \
+           f"try:\n    worker._verify_engine('medgemma'); print('ok')\nexcept worker.IntegrityError as e:\n    print('refused', e)\n" \
+           f"except FileNotFoundError:\n    print('missing')\n"
+    out = subprocess.run([sys.executable, "-c", code], env={**os.environ, "SEHAT_MEDGEMMA_DIR": str(d), "SEHAT_OCR_MODELS": str(tmp_path / "ocr")},
+                         capture_output=True, text=True, timeout=60)
+    return out.stdout.strip() or out.stderr[-300:]
+
+
+def test_medgemma_build_is_checked_before_loading(tmp_path):
+    """docs/18 §4a: every listed file must match; an unlisted weight shard is refused; a complete build passes."""
+    files = {"config.json": b"{}", "model.safetensors": b"weights"}
+    assert _medgemma_verify(tmp_path / "a", files, {"config.json": None, "model.safetensors": None}) == "ok"
+    assert _medgemma_verify(tmp_path / "b", files, {"config.json": None, "model.safetensors": "0" * 64}) == "refused model.safetensors"
+    extra = {**files, "model-2.safetensors": b"unlisted"}
+    assert _medgemma_verify(tmp_path / "c", extra, {"config.json": None, "model.safetensors": None}) == "refused unlisted weights"
+    assert _medgemma_verify(tmp_path / "d", {"config.json": b"{}"}, {"config.json": None}) == "refused manifest incomplete"
+
+
 def test_worker_exits_when_its_backend_dies(tmp_path):
     """A backend that is killed (no graceful shutdown) must not leave the worker resident (seen 2026-10-02)."""
     worker = Path(__file__).parents[2] / "ocr_worker" / "worker.py"

@@ -47,6 +47,8 @@ class StoredPage:
 
 
 def sniff(data: bytes) -> MediaType:
+    if not data:
+        raise DocumentInvalid("empty")
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):

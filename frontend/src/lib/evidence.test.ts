@@ -54,4 +54,7 @@ test("instructions never claim verification", () => {
   }
   assert.match(instruction({ ...base, disputed: true }).text, /Two different readings/);
   assert.notEqual(instruction(base).symbol, "✓"); // the confirm button's tick is never shown on an unreviewed row
+  // A decided row no longer says "ready to check" (pre-Phase 9 walkthrough); an unreviewed one still does.
+  for (const review_status of ["confirmed", "corrected", "unsure", "rejected"]) assert.match(instruction({ ...base, review_status }).text, /Decision recorded/);
+  assert.doesNotMatch(instruction({ ...base, review_status: "machine_read" }).text, /Decision recorded/);
 });

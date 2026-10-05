@@ -309,7 +309,7 @@ def run_pipeline(data: bytes, document_type: DocType, settings: Settings, engine
         cands: list[LabCandidate] = []
         for i in sorted(pages):
             cands += extract_lab(pages[i])
-        cands += prose_cands
+        cands = drop_prose_duplicates(cands, prose_cands) + prose_cands
         lab_fields = verify_lab(
             cands, pages, second_engine=second,
             reread=lambda page_index, bbox, zoom: engines.paddle_reread(png_by_index[page_index], bbox, zoom),
@@ -380,6 +380,16 @@ def _age_s(iso: str) -> float:
     return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
 
 
+def drop_prose_duplicates(table_cands: list[LabCandidate], prose_cands: list[LabCandidate]) -> list[LabCandidate]:
+    """A discharge summary's "Name: value" line is read by the prose path (Chandra primary, PaddleOCR's text of the
+    same block as the second reading). Without a table header, extract_lab's pattern fallback reads the same line
+    again, so the reviewer saw one printed value twice and could confirm or contradict it twice (pre-Phase 9
+    walkthrough). Drop only those pattern-fallback duplicates; header-anchored table rows are always kept, and
+    PaddleOCR's reading still cross-checks the prose value in verify_lab."""
+    prose_keys = {(c.page_index, c.analyte_key) for c in prose_cands}
+    return [c for c in table_cands if not ("no_column_header" in c.flags and (c.page_index, c.analyte_key) in prose_keys)]
+
+
 async def upload(conn: aiosqlite.Connection, principal: Principal, case_id: str, data: bytes, document_type: DocType,
                  idempotency_key: str, settings: Settings, request_id: str | None = None, engines=None) -> dict:
     check_available(settings, document_type)
@@ -387,6 +397,8 @@ async def upload(conn: aiosqlite.Connection, principal: Principal, case_id: str,
     try:
         media = files.sniff(data)
     except files.DocumentInvalid as exc:
+        if exc.reason == "empty":  # docs/14 §7: an empty file is an invalid document, not an unsupported type
+            raise ApiError(400, "DOCUMENT_INVALID", "The file is empty", {"reason": "empty"}) from None
         raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Send a PNG, JPEG or PDF document", {"reason": exc.reason}) from None
     document_id = str(uuid.uuid4())
     denial = None
@@ -1083,6 +1095,9 @@ async def startup_sweep(conn, settings: Settings) -> int:
             swept += 1
     await retention_sweep(conn, settings)
     await retry_purged_files(conn, settings)
+    from app.ocr import image_service  # lazy: image_service imports this module
+
+    await image_service.startup_sweep(conn, settings)  # medical images (docs/18): same store, `.img` files
     root = settings.ocr_document_dir
     if root.is_dir():
         async with conn.execute("SELECT file_ref FROM ocr_pages") as cur:
@@ -1173,9 +1188,18 @@ async def delete_document(conn, principal: Principal, case_id: str, document_id:
 
 async def retention_sweep(conn, settings: Settings) -> int:
     """Purge documents older than OCR_RETENTION_DAYS (if set) and retry deleting files of purged documents.
-    Run at startup and before every document request, so expired content is never served."""
+    Run at startup and before every document request, so expired content is never served. Medical images
+    (docs/18) follow the same policy and are swept here too."""
     if settings.ocr_retention_days is None:
         return 0
+    from app.ocr import image_service  # lazy: image_service imports this module
+
+    images_purged = await image_service.retention_sweep(conn, settings)
+    return images_purged + await _retention_sweep_documents(conn, settings)
+
+
+async def _retention_sweep_documents(conn, settings: Settings) -> int:
+    assert settings.ocr_retention_days is not None
     from datetime import timedelta
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=settings.ocr_retention_days)).isoformat(timespec="microseconds")

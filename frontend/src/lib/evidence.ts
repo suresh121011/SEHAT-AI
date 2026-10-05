@@ -50,7 +50,9 @@ export function fieldAt<T extends { id: string; regions: Region[] }>(
 export type Instruction = { text: string; symbol: string };
 
 /** One plain instruction per row (council R3.6 / Outsider). Never says "verified". */
-export function instruction(f: { band: string; disputed: boolean; can_confirm: boolean; checks: { check: string; status: string; reason: string }[] }): Instruction {
+export function instruction(f: { band: string; disputed: boolean; can_confirm: boolean; checks: { check: string; status: string; reason: string }[]; review_status?: string }): Instruction {
+  // Once a person has decided the row, the "check then confirm" prompt is stale (pre-Phase 9 walkthrough).
+  if (f.review_status && f.review_status !== "machine_read") return { symbol: "•", text: "Decision recorded — change it only after checking the paper again" };
   if (f.band === "human_entry") return { symbol: "✎", text: "Could not read — type it from the paper or reject" };
   if (f.disputed) return { symbol: "⇄", text: "Two different readings — choose the correct value" };
   if (f.checks.some((c) => c.check === "rxnorm" && c.status === "warn"))

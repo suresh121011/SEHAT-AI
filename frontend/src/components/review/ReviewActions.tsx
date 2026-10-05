@@ -52,6 +52,8 @@ function describe(err: unknown, resolve: ((field: string) => string | null) | nu
     URGENCY_CHANGED: "Out of date: another reviewer changed the recorded urgency while this was open. Nothing was recorded. The case has been reloaded; check the current urgency before deciding again.",
     ALREADY_SIGNED_OFF: "This run is already signed off. Nothing new was recorded.",
     ALREADY_ACKNOWLEDGED: "This RED case was already acknowledged. Nothing new was recorded.",
+    IMAGE_FINDINGS_NOT_REVIEWED:
+      "Medical image findings on this case have not been marked as reviewed. Open Source evidence → Medical image findings, look at each original image and tick \u201cFindings reviewed\u201d, then sign off. Nothing was recorded.",
     NO_CHANGE: "The new urgency is the same as the current one. Nothing was recorded.",
     NOT_ESCALATED: "This run is not RED, so there is nothing to acknowledge.",
     CONSENT_REQUIRED: "Consent for triage is not in effect, so this cannot be recorded.",

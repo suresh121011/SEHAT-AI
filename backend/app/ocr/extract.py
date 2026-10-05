@@ -158,7 +158,7 @@ def _split_value_flag(val_toks: list[_Tok], flag_toks: list[_Tok]) -> tuple[list
 
 
 def _candidate(page: PageOCR, row_index: int, cols: dict[str, list[_Tok]], flags: list[str]) -> LabCandidate | None:
-    name_raw = _join(cols["name"])
+    name_raw = _join(cols["name"]).rstrip(" :")  # "Haemoglobin:" → "Haemoglobin" (the key lookup ignores it anyway)
     val_toks, flag_toks = _split_value_flag(cols["value"], cols["flag"])
     value_raw = _join(val_toks)
     key = analyte_key(name_raw)

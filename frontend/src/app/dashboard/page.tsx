@@ -68,6 +68,11 @@ function ReviewerDashboard() {
     [reloadBoth],
   );
 
+  // Medical images still needing "Findings reviewed" (reported by the evidence panel); sign-off waits for them.
+  const [imagePending, setImagePending] = useState<{ caseId: string; count: number } | null>(null);
+  const onImagesPending = useCallback((count: number) => setImagePending(caseId ? { caseId, count } : null), [caseId]);
+  const imageAcksPending = imagePending && imagePending.caseId === caseId ? imagePending.count : 0;
+
   const q = queue.data;
   const stale = q ? isStale(q.generated_at, now, queue.offsetMs) || queue.error !== null : false;
   const escalations = q ? openEscalations(q.items) : [];
@@ -162,7 +167,7 @@ function ReviewerDashboard() {
                     <StaleNotice error={review.error} onRetry={() => void review.reload()} updatedAt={r.generated_at} />
                   </div>
                 )}
-                <CaseWorkspace review={r} now={now} offsetMs={review.offsetMs} onAction={onAction} onStale={() => void reloadBoth()} onDialogChange={setDialogOpen} />
+                <CaseWorkspace review={r} now={now} offsetMs={review.offsetMs} onAction={onAction} onStale={() => void reloadBoth()} onDialogChange={setDialogOpen} imageAcksPending={imageAcksPending} />
               </>
             )}
           </section>
@@ -172,7 +177,7 @@ function ReviewerDashboard() {
               <CounterfactualPanel caseId={r.case.case_id} runId={r.latest.triage_run_id} actual={r.latest.rules_urgency} canCompute={r.can_review && r.clinical_content_available && r.latest.has_input} />
               <SectionCard id="evidence-heading" title="Source evidence" icon="document">
                 {r.can_review ? (
-                  <EvidencePanel caseId={r.case.case_id} consent={r.consent} clinical={r.clinical_content_available} />
+                  <EvidencePanel caseId={r.case.case_id} consent={r.consent} clinical={r.clinical_content_available} onImagesPending={onImagesPending} />
                 ) : (
                   <p className="text-sm text-muted">Source evidence is shown to the medical officer reviewing the case.</p>
                 )}

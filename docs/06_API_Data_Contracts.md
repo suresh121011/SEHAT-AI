@@ -54,7 +54,13 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | POST | `/cases/{case_id}/voice/candidates/{candidate_id}/readback` | Reviewer confirms/corrects/rejects a heard value | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/voice/prefill` | Reviewer-confirmed values shaped for `TriageInput` | anm (creator), medical_officer |
 | POST | `/intake/document` | Upload document for OCR (multipart: file, case_id, document_type, idempotency_key). **Implemented Phase 5 — ANM only, local engines; contract, review and DELETE endpoints in [docs/14 §7](14_OCR_Pipeline.md)** | anm |
-| POST | `/intake/image` | Upload medical image for MedGemma (**deferred**, docs/14 §11) | patient, anm |
+| POST | `/intake/document` (image types) | Medical image visual-findings description: `document_type` ∈ `chest_xray`, `ecg_strip`, `ct_report_image`, `wound_photo`, `skin_lesion` (PNG/JPEG only; PDF → 415), optional `synthetic_attestation` (`"true"`/`"false"`). Same route; text types are unchanged. **Implemented behind `MEDGEMMA_ENABLED` (default off) — response shape §3.4, details in [docs/18](18_Medical_Image_Pipeline.md) §10. Not a diagnosis.** | anm |
+| GET | `/cases/{case_id}/medical-images` | `{case_id, medical_images: [item §3.4]}` (deleted images omitted) | anm (creator), medical_officer |
+| GET | `/cases/{case_id}/medical-images/{document_id}/image` | Stored (metadata-stripped) image bytes; `Cache-Control: no-store`, `nosniff`, `inline` | anm (creator), medical_officer |
+| POST | `/cases/{case_id}/medical-images/{document_id}/acknowledge` | Body `{}`. "Findings reviewed" (append-only, idempotent); required before sign-off when `requires_acknowledgement` | anm (creator), medical_officer |
+| DELETE | `/cases/{case_id}/medical-images/{document_id}` | Delete the image and its findings (same retention policy as OCR documents) | anm (creator), medical_officer |
+| GET | `/intake/document/capabilities` | Adds `medgemma_enabled`, `medgemma_backend`, `medgemma_model`, `medgemma_ready`, `medgemma_cloud`, `supported_image_types`; `document_types` lists the five image keys (true only when enabled); `verification.medgemma = "mocked_only"` | any signed-in role |
+| POST | `/intake/image` | Not implemented: medical images use `POST /intake/document` (above) | — |
 | POST | `/intake/body-map` | Submit body map selections | patient, anm |
 | POST | `/intake/text` | Submit text/form input | patient, anm |
 | POST | `/intake/vitals` | Submit vital signs | anm, medical_officer |
@@ -64,7 +70,7 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
 | GET | `/ai/capabilities` | Provider (`none`/`fake`/`azure`), kind, MAKER passes, translation state | any signed-in role |
-| POST | `/cases/{case_id}/ai/extractions` | `{idempotency_key, intake_text?, include_voice?, include_ocr_reviewed?}` → grounded, MAKER-voted fields (needs `ai_assist` consent) | anm (creator), medical_officer |
+| POST | `/cases/{case_id}/ai/extractions` | `{idempotency_key, intake_text?, include_voice?, include_ocr_reviewed?}` → grounded, MAKER-voted fields plus deterministic red-flag candidates (`origin: keyword_rule`, `source_type`, `provenance.ai_model_output: false`; docs/16 §2c) (needs `ai_assist` consent) | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/ai/extractions[/{extraction_id}]` | Runs; one run with fields, missing information and follow-up questions | anm (creator), medical_officer |
 | POST | `/cases/{case_id}/ai/fields/{field_id}/review` | `{outcome: accepted\|corrected\|rejected\|unsure, corrected?, supersedes?}` | anm (creator), medical_officer |
 | GET | `/cases/{case_id}/ai/reviewed` | Reviewed values with sources and triage-form hints (view only; never submits) | anm (creator), medical_officer |
@@ -209,40 +215,44 @@ Prefill source reference (per value): `{"type": "voice_transcript" | "voice_manu
 }
 ```
 
-### 3.4 IntakePayload (Medical Image)
+### 3.4 IntakePayload (Medical Image) — implemented ([docs/18](18_Medical_Image_Pipeline.md) §10)
+
+Response of `POST /intake/document` for an image type, and each item of `GET /cases/{case_id}/medical-images`.
+The `disclaimer` is present for every status. Withheld text is never returned (only field names, a flag and reason codes).
+Urgency signals are keyword hits (not clinician-validated), raise-only reviewer flags; they never change the rules-engine urgency.
 
 ```json
 {
-  "case_id": "uuid",
-  "input_type": "medical_image",
-  "image_type": "ecg_strip",
-  "analysis_engine": "medgemma",
-  "findings": {
-    "raw_description": "ST-segment elevation in leads V1-V4. Rate 110 bpm. Sinus tachycardia. No bundle branch block pattern.",
-    "structured_fields": {
-      "rate_bpm": "110",
-      "rhythm": "sinus_tachycardia",
-      "st_segment": "elevation V1-V4",
-      "t_wave": "normal",
-      "abnormalities": "ST elevation V1-V4"
-    },
-    "urgency_signals": [
-      {
-        "signal": "ST_ELEVATION",
-        "action": "RED_FLAG",
-        "note": "ST elevation detected — potential acute coronary event",
-        "source": "MedGemma image analysis"
-      }
-    ],
-    "confidence": 0.87,
-    "disclaimer": "AI-described visual findings, pending specialist review"
-  },
-  "source_ref": {
-    "type": "medical_image",
-    "file_ref": "images/PHC-2026-0453-ecg.jpg"
-  }
+  "document_id": "uuid", "case_id": "uuid", "pipeline": "medgemma",
+  "image_class": "ecg_strip", "declared_type": "ecg_strip",
+  "classifier_hint": "ecg_strip", "classifier_mismatch": false,
+  "status": "described",
+  "note": "AI-described visual findings for a qualified reviewer to interpret. Not a diagnosis; urgency is not changed by this.",
+  "not_available_reason": null,
+  "raw_description": "Regular narrow-complex rhythm at about 110 beats per minute. ST-segment elevation is visible in leads V1 to V4.\n\n⚠️ AI-DESCRIBED VISUAL FINDINGS — NOT A DIAGNOSIS. ...",
+  "structured_fields": {"rate_bpm": "about 110", "st_segment": "ST elevation in leads V1-V4", "abnormalities": "ST-segment elevation V1-V4"},
+  "withheld": {"fields": [], "description": false, "reasons": []},
+  "urgency_signals": [
+    {"signal": "ST_ELEVATION", "action": "RED_FLAG", "note": "ST-segment elevation is described in the ECG image — urgent clinician review of the ECG",
+     "source": "MedGemma image analysis", "rule_set": "ecg_strip", "negated": false}
+  ],
+  "confidence": 0.82, "confidence_band": "high",
+  "disclaimer": "⚠️ AI-DESCRIBED VISUAL FINDINGS — NOT A DIAGNOSIS. These observations require review and interpretation by a qualified medical professional. Clinical decisions remain with the reviewing medical officer.",
+  "keyword_rules_validated": false,
+  "source_image_url": "/api/backend/cases/{case_id}/medical-images/{document_id}/image",
+  "media_type": "image/png",
+  "backend": "fake", "model": "fake-canned-v1", "prompt_version": "sehat-img-p1-2026-10-05", "guard_version": "sehat-img-guard-1",
+  "rule_sets_run": ["ecg_strip"],
+  "requires_acknowledgement": true, "acknowledged": false,
+  "created_at": "2026-10-05T10:00:00.000000+00:00", "completed_at": "2026-10-05T10:00:01.000000+00:00"
 }
 ```
+
+- `status`: `described` | `not_available` | `unsupported_type` | `failed`. `not_available_reason`: `disabled` | `consent_ai_assist_missing` | `synthetic_attestation_missing` | null.
+- `urgency_signals[].action`: `RED_FLAG` | `YELLOW_FLAG` | `REVIEW_NOTE` (a negated mention, `negated: true`, never raises).
+- `confidence` is the model's own uncalibrated self-report; `confidence_band` (`high` > 0.8, `moderate` 0.5–0.8, `low` < 0.5) is a label only and never hides anything.
+- `requires_acknowledgement` = any RED/YELLOW signal OR `classifier_mismatch`. Sign-off answers `409 IMAGE_FINDINGS_NOT_REVIEWED` until acknowledged.
+- The case review (`GET /triage/{case_id}`) carries `image_findings: {flags, unacknowledged, mismatches, keyword_rules_validated, note}` (`flags` is null without triage consent).
 
 ### 3.5 TriageNote (Core Output)
 
@@ -600,6 +610,8 @@ All API errors follow a consistent shape:
 | `TRIAGE_LOCKED` | 409 | Case already signed off, cannot modify |
 | `PII_DETECTED` | 422 | Possible identifier remained after redaction; request blocked |
 | `INJECTION_BLOCKED` | 422 | Prompt injection pattern detected in input |
+| `IMAGE_FINDINGS_NOT_REVIEWED` | 409 | Sign-off refused: an AI-described medical image with flags or a type mismatch has not been acknowledged ([docs/18](18_Medical_Image_Pipeline.md)) |
+| `IMAGE_STORAGE_FAILED` | 500 | The medical image could not be stored |
 
 ---
 

@@ -1,0 +1,8 @@
+# SEHAT AI — optional NVIDIA NeMo Guardrails layer (docs/16 §2b). Not installed by default; the app runs and every
+# other feature works without it. GUARDRAILS_ENABLED=1 refuses to start unless this is installed.
+#   uv pip install --python .venv/bin/python -r backend/requirements-guardrails.txt
+# Used only through LLMRails.check_async with custom Python actions (no LLM, no dialog rails, no embeddings).
+# Usage telemetry is switched off in code before import (NEMO_GUARDRAILS_NO_USAGE_STATS=1, DO_NOT_TRACK=1).
+# Dry-run resolution on 2026-10-05 added 14 packages with no downgrades.
+-r requirements.txt
+nemoguardrails==0.24.1     # Apache-2.0; Python >=3.10,<3.14

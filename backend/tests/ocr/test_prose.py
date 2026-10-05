@@ -80,3 +80,38 @@ def test_discharge_summary_prose_values_cross_checked_and_never_accepted(monkeyp
     assert "single_engine" in hb.caps  # PaddleOCR did not read haemoglobin in this block
     assert all(v.band != "accept" for v in f.values())  # line-level region, no engine score: a human checks every value
     get_settings.cache_clear()
+
+
+def _cand(page_index, key, flags, engine="paddleocr", name="Haemoglobin"):
+    from app.ocr.extract import LabCandidate
+    from app.ocr.parse import parse_range, parse_unit, parse_value
+
+    return LabCandidate(page_index=page_index, row_index=0, name_raw=name, analyte_key=key, value=parse_value("11.2"), unit=parse_unit("g/dL"),
+                        range=parse_range(""), flag_raw="", printed_flag=None, regions=[], value_score=None, flags=flags, source_engine=engine)
+
+
+def test_prose_reading_replaces_the_header_less_duplicate_of_the_same_line():
+    """Pre-Phase 9 walkthrough: a discharge summary showed "Haemoglobin:" (pattern fallback) AND "Haemoglobin" (prose)
+    for one printed value, so a reviewer could confirm or contradict it twice."""
+    from app.ocr.service import drop_prose_duplicates
+
+    prose = [_cand(0, "hemoglobin", ["prose_text"], "chandra-ocr-2"), _cand(0, "platelets", ["prose_text"], "chandra-ocr-2")]
+    table = [
+        _cand(0, "hemoglobin", ["no_column_header"]),           # same page + analyte as a prose reading → dropped
+        _cand(0, "creatinine", ["no_column_header"]),           # no prose reading of it → kept
+        _cand(1, "hemoglobin", ["no_column_header"]),           # other page → kept
+        _cand(0, "platelets", []),                              # header-anchored table row → always kept
+    ]
+    kept = drop_prose_duplicates(table, prose)
+    assert [(c.page_index, c.analyte_key, c.flags) for c in kept] == [(0, "creatinine", ["no_column_header"]), (1, "hemoglobin", ["no_column_header"]), (0, "platelets", [])]
+    assert drop_prose_duplicates(table, []) == table  # lab reports (no prose path) are untouched
+
+
+def test_printed_name_trailing_colon_is_not_kept():
+    from app.ocr.extract import _candidate, _Tok
+    from app.ocr.types import PageOCR
+
+    page = PageOCR(page_index=0, width=1000, height=1000, lines=[])
+    tok = lambda t: _Tok(t, (0, 0, 10, 10), 0.99, "l0", "word")  # noqa: E731
+    c = _candidate(page, 0, {"name": [tok("Haemoglobin:")], "value": [tok("11.2")], "unit": [tok("g/dL")], "range": [], "flag": []}, [])
+    assert c is not None and c.name_raw == "Haemoglobin" and c.analyte_key == "hemoglobin"

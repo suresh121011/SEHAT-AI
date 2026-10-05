@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { SourceTag } from "@/components/Provenance";
 import { Button, Card, Field, Notice, Spinner, inputClass } from "@/components/ui";
+import { buildCorrection, correctionKindOf, initialCorrection, type CorrectionField, type CorrectionForm, type CorrectionKind } from "@/lib/aiCorrection";
 import { ApiError, api } from "@/lib/api";
 import { readNotes, writeNotes } from "@/lib/intakeStore";
 import { hrefFor } from "@/lib/steps";
@@ -21,13 +22,15 @@ type Extraction = {
   provider: string;
   provider_kind: string;
   provider_is_fake: boolean;
+  provenance?: { provider: string; model: string | null; mode: "local" | "cloud" | "fake" | "none" | "unknown"; synthetic: boolean };
   follow_up_questions: Question[];
   missing_information: { field_name: string; label: string; is_danger_sign: boolean }[];
   fields: AiField[];
 };
 type AiField = {
   field_id: string;
-  origin: "model" | "ocr_reviewed";
+  origin: "model" | "ocr_reviewed" | "keyword_rule";
+  source_type?: "ai_extraction" | "keyword_rule" | "document_review";
   field: string;
   kind: string;
   status: string;
@@ -37,7 +40,7 @@ type AiField = {
   evidence: { quote?: string }[];
   needs_review: boolean;
   priority_review: boolean;
-  review: { event_id: string; outcome: string } | null;
+  review: { event_id: string; outcome: string; corrected?: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown } | null } | null;
 };
 
 function show(v: unknown): string {
@@ -51,6 +54,11 @@ function show(v: unknown): string {
   return JSON.stringify(v);
 }
 
+function correctedText(c: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown }): string {
+  if (typeof c.negated === "boolean" && c.value == null) return c.negated ? "denies it" : "has it";
+  return [c.value != null ? `${c.value}${c.value2 != null ? `/${c.value2}` : ""}` : null, typeof c.unit === "string" ? c.unit : null].filter(Boolean).join(" ");
+}
+
 const OUTCOME_WORDS: Record<string, string> = { accepted: "Accepted", rejected: "Rejected", unsure: "Not sure", corrected: "Corrected" };
 
 // Per-field decisions on AI-extracted values (POST /ai/fields/{id}/review). One field at a time, no bulk accept.
@@ -58,17 +66,32 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
-  const fields = ext.fields.filter((f) => f.origin === "model");
-  async function decide(f: AiField, outcome: "accepted" | "rejected" | "unsure") {
+  const fields = ext.fields.filter((f) => f.origin === "model" || f.origin === "keyword_rule");
+  const [correcting, setCorrecting] = useState<string | null>(null);
+  // Returns null on success, else the message. A failed correction shows its message inside the editor, next to
+  // the field (Outsider review), not in the panel-level banner.
+  async function decide(f: AiField, outcome: "accepted" | "rejected" | "unsure" | "corrected", corrected?: object): Promise<string | null> {
     setBusy(f.field_id);
     setErr(null);
     try {
-      await api.post(`cases/${caseId}/ai/fields/${f.field_id}/review`, { outcome, supersedes: f.review?.event_id ?? null });
+      await api.post(`cases/${caseId}/ai/fields/${f.field_id}/review`, { outcome, supersedes: f.review?.event_id ?? null, ...(corrected ? { corrected } : {}) });
       setChanging(null);
+      setCorrecting(null);
       await onChanged();
+      return null;
     } catch (e) {
-      setErr(e instanceof ApiError ? (e.code === "REVIEW_CONFLICT" ? "Someone else decided this value meanwhile. The list was refreshed." : e.message) : "Could not save the decision.");
-      await onChanged();
+      const conflict = e instanceof ApiError && e.code === "REVIEW_CONFLICT";
+      const msg =
+        e instanceof ApiError
+          ? conflict
+            ? "Someone else decided this value meanwhile. The list was refreshed."
+            : e.code === "PII_DETECTED"
+              ? "The correction looks like it contains a name, phone number or ID. Enter the clinical value only. Nothing was saved."
+              : `${e.message}. Nothing was saved.`
+          : "Could not save the decision. Nothing was saved.";
+      if (outcome !== "corrected" || conflict) setErr(msg);
+      if (conflict) await onChanged();
+      return msg;
     } finally {
       setBusy(null);
     }
@@ -89,7 +112,11 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
               <span className="font-bold">{f.field.replace(/^(symptom|medication|red_flag):/, "").replaceAll("_", " ")}</span>
               <span>{show(f.value)}</span>
               <SourceTag kind={f.review?.outcome === "accepted" ? "ai_reviewed" : f.review?.outcome === "corrected" ? "ai_corrected" : "ai_pending"} />
-              {f.agreement && <span className="text-sm text-muted">read the same way {f.agreement.replace("/", " of ")} times</span>}
+              {f.origin === "keyword_rule" ? (
+                <span className="rounded border border-subtle px-2 text-sm font-bold">Keyword rule — not AI model output</span>
+              ) : (
+                f.agreement && <span className="text-sm text-muted">the AI read it the same way {f.agreement.replace("/", " of ")} times</span>
+              )}
             </div>
             {f.status === "disputed" || f.status === "disputed_raise" ? (
               <p className="mt-1 text-sm font-bold text-warning">
@@ -101,6 +128,7 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
               <p className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                 <span>
                   Decision: <strong>{OUTCOME_WORDS[f.review.outcome] ?? f.review.outcome}</strong>
+                  {f.review.outcome === "corrected" && f.review.corrected && <> — your entry: <strong>{correctedText(f.review.corrected)}</strong></>}
                 </span>
                 <button type="button" className="min-h-11 text-primary underline underline-offset-4" onClick={() => setChanging(f.field_id)}>
                   Change decision<span className="sr-only"> for {f.field}</span>
@@ -116,15 +144,136 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
                 <Button variant="secondary" disabled={busy !== null} onClick={() => decide(f, "unsure")}>
                   Not sure
                 </Button>
+                {correctionKindOf(f.kind) && (
+                  <Button variant="secondary" disabled={busy !== null} aria-expanded={correcting === f.field_id} onClick={() => setCorrecting(correcting === f.field_id ? null : f.field_id)}>
+                    <Icon name="pencil" /> Edit value…<span className="sr-only"> {f.field}</span>
+                  </Button>
+                )}
                 <Button variant="danger" disabled={busy !== null} onClick={() => decide(f, "rejected")}>
                   <Icon name="cross" /> Reject
                 </Button>
               </div>
             )}
+            {correcting === f.field_id && correctionKindOf(f.kind) && (
+              <CorrectionEditor
+                field={f}
+                kind={correctionKindOf(f.kind)!}
+                busy={busy === f.field_id}
+                onCancel={() => setCorrecting(null)}
+                onSave={(corrected) => decide(f, "corrected", corrected)}
+              />
+            )}
           </li>
         ))}
       </ul>
     </Card>
+  );
+}
+
+const CORRECTION_LABELS: Record<CorrectionKind, { value: string; hint: string }> = {
+  measurement: { value: "Value the patient confirms", hint: "A number, for example 101.4. Not rounded." },
+  text: { value: "What the patient says", hint: "Up to 200 characters. No names, phone numbers or ID numbers." },
+  medication: { value: "Medicine name", hint: "As the patient confirms it. No names, phone numbers or ID numbers." },
+  symptom: { value: "", hint: "" },
+  red_flag: { value: "", hint: "" },
+};
+
+// Inline correction of one AI-extracted value. The correction is the health worker's own entry, recorded with their
+// account (append-only review event); the server re-validates it and refuses identifiers. Nothing is auto-filled.
+function CorrectionEditor({ field, kind, busy, onCancel, onSave }: { field: AiField; kind: CorrectionKind; busy: boolean; onCancel: () => void; onSave: (corrected: object) => Promise<string | null> }) {
+  const [form, setForm] = useState<CorrectionForm>(() => initialCorrection(kind, field.value));
+  const [errors, setErrors] = useState<Partial<Record<CorrectionField, string>>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const firstError = useRef<HTMLDivElement>(null);
+  const id = `corr-${field.field_id}`;
+  const set = (k: CorrectionField, v: string) => {
+    setForm((x) => ({ ...x, [k]: v }));
+    setErrors((e) => ({ ...e, [k]: undefined }));
+    setServerError(null);
+  };
+  async function submit(ev: React.FormEvent) {
+    ev.preventDefault();
+    const r = buildCorrection(kind, form);
+    if (!r.ok) {
+      setErrors(r.errors);
+      requestAnimationFrame(() => firstError.current?.querySelector<HTMLElement>("[aria-invalid=true]")?.focus());
+      return;
+    }
+    const failed = await onSave(r.corrected);
+    if (failed) {
+      // Keep what was typed, mark the value box, and move focus to it: nothing was saved.
+      setServerError(failed);
+      if (kind !== "symptom" && kind !== "red_flag") setErrors({ value: "Not saved — see the message below." });
+      requestAnimationFrame(() => firstError.current?.querySelector<HTMLElement>("input")?.focus());
+    }
+  }
+  const L = CORRECTION_LABELS[kind];
+  return (
+    <form onSubmit={submit} noValidate className="mt-3 space-y-3 rounded border-2 border-dashed border-ai bg-ai-bg p-3" aria-labelledby={`${id}-title`}>
+      <p id={`${id}-title`} className="font-bold">
+        Correct “{field.field.replace(/^(symptom|medication|red_flag):/, "").replaceAll("_", " ")}”
+      </p>
+      <div ref={firstError} className="space-y-3">
+        {(kind === "measurement" || kind === "text" || kind === "medication") && (
+          <Field id={`${id}-value`} label={L.value} hint={L.hint} error={errors.value}>
+            <input
+              id={`${id}-value`}
+              className={inputClass}
+              inputMode={kind === "measurement" ? "decimal" : undefined}
+              value={form.value}
+              maxLength={kind === "measurement" ? 12 : 200}
+              onChange={(e) => set("value", e.target.value)}
+              aria-invalid={errors.value ? true : undefined}
+              aria-describedby={`${id}-value-hint${errors.value ? ` ${id}-value-error` : ""}`}
+            />
+          </Field>
+        )}
+        {kind === "measurement" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* A second value only means something for blood pressure (backend effective_value/_hints use value2 for bp). */}
+            {field.field.split("#")[0] === "bp" && (
+            <Field id={`${id}-value2`} label="Second value (optional)" hint="Only for blood pressure: the lower number." error={errors.value2}>
+              <input id={`${id}-value2`} className={inputClass} inputMode="decimal" value={form.value2} maxLength={12} onChange={(e) => set("value2", e.target.value)} aria-invalid={errors.value2 ? true : undefined} aria-describedby={`${id}-value2-hint${errors.value2 ? ` ${id}-value2-error` : ""}`} />
+            </Field>
+            )}
+            <Field id={`${id}-unit`} label="Unit (optional)" hint="For example F, C, /min, %, mmHg." error={errors.unit}>
+              <input id={`${id}-unit`} className={inputClass} value={form.unit} maxLength={20} onChange={(e) => set("unit", e.target.value)} aria-invalid={errors.unit ? true : undefined} aria-describedby={`${id}-unit-hint${errors.unit ? ` ${id}-unit-error` : ""}`} />
+            </Field>
+          </div>
+        )}
+        {(kind === "symptom" || kind === "red_flag") && (
+          <fieldset className={`space-y-2 ${errors.negated ? "border-l-4 border-error pl-3" : ""}`} aria-describedby={errors.negated ? `${id}-neg-error` : undefined}>
+            <legend className="font-bold">What does the patient say?</legend>
+            {errors.negated && (
+              <p id={`${id}-neg-error`} className="font-bold text-error">
+                <span className="sr-only">Error: </span>
+                {errors.negated}
+              </p>
+            )}
+            {(["present", "denied"] as const).map((v) => (
+              <label key={v} className="flex min-h-11 items-center gap-2">
+                <input type="radio" name={`${id}-neg`} value={v} checked={form.negated === v} onChange={() => set("negated", v)} aria-invalid={errors.negated ? true : undefined} className="size-5" />
+                {v === "present" ? "Has it" : "Denies it"}
+              </label>
+            ))}
+          </fieldset>
+        )}
+      </div>
+      {serverError && (
+        <Notice tone="error" role="alert">
+          {serverError}
+        </Notice>
+      )}
+      <p className="text-sm">The corrected value is recorded as your entry, not as an AI value. It is only shown on the review step; it never sets urgency.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={busy}>
+          <Icon name="check" /> {busy ? "Saving…" : "Save correction"}
+        </Button>
+        <Button variant="quiet" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -209,6 +358,17 @@ function FollowUpScreen() {
       if (err instanceof ApiError && err.code === "AI_NOT_CONFIGURED") {
         setState("unavailable");
         setWhy("No AI provider is configured on this server, so follow-up questions cannot be generated. Continue to the review step and ask the questions on the form.");
+      } else if (err instanceof ApiError && err.code === "LOCAL_MODEL_UNAVAILABLE") {
+        setState("unavailable");
+        setWhy("The AI model on the SEHAT server is not available right now, so nothing was generated and no other AI was used. Continue to the review step and enter the values yourself.");
+      } else if (err instanceof ApiError && err.code === "GUARDRAIL_UNAVAILABLE") {
+        setState("unavailable");
+        setWhy("The AI safety check could not run, so no AI output was released. Continue to the review step and enter the values yourself.");
+      } else if (err instanceof ApiError && err.code === "GUARDRAIL_BLOCKED") {
+        setState("error");
+        setWhy(err.details?.stage === "output"
+          ? "The AI's answer was stopped by a safety check (for example it read like a diagnosis, a treatment, or a reason to lower urgency), so nothing was shown or saved. Enter the values yourself on the review step."
+          : "A safety check stopped this text before it reached the AI (for example an instruction to change urgency or skip review, or a request for a diagnosis). Nothing was saved. Enter the values yourself on the review step.");
       } else if (err instanceof ApiError && err.code === "AI_NO_INPUT") {
         setState("error");
         setWhy("There is nothing to work from yet. Type a short description of the symptoms (English), or record voice first.");
@@ -264,6 +424,9 @@ function FollowUpScreen() {
         <p>
           AI extracts facts from the English text and checked transcripts; a fixed list of questions then covers what is still missing. AI never decides urgency.
           {ext?.provider_is_fake && " On this demo server the “AI” is a simple keyword matcher, not a real AI model."}
+          {ext?.provenance?.mode === "local" && " Values come from a general-purpose open AI model running on the SEHAT server (not a medical model); the text is not sent to any outside company."}
+          {ext?.provenance && ext.provenance.mode !== "none" && " AI does not decide danger signs: the red-flag screen on the review step always covers them, and AI may miss them."}
+          {ext?.provenance?.mode === "cloud" && " Values come from a cloud AI model; names and ID numbers are removed first, and only synthetic test data may be used."}
         </p>
       </Notice>
 
@@ -299,7 +462,7 @@ function FollowUpScreen() {
         </Button>
       )}
 
-      {ext && ext.fields.some((f) => f.origin === "model") && <AiFieldReview caseId={caseId!} ext={ext} onChanged={loadLatest} />}
+      {ext && ext.fields.some((f) => f.origin === "model" || f.origin === "keyword_rule") && <AiFieldReview caseId={caseId!} ext={ext} onChanged={loadLatest} />}
 
       {ext && questions.length === 0 && <Notice tone="success">No follow-up questions: the required information is present. Continue to the review step.</Notice>}
 

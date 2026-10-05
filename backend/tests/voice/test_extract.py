@@ -275,7 +275,9 @@ def test_legal_english_compounds_still_parse():
 def test_blocking_flags_prevent_one_click_confirm():
     for flag in ("negation", "uncertainty", "temporal_reference", "multiple_values", "number_modifier_unparsed", "number_sequence_ambiguous"):
         assert can_confirm("temp", {"temp_c": 38.0}, [flag]) is False
-    assert can_confirm("temp", {"temp_c": 38.0}, ["unit_inferred", "number_words", "decimal_ambiguity"]) is True
+    # Pre-Phase 9 policy (docs/12 §6): an inferred unit is a guess, so it now blocks one-click confirm too.
+    assert can_confirm("temp", {"temp_c": 38.0}, ["unit_inferred"]) is False
+    assert can_confirm("temp", {"temp_c": 38.0}, ["number_words", "decimal_ambiguity"]) is True
 
 
 def test_modifier_is_inside_the_evidence_span_and_read_back_quotes_the_words():
@@ -309,7 +311,9 @@ def test_unknown_hundred_word_blocks_instead_of_dropping():
 def test_garbled_unit_word_blocks_unit_inference():
     c = only("मुझे तेज बुखार है एक सौ आठ डिग्रलियस", "temp")  # live transcript: garbled "degree Celsius"
     assert "unit_unclear" in c.flags and not can_confirm(c.field, c.normalized, c.flags)
-    assert can_confirm(*(lambda x: (x.field, x.normalized, x.flags))(only("बुखार एक सौ दो डिग्री", "temp")))
+    # A clean "degree" without Celsius/Fahrenheit still parses, but the unit is inferred: entered, not one-click confirmed.
+    clean = only("बुखार एक सौ दो डिग्री", "temp")
+    assert clean.normalized == {"temp_c": (102 - 32) * 5 / 9} and "unit_inferred" in clean.flags and not can_confirm(clean.field, clean.normalized, clean.flags)
 
 
 def test_english_spoken_with_hindi_selected_yields_no_values():
@@ -450,7 +454,6 @@ LEAKS = [
 ]
 # Plain phrasings that must stay one-click confirmable (demo sentences included), with the expected value.
 CLEAN = [
-    ("मुझे तीन दिन से बुखार है तापमान एक सौ दो डिग्री है", "temp", {"temp_c": (102 - 32) * 5 / 9}),
     ("pulse is one hundred and twenty", "pulse", {"pulse": 120}),
     ("oxygen ninety two percent", "spo2", {"spo2": 92}),
     ("My temperature is 102 degrees Fahrenheit. I do not have chest pain.", "temp", {"temp_c": (102 - 32) * 5 / 9}),
@@ -460,9 +463,16 @@ CLEAN = [
     ("ଅକ୍ସିଜେନ ଚଉରାନବେ ପ୍ରତିଶତ", "spo2", {"spo2": 94}),
     ("तापमान 102 डिग्री नब्ज़ 120", "pulse", {"pulse": 120}),
     ("pulse rate 88", "pulse", {"pulse": 88}),
+]
+
+# Temperatures whose unit was NOT said (°F inferred for 77–113, °C for 25–45): still parsed exactly, but since the
+# pre-Phase 9 policy change they need the reviewer to enter the value with its unit (docs/12 §5–§6).
+INFERRED_UNIT = [
+    ("मुझे तीन दिन से बुखार है तापमान एक सौ दो डिग्री है", "temp", {"temp_c": (102 - 32) * 5 / 9}),
     ("मुझे 102 डिग्री बुखार है", "temp", {"temp_c": (102 - 32) * 5 / 9}),
     ("temperature 39.5", "temp", {"temp_c": 39.5}),
     ("तापमान उनतालीस दशमलव पांच", "temp", {"temp_c": 39.5}),
+    ("तापमान अड़तीस", "temp", {"temp_c": 38.0}),
 ]
 
 
@@ -481,6 +491,14 @@ def test_plain_phrasings_stay_one_click_confirmable(text, field, normalized):
     assert c.normalized == normalized and can_confirm(c.field, c.normalized, c.flags), c.flags
 
 
+@pytest.mark.parametrize("text, field, normalized", INFERRED_UNIT)
+def test_inferred_unit_is_parsed_but_never_one_click_confirmable(text, field, normalized):
+    from app.voice.readback import can_confirm
+
+    c = only(text, field)
+    assert c.normalized == normalized and "unit_inferred" in c.flags and not can_confirm(c.field, c.normalized, c.flags), c.flags
+
+
 def test_split_decimal_read_back_quotes_the_words():
     from app.voice.readback import readback_text
 
@@ -494,8 +512,13 @@ def test_split_decimal_read_back_quotes_the_words():
 def test_sentence_full_stop_is_not_a_decimal():
     from app.voice.readback import can_confirm
 
-    for text in ("temperature 39. pulse 80", "pulse 80."):
-        assert all(can_confirm(c.field, c.normalized, c.flags) for c in extract(text))
+    from app.voice.readback import BLOCKING_FLAGS
+
+    assert all(can_confirm(c.field, c.normalized, c.flags) for c in extract("pulse 80."))
+    cands = {c.field: c for c in extract("temperature 39. pulse 80")}
+    assert cands["temp"].normalized == {"temp_c": 39.0}  # the full stop did not become a decimal
+    assert BLOCKING_FLAGS.intersection(cands["temp"].flags) == {"unit_inferred"}  # blocked only because the unit was not said
+    assert can_confirm(cands["pulse"].field, cands["pulse"].normalized, cands["pulse"].flags)
 
 
 def test_bp_shorthand_and_split_pairs_are_flagged():

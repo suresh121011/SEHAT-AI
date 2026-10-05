@@ -52,7 +52,8 @@ def test_reviewer_delete_removes_files_rows_and_content_and_is_idempotent(ocr_cl
     # audit: one deletion record, ids and counts only
     dels = [r for r in audit_rows(ocr_client) if r["action"] == "ocr_document_deleted"]
     assert len(dels) == 1 and json.loads(dels[0]["details_json"])["files_removed"] == len(files)
-    assert not any(x in json.dumps(dels) for x in CANARY + ("9.9",))
+    # details only: the row's timestamp and hashes can contain "9.9" by chance (this was flaky on the whole row)
+    assert not any(x in json.dumps([d["details_json"] for d in dels]) for x in CANARY + ("9.9",))
 
 
 def test_delete_allowed_after_consent_withdrawal_but_not_to_others(ocr_client):

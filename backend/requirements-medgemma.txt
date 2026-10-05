@@ -1,0 +1,8 @@
+# SEHAT AI — optional medical image description backend `google_ai` (docs/18). The app starts and every other
+# feature (including MEDGEMMA_BACKEND=fake and =azure, which uses semantic-kernel from requirements.txt) works
+# without this; the SDK is imported lazily, only when MEDGEMMA_BACKEND=google_ai sends a request.
+# The project venv has no pip: install with
+#   uv pip install --python .venv/bin/python -r backend/requirements-medgemma.txt
+# google-genai 2.x requires Python >= 3.10. Not exercised against the live Gemini API in this build (docs/18 §11).
+-r requirements.txt
+google-genai==2.28.0

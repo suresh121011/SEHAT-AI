@@ -477,7 +477,7 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > consent, `app/services/kernel.py` (Semantic Kernel + Azure OpenAI), OCR `/documents/reviewed` and voice
 > source refs. Entry checklist — decide or supply **before integrating** the item named:
 >
-> - [~] **LLM provider** (6.1, 6.3, 6.5, 6.6): Phase 6 built on the fake provider; Azure is env-gated (docs/16 §7) but still has no credentials. `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter.
+> - [~] **LLM provider** (6.1, 6.3, 6.5, 6.6): Phase 6 built on the fake provider; Azure is env-gated (docs/16 §7) but still has no credentials. `AZURE_OPENAI_*` in `.env` are still placeholders (`/health` → `llm: not_configured`). Supply an Azure OpenAI deployment *or* approve an offline model (architecture: Ollama for edge). Development can start against a fake adapter. **2026-10-05:** offline model approved and built — `AI_PROVIDER=local` (pinned Qwen3-4B-Instruct-2507 Q4_K_M on a loopback llama-server, docs/16 §2a), run live on 20 synthetic cases; Azure still has no credentials.
 > - [x] **Adapter contract** (6.1, 6.3) — done: `StructuredProvider` (docs/16 §2). `AiDraft` is free text and `_complete(text)` takes no schema, temperature or pass count; structured, schema-validated output and MAKER's 3 passes need an extended contract — first Phase 6 design task, keeping `RedactedText`-only input and `clinical_use_allowed=False`.
 > - [ ] **Redaction before any cloud call with real text**: 5 known name/DOB misses are pinned as xfail in `tests/privacy/test_pii.py` (lowercase or uncued Indian names). Acceptable for synthetic development; not for real patient text.
 > - [x] **`OCR_RETENTION_DAYS`** chosen and set when OCR is enabled (product/legal; the server refuses to start without it). `.env.example` lists the OCR keys (`OCR_RETENTION_DAYS=none` there and in the local `.env`, 2026-10-02).
@@ -573,12 +573,15 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 
 - [x] Local, flag-gated path (`TRANSLATION_ENABLED=0` default); pinned revision checked at startup; explicit download script
 - [x] Translated fields flagged `machine_translated_unreviewed`, linked to the original sentence
-- [ ] Real model run — **BLOCKED**: `indictrans2-indic-en-dist-200M` is gated on Hugging Face (needs the owner's account); mocked tests only
+- [ ] Real model run — **BLOCKED**: `indictrans2-indic-en-dist-200M` is gated on Hugging Face (needs the owner's account; still 403 on 2026-10-05); mocked tests only. Opt-in live test ready: `RUN_LIVE_TRANSLATION_TESTS=1` (hi + or)
+- [x] Startup re-hashes every downloaded file (the `trust_remote_code` files are mandatory) and refuses a changed or missing file (2026-10-05)
 - [ ] Translation quality on clinical speech — not evaluated
 
 **✅ Phase 6 Definition of Done (revised):**
 - **Met with the fake provider:** schema-checked extraction with every field source-linked and grounded; basic MAKER voting; missing information per scenario; English follow-up questions; counterfactuals; a template note with raise-only urgency; human review per field.
-- **Not met:** a live LLM, follow-up questions in the patient's language, real IndicTrans2.
+- **Not met:** follow-up questions in the patient's language, real IndicTrans2.
+- **Added 2026-10-05 (docs/16 §2a–§2b):** a live local LLM (`AI_PROVIDER=local`, synthetic cases only, general-purpose model), provenance on every AI output, and an optional NeMo Guardrails layer (`GUARDRAILS_ENABLED=1`; our deterministic detectors run as NeMo rails, fail closed, telemetry off). Local medical vision is **not** built (docs/18 §4a).
+- **Added 2026-10-05 (fix pass, docs/16 §2c, §8):** deterministic red-flag keyword suggester labelled "not AI model output" (hybrid red-flag recall 15/15 on the smoke set vs 0/15 model-only; grounding unchanged at 76 %); `GUARDRAILS_ENABLED=1` recommended for demos; tests isolated from a developer `.env`; local-model warm-up; **IndicTrans2 ran live** (hi/or, pinned and hash-verified). Local MedGemma 1.5 (`MEDGEMMA_BACKEND=local`, docs/18 §4a) built later the same day: official weights, hash-checked, converted to MLX 8-bit, run by the OCR worker; ECG never sent; smoke-tested on one synthetic drawing only, which it called a normal X-ray with 95 % self-reported confidence — no accuracy claim.
 
 ---
 
@@ -735,6 +738,16 @@ Verified with `uv pip install --dry-run` (resolved 131 packages, no conflicts):
 > **🎯 MVP COMPLETE after Phase 8.** All 7 evaluation criteria addressed. Coverage: ~85%.
 
 ---
+
+> **Pre-Phase 9 verification (2026-10-05, uncommitted):** voice (docs/12 §9.5), documents (docs/14 §9.6) and typed symptoms were run end to end in Chrome with synthetic data on a scratch database.
+> - **Fixed with tests:**
+>   - AI-extracted values could not be corrected in the intake UI (now "Edit value…");
+>   - discharge summaries showed duplicate lab rows;
+>   - an empty upload was reported as an unsupported type;
+>   - the upload screen showed no filename or size limit;
+>   - a stale "Ready to check" hint stayed after a decision;
+>   - a voice temperature with an inferred unit was one-click confirmable (policy change approved).
+> - **Not verified:** cloud voice (Sarvam), Odia speech, real documents.
 
 ### Phase 9: Referral + Closure Tracking (Hours 23–25) — Stretch
 

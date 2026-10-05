@@ -19,6 +19,7 @@ _PLACEHOLDERS = {
     "your_azure_openai_api_key_here",
     "https://your-resource-name.openai.azure.com/",
     "your_sarvam_api_key_here",
+    "your_google_ai_api_key_here",
     "change_this_to_a_long_random_secret",
 }
 
@@ -34,7 +35,16 @@ SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
 # Azure OpenAI endpoint host suffixes that may receive the API key and redacted case text (docs/16 §7).
 # Kept in code on purpose, like SARVAM_ALLOWED_HOSTS.
 AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
-AI_PROVIDERS = ("none", "fake", "azure")
+AI_PROVIDERS = ("none", "fake", "azure", "local")
+# AI_PROVIDER=local talks to a llama-server on this machine only (docs/16 §2a). Loopback hosts only, in code.
+LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal IPs only: "localhost" resolves through /etc/hosts
+MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure", "local")
+# A local medical-vision model is not installable in this build (docs/18 §4a): MEDGEMMA_BACKEND=local is refused by name.
+# MEDGEMMA_BACKEND=local (docs/18 §4a): MedGemma 1.5 4B converted here to MLX 8-bit from the official, SHA-checked weights,
+# run by the local OCR worker (.venv-ocr, Unix socket, egress blocked). Fixed path, like the Chandra build (docs/14).
+MEDGEMMA_LOCAL_DIR = REPO_ROOT / "models" / "medgemma" / "medgemma-1.5-4b-it-mlx-8bit"
+MEDGEMMA_LOCAL_NOT_INSTALLED = ("MEDGEMMA_BACKEND=local but the local MedGemma build is not installed: accept the model terms on Hugging Face, "
+                                "then run backend/scripts/download_medgemma_local.py (docs/18 §4a). No fallback to fake or cloud")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -91,7 +101,8 @@ class Settings:
     # Phase 6 AI extraction (docs/16). `none` = no model is called (AI endpoints answer 503). `fake` = the
     # deterministic offline keyword extractor (not an LLM). `azure` = Azure OpenAI via Semantic Kernel, only
     # with AI_CLOUD_ENABLED=1, complete credentials, an allowed host and AI_CLOUD_SYNTHETIC_DATA_ONLY=1.
-    # There is never a fallback from one provider to another.
+    # `local` = a pinned open-weights model on a loopback-only llama-server (docs/16 §2a); case text stays on
+    # this machine but is still redacted first. There is never a fallback from one provider to another.
     ai_provider: str = "none"
     ai_cloud_enabled: bool = False
     ai_cloud_synthetic_data_only: bool = False
@@ -101,10 +112,23 @@ class Settings:
     # Phase 6 P2: IndicTrans2 (indic → en), local only. Off unless enabled.
     translation_enabled: bool = False
     translation_model_dir: Path = REPO_ROOT / "models" / "translation"
-    # Reserved for a later phase. Not implemented: enabling it refuses to start, so a switch can never
-    # suggest that a check runs when it does not. (MAKER voting is part of Phase 6 extraction and needs no
-    # switch; OCR verification still reports MAKER as `not_run`, see docs/14.)
-    medgemma_enabled: bool = False  # X-ray/ECG description, deferred (docs/14 §11)
+    # AI_PROVIDER=local (docs/16 §2a): model key from app.ai.local_models, its directory, and the loopback server.
+    local_llm_model: str = "qwen3-4b-instruct-2507-q4km"
+    local_llm_model_dir: Path = REPO_ROOT / "models" / "llm"
+    local_llm_url: str = "http://127.0.0.1:8091"
+    # Optional NeMo Guardrails layer around extraction (docs/16 §2b); needs requirements-guardrails.txt.
+    guardrails_enabled: bool = False
+    # Deterministic red-flag keyword suggester (docs/16 §2c): candidates labelled keyword_rule, not AI output. On by default.
+    ai_keyword_red_flags: bool = True
+    # Medical image visual-findings description (architecture §10A, docs/18). Off unless enabled. `fake` = canned
+    # offline outputs (not a model). `google_ai` / `azure` send the image to a cloud model: only with
+    # AI_CLOUD_ENABLED=1, AI_CLOUD_SYNTHETIC_DATA_ONLY=1 and credentials, and per request only with ai_assist consent
+    # and a synthetic-image attestation. Never a fallback between backends.
+    medgemma_enabled: bool = False
+    medgemma_backend: str = "google_ai"
+    medgemma_model: str = "gemini-3.8-flash"
+    google_ai_api_key: str = field(default="", repr=False)  # never printed
+    medgemma_timeout_s: float = 30.0
     # Facility isolation (docs/17 §8). Trusted server config, never client input. None = isolation OFF (every
     # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
     # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
@@ -125,7 +149,10 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
-    load_dotenv(REPO_ROOT / ".env")
+    # SEHAT_DOTENV=0 reads the process environment only. The test suite sets it, so a developer .env (for example
+    # MEDGEMMA_ENABLED=1) cannot change test results or refill a variable a test removed.
+    if os.getenv("SEHAT_DOTENV", "1") != "0":
+        load_dotenv(REPO_ROOT / ".env")
 
     environment = _env("ENVIRONMENT", "development")
     if environment not in DEMO_AUTH_ENVIRONMENTS:
@@ -174,7 +201,7 @@ def get_settings() -> Settings:
         ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
-        medgemma_enabled=_not_implemented("MEDGEMMA_ENABLED", "MedGemma image description (deferred)"),
+        **_medgemma_settings(_flag("OCR_ENABLED")),
         account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
     )
 
@@ -220,7 +247,7 @@ def _ai_settings() -> dict:
     """AI provider settings (docs/16 §7). Every refusal names exactly what is missing; values are never echoed."""
     provider = (_env("AI_PROVIDER") or "none").lower()  # blank = default
     if provider not in AI_PROVIDERS:
-        raise RuntimeError("AI_PROVIDER must be one of: none, fake, azure")
+        raise RuntimeError("AI_PROVIDER must be one of: none, fake, azure, local")
     passes = _env("AI_MAKER_PASSES") or "3"
     if not passes.isdigit() or not 3 <= int(passes) <= 5:
         raise RuntimeError("AI_MAKER_PASSES must be a whole number from 3 to 5")
@@ -241,7 +268,14 @@ def _ai_settings() -> dict:
         raise RuntimeError("AI_FAKE_MODE must be honest or demo_disagreement")
     if fake_mode != "honest" and provider != "fake":
         raise RuntimeError("AI_FAKE_MODE applies only to AI_PROVIDER=fake")
-    timeout = float(_env("AI_TIMEOUT_S") or "30")
+    from app.ai.local_models import MODELS as LOCAL_MODELS
+
+    local_model = _env("LOCAL_LLM_MODEL") or "qwen3-4b-instruct-2507-q4km"
+    if local_model not in LOCAL_MODELS:
+        raise RuntimeError(f"LOCAL_LLM_MODEL must be one of: {', '.join(LOCAL_MODELS)}")
+    local_url = _local_llm_url(_env("LOCAL_LLM_URL") or "http://127.0.0.1:8091")
+    # Local: 3 passes share one laptop GPU (measured max 25.8 s, docs/16 §2a.4), so the default is 60 s there.
+    timeout = float(_env("AI_TIMEOUT_S") or ("60" if provider == "local" else "30"))
     if not 1 <= timeout <= 120:
         raise RuntimeError("AI_TIMEOUT_S must be between 1 and 120 seconds")
     return {
@@ -253,7 +287,73 @@ def _ai_settings() -> dict:
         "ai_timeout_s": timeout,
         "translation_enabled": _flag("TRANSLATION_ENABLED"),
         "translation_model_dir": _path(_env("TRANSLATION_MODEL_DIR") or "./models/translation"),
+        "local_llm_model": local_model,
+        "local_llm_model_dir": _path(_env("LOCAL_LLM_MODEL_DIR") or "./models/llm"),
+        "local_llm_url": local_url,
+        "guardrails_enabled": _flag("GUARDRAILS_ENABLED"),
+        "ai_keyword_red_flags": _flag("AI_KEYWORD_RED_FLAGS", default=True),
     }
+
+
+def _local_llm_url(value: str) -> str:
+    """LOCAL_LLM_URL must be http://<loopback host>:<port> with nothing else, so redacted case text can only go to
+    this machine. Returns the normalised URL; the value is not echoed."""
+    error = RuntimeError("LOCAL_LLM_URL must be http://127.0.0.1:<port> (or http://[::1]:<port>); no path, credentials or query")
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise error
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise error from None
+    host = (parts.hostname or "").lower()
+    if (parts.scheme.lower() != "http" or host not in LOCAL_LLM_HOSTS or port is None or parts.username is not None
+            or parts.password is not None or parts.path not in ("", "/") or parts.query or parts.fragment):
+        raise error
+    return f"http://{'[::1]' if host == '::1' else host}:{port}"
+
+
+def _medgemma_settings(ocr_enabled: bool) -> dict:
+    """MEDGEMMA_* (docs/18 §4). Validated only when MEDGEMMA_ENABLED=1. Refusals name what is missing, never values."""
+    enabled = _flag("MEDGEMMA_ENABLED")
+    backend = (_env("MEDGEMMA_BACKEND") or "google_ai").lower()
+    model = _env("MEDGEMMA_MODEL") or "gemini-3.8-flash"
+    key = _env("GOOGLE_AI_API_KEY")
+    # local: model load (+ a one-time hash of the 8-bit build) and generation on this machine take longer than a cloud call
+    timeout_raw = _env("MEDGEMMA_TIMEOUT_S") or ("120" if backend == "local" else "30")
+    try:
+        timeout = float(timeout_raw)
+    except ValueError:
+        raise RuntimeError("MEDGEMMA_TIMEOUT_S must be a number of seconds") from None
+    if enabled:
+        if not ocr_enabled:
+            raise RuntimeError("MEDGEMMA_ENABLED=1 requires OCR_ENABLED=1 (images are uploaded through the document route)")
+        if backend not in MEDGEMMA_BACKENDS:
+            raise RuntimeError("MEDGEMMA_BACKEND must be one of: fake, google_ai, azure, local")
+        if backend == "local":
+            if not (MEDGEMMA_LOCAL_DIR / "SEHAT_ENGINE_MANIFEST.json").is_file():
+                raise RuntimeError(MEDGEMMA_LOCAL_NOT_INSTALLED)
+            if not _path(_env("OCR_WORKER_PYTHON", "./.venv-ocr/bin/python")).is_file():
+                raise RuntimeError("MEDGEMMA_BACKEND=local requires the OCR worker venv (.venv-ocr, docs/14 §9): it runs the model")
+        if not 1 <= timeout <= 120:
+            raise RuntimeError("MEDGEMMA_TIMEOUT_S must be between 1 and 120 seconds")
+        if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,100}", model):
+            raise RuntimeError("MEDGEMMA_MODEL must be a model id (letters, digits, . _ : / -)")
+        if backend in ("google_ai", "azure"):
+            if not _flag("AI_CLOUD_ENABLED"):
+                raise RuntimeError(f"MEDGEMMA_BACKEND={backend} requires AI_CLOUD_ENABLED=1 (images leave this machine)")
+            if not _flag("AI_CLOUD_SYNTHETIC_DATA_ONLY"):
+                raise RuntimeError(f"MEDGEMMA_BACKEND={backend} requires AI_CLOUD_SYNTHETIC_DATA_ONLY=1: only synthetic/demo images may be "
+                                   "sent to a cloud model in this build")
+        if backend == "google_ai" and not key:
+            raise RuntimeError("MEDGEMMA_BACKEND=google_ai requires GOOGLE_AI_API_KEY")
+        if backend == "azure":
+            missing = [n for n in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_NAME", "AZURE_OPENAI_API_VERSION") if not _env(n)]
+            if missing:
+                raise RuntimeError(f"MEDGEMMA_BACKEND=azure requires {', '.join(missing)}")
+            _azure_endpoint(_env("AZURE_OPENAI_ENDPOINT"))
+    return {"medgemma_enabled": enabled, "medgemma_backend": backend, "medgemma_model": model, "google_ai_api_key": key,
+            "medgemma_timeout_s": timeout if 1 <= timeout <= 120 else 30.0}
 
 
 def _azure_endpoint(value: str) -> str:

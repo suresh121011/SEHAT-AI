@@ -6,11 +6,10 @@ import { useEffect, useRef, useState } from "react";
 // The file goes only to this SEHAT server (local OCR); nothing is sent to an outside company.
 
 export type DocType = "lab_report" | "prescription" | "discharge_summary";
-export const DOC_TYPE_LABEL: Record<DocType | "xray_ecg", string> = {
+export const DOC_TYPE_LABEL: Record<DocType, string> = {
   lab_report: "Lab report (printed)",
   prescription: "Prescription (handwritten)",
   discharge_summary: "Discharge summary",
-  xray_ecg: "X-ray / ECG image",
 };
 
 type Props = {
@@ -24,6 +23,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
   const [type, setType] = useState<DocType>("lab_report");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null); // the file the user picked, so they can see what is being read
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
   // Phone cameras need a secure (HTTPS) page; on plain-HTTP dev servers only the file picker is offered.
@@ -33,6 +33,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
   async function pick(file: File | undefined) {
     setError(null);
     if (!file) return;
+    setChosen(`${file.name} · ${file.type === "application/pdf" ? "PDF" : file.type === "image/png" ? "PNG image" : file.type === "image/jpeg" ? "JPEG image" : file.type || "unknown type"} · ${(file.size / 1024 / 1024).toFixed(1)} MB`);
     if (!["image/png", "image/jpeg", "application/pdf"].includes(file.type)) {
       setError("Please choose a PNG or JPEG photo, or a PDF.");
       return;
@@ -55,7 +56,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
       <fieldset className="space-y-2">
         <legend className="font-bold">What kind of document is it?</legend>
         <div className="flex flex-wrap gap-2">
-          {(["lab_report", "prescription", "discharge_summary", "xray_ecg"] as const).map((t) => {
+          {(["lab_report", "prescription", "discharge_summary"] as const).map((t) => {
             const ok = available[t] ?? false;
             return (
               <button
@@ -63,7 +64,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
                 type="button"
                 aria-pressed={type === t}
                 disabled={!ok || disabled || busy}
-                onClick={() => ok && t !== "xray_ecg" && setType(t)}
+                onClick={() => ok && setType(t)}
                 className={`rounded border px-3 py-1.5 text-sm ${type === t ? "border-primary bg-primary text-white" : "border-line "} disabled:opacity-50`}
               >
                 {DOC_TYPE_LABEL[t]}
@@ -85,7 +86,12 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
           <input type="file" accept="image/png,image/jpeg,application/pdf" className="sr-only" disabled={busy || disabled} onChange={(e) => pick(e.target.files?.[0])} />
         </label>
       </div>
-      <p className="text-xs text-muted">PNG, JPEG or PDF, up to 5 pages. Read on this server only. Keep the page flat, well lit and in focus.</p>
+      <p className="text-xs text-muted">PNG, JPEG or PDF, up to 5 pages and {Math.round(maxBytes / 1024 / 1024)} MB. Read on this server only. Keep the page flat, well lit and in focus.</p>
+      {chosen && (
+        <p className="text-sm">
+          <span className="font-bold">{busy ? "Reading:" : "Last file chosen:"}</span> <span className="break-all">{chosen}</span>
+        </p>
+      )}
       {busy && (
         <p aria-live="polite" className="text-sm">
           Reading the document… handwriting can take up to a minute on this computer.

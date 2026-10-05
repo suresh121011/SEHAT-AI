@@ -4,3 +4,4 @@
 #   uv pip install --python .venv/bin/python -r backend/requirements-translation.txt
 -r requirements-voice.txt     # torch + transformers (<5)
 IndicTransToolkit==1.1.1      # MIT; IndicProcessor pre/post-processing for IndicTrans2 (builds Cython)
+sentencepiece==0.2.1         # Apache-2.0; tokenizer used by the IndicTrans2 remote code (tokenization_indictrans.py)

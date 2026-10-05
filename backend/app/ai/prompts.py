@@ -23,6 +23,10 @@ Rules:
 - Tokens like [PERSON_REDACTED] are redacted identifiers; never guess what they hide."""
 
 
+# Local models pretty-print JSON unless told otherwise; every indentation token costs time on a laptop (docs/16 §2a).
+COMPACT_JSON = "- Write the JSON on a single line, without indentation or extra spaces."
+
+
 def user_message(segments: tuple[tuple[str, str], ...]) -> str:
     body = "\n".join(f"<segment id={json.dumps(sid)}>\n{text}\n</segment>" for sid, text in segments)
     return f"Extract from these segments:\n{body}"

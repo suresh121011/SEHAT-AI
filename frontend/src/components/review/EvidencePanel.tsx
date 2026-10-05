@@ -4,19 +4,27 @@
 // evidence (`/ai/reviewed`), checked lab-report values with page regions (`/documents/reviewed`), and voice values
 // confirmed by a health worker (`/voice/prefill`). Each item says where it came from and who checked it. None of
 // these change urgency: they are evidence beside the rules result, not inputs to it. When a source cannot be
-// loaded or was never recorded, the panel says so instead of inventing a citation.
-import { useEffect, useState } from "react";
+// loaded or was never recorded, the panel says so instead of inventing a citation. Medical-image findings
+// (`/medical-images`, MedGemma) are AI visual descriptions, not a diagnosis; the reviewer marks them reviewed here, and
+// sign-off waits until every image that needs it is marked (the server enforces the same rule).
+import { useCallback, useEffect, useState } from "react";
 
 import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { Icon } from "@/components/Icon";
+import { MedGemmaFindings } from "@/components/MedGemmaFindings";
 import { ProvenanceBadge, type Provenance } from "@/components/review/Badges";
 import { Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import type { Region } from "@/lib/evidence";
+import { pendingAckCount, type MedicalImageItem, type MedicalImagesResp } from "@/lib/medicalImages";
 import { roleLabel, voiceFieldWords, voiceSourceWords } from "@/lib/review";
 
 type AiValue = { field_id: string; field: string; value: unknown; basis: string; reviewed_by_role?: string; evidence?: { segment_id: string; quote: string }[] };
-type AiReviewedResp = { values: AiValue[]; unresolved: { field_id: string; field: string; status: string; priority_review: boolean; state: string }[]; conflicting_readings: string[] };
+type AiReviewedResp = {
+  values: AiValue[];
+  unresolved: { field_id: string; field: string; origin?: string; status: string; priority_review: boolean; state: string }[];
+  conflicting_readings: string[];
+};
 type DocValue = { field_id: string; name: string; outcome: string; value: Record<string, unknown> | null; source: { type: string; document_id: string; page_index: number; regions: Region[]; resolved_by_role: string | null } };
 type DocsResp = { values: DocValue[]; unresolved: { document_id: string; field_id?: string; state: string }[] };
 type VoiceSource = { type: string; transcription_id: string; transcript_chars: [number, number]; resolved_by_role: string };
@@ -53,14 +61,50 @@ function show(v: unknown): string {
 }
 
 function aiKind(basis: string): Provenance {
+  if (basis === "keyword_rule_accepted_by_reviewer") return "keyword_reviewed";
   return basis === "reviewer_corrected" ? "ai_corrected" : basis === "document_review" ? "ocr_reviewed" : "ai_reviewed";
 }
 
-export function EvidencePanel({ caseId, consent, clinical }: { caseId: string; consent: Record<string, string>; clinical: boolean }) {
+type Props = {
+  caseId: string;
+  consent: Record<string, string>;
+  clinical: boolean;
+  /** Images whose findings still need "reviewed" before sign-off (0 when none or when they could not be loaded). */
+  onImagesPending?: (count: number) => void;
+};
+
+export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Props) {
   const [ai, setAi] = useState<Slot<AiReviewedResp>>({ state: "loading" });
   const [docs, setDocs] = useState<Slot<DocsResp>>({ state: "loading" });
   const [voice, setVoice] = useState<Slot<VoiceResp>>({ state: "loading" });
+  const [images, setImages] = useState<Slot<MedicalImageItem[]>>({ state: "loading" });
   const aiAllowed = consent.ai_assist === "granted";
+
+  const loadImages = useCallback(async () => {
+    try {
+      const d = await api.get<MedicalImagesResp>(`cases/${caseId}/medical-images`);
+      const list = d.medical_images ?? [];
+      setImages({ state: "ok", data: list });
+      onImagesPending?.(pendingAckCount(list));
+    } catch (e) {
+      setImages({ state: "off", why: why(e, "Medical image findings") });
+      onImagesPending?.(0);
+    }
+  }, [caseId, onImagesPending]);
+
+  useEffect(() => {
+    if (!clinical) {
+      onImagesPending?.(0);
+      return;
+    }
+    setImages({ state: "loading" });
+    void loadImages();
+  }, [clinical, loadImages, onImagesPending]);
+
+  async function acknowledge(documentId: string) {
+    await api.post(`cases/${caseId}/medical-images/${documentId}/acknowledge`, {});
+    await loadImages();
+  }
 
   useEffect(() => {
     if (!clinical) return;
@@ -98,7 +142,11 @@ export function EvidencePanel({ caseId, consent, clinical }: { caseId: string; c
                   <li key={u.field_id} className="rounded border border-dashed border-ai bg-ai-bg px-2 py-1.5 text-sm">
                     <div className="flex flex-wrap items-center gap-1">
                       <strong>{u.field.replaceAll("_", " ")}</strong>
-                      <ProvenanceBadge kind="ai_suggested" detail={u.status === "disputed" || u.status === "disputed_raise" ? "passes disagreed" : u.state} />
+                      {u.origin === "keyword_rule" ? (
+                        <ProvenanceBadge kind="keyword_suggested" detail={u.state} />
+                      ) : (
+                        <ProvenanceBadge kind="ai_suggested" detail={u.status === "disputed" || u.status === "disputed_raise" ? "passes disagreed" : u.state} />
+                      )}
                     </div>
                     <p className="text-xs text-ink">Not reviewed by a person; not used anywhere until a health worker or doctor decides on it.</p>
                   </li>
@@ -144,6 +192,24 @@ export function EvidencePanel({ caseId, consent, clinical }: { caseId: string; c
               ))}
             </ul>
             {d.unresolved.length > 0 && <p className="text-xs text-warning">{d.unresolved.length} document item(s) not yet checked by a person — not shown as evidence.</p>}
+          </>
+        )}
+      </Group>
+
+      <Group title="Medical image findings" icon="image" slot={images}>
+        {(list) => (
+          <>
+            {list.length === 0 && <Empty>No medical images for this case.</Empty>}
+            {pendingAckCount(list) > 0 && (
+              <p className="flex items-center gap-1 text-sm font-bold text-warning">
+                <Icon name="alert" size={14} /> {pendingAckCount(list)} image(s) need &quot;Findings reviewed&quot; before sign-off.
+              </p>
+            )}
+            <div className="space-y-3">
+              {list.map((img) => (
+                <MedGemmaFindings key={img.document_id} findings={img} caseId={caseId} reviewer={{ onAcknowledge: () => acknowledge(img.document_id) }} />
+              ))}
+            </div>
           </>
         )}
       </Group>
@@ -220,7 +286,7 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-muted">{children}</p>;
 }
 
-function Group<T>({ title, icon, slot, children }: { title: string; icon: "sparkle" | "document" | "mic"; slot: Slot<T>; children: (d: T) => React.ReactNode }) {
+function Group<T>({ title, icon, slot, children }: { title: string; icon: "sparkle" | "document" | "mic" | "image"; slot: Slot<T>; children: (d: T) => React.ReactNode }) {
   return (
     <section className="space-y-1.5">
       <h4 className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wide text-muted">

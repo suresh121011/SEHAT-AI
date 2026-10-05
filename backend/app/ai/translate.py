@@ -12,6 +12,7 @@ real model in this build (the gated download needs the project owner's Hugging F
 translation quality for clinical speech is unevaluated.
 """
 
+import hashlib
 import json
 import os
 import threading
@@ -57,7 +58,10 @@ class Translator:
         batch = ip.preprocess_batch(sentences, src_lang=SRC_CODES[language], tgt_lang=TGT_CODE)
         inputs = tok(batch, truncation=True, padding="longest", return_tensors="pt")
         with torch.inference_mode():
-            out = model.generate(**inputs, num_beams=5, max_length=256)
+            # use_cache=False: the pinned remote code indexes past_key_values as legacy tuples, which breaks on the Cache
+            # objects transformers 4.5x passes (AttributeError in the decoder). The remote code is hash-pinned, so it is not
+            # patched; disabling the cache is slower but gives the same output.
+            out = model.generate(**inputs, num_beams=5, max_length=256, use_cache=False)
         decoded = tok.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         return ip.postprocess_batch(decoded, lang=TGT_CODE)
 
@@ -78,4 +82,27 @@ def build_translator(settings) -> Translator:
         raise RuntimeError("TRANSLATION_ENABLED=1 but the IndicTrans2 model is not downloaded: run scripts/download_translation_models.py") from None
     if data.get("repo") != MODEL_ID or data.get("revision") != MODEL_REVISION:
         raise RuntimeError("TRANSLATION_ENABLED=1 but the downloaded IndicTrans2 model is not the pinned revision")
+    verify_files(settings.translation_model_dir, data.get("files"))
     return Translator(settings.translation_model_dir)
+
+
+# Loaded with trust_remote_code: these must be present and unchanged since the download (reviewed at the pinned commit).
+REMOTE_CODE = ("configuration_indictrans.py", "modeling_indictrans.py", "tokenization_indictrans.py")
+
+
+def verify_files(model_dir: Path, files: dict | None) -> None:
+    """Every file recorded at download time must still hash the same (the remote code above is mandatory), so an
+    edited or swapped file is refused at startup instead of being executed."""
+    if not isinstance(files, dict) or not all(name in files for name in REMOTE_CODE):
+        raise RuntimeError("TRANSLATION_ENABLED=1 but the IndicTrans2 manifest has no file hashes: run scripts/download_translation_models.py again")
+    for name, digest in files.items():
+        path = model_dir / name
+        h = hashlib.sha256()
+        try:
+            with path.open("rb") as f:
+                while chunk := f.read(1 << 24):
+                    h.update(chunk)
+        except OSError:
+            raise RuntimeError("TRANSLATION_ENABLED=1 but an IndicTrans2 model file is missing: run scripts/download_translation_models.py again") from None
+        if h.hexdigest() != digest:
+            raise RuntimeError("TRANSLATION_ENABLED=1 but an IndicTrans2 model file does not match its download-time SHA-256; refusing to load it")

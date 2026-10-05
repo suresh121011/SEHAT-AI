@@ -4,6 +4,7 @@ Run from `backend/`:  uvicorn app.main:app --reload
 Research prototype, not a clinically validated device.
 """
 
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -22,7 +23,9 @@ API_PREFIX = "/api/v1"
 # Third-party loggers that could emit input text at DEBUG/INFO (docs/11 §G).
 # aiosqlite logs every SQL statement WITH its parameters at DEBUG (case data, transcripts, OCR values);
 # found by the Phase 5 log-canary test. Kept at WARNING whatever LOG_LEVEL is.
-_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel", "aiosqlite", "RapidOCR", "rapidocr", "httpx", "python_multipart", "PIL")
+# nemoguardrails logs every rail event WITH the (redacted) case text at INFO; found by the local-AI walkthrough (docs/16 §2b).
+_QUIET_LOGGERS = ("presidio-analyzer", "presidio-anonymizer", "spacy", "semantic_kernel", "aiosqlite", "RapidOCR", "rapidocr", "httpx", "python_multipart", "PIL",
+                  "nemoguardrails")
 
 
 def _quiet_third_party_loggers() -> None:
@@ -38,6 +41,11 @@ def _safe_request_id(value: str | None) -> str:
         except ValueError:
             pass
     return str(uuid.uuid4())
+
+
+async def _warm_up(warm) -> None:
+    status = await warm()
+    logging.getLogger("sehat.ai").info("local model warm-up: %s", status)  # reason code only
 
 
 @asynccontextmanager
@@ -59,12 +67,22 @@ async def lifespan(app: FastAPI):
     from app.ai.providers import build_provider
 
     app.state.ai_provider = build_provider(settings)  # None when AI_PROVIDER=none (AI endpoints answer 503)
+    warm = getattr(app.state.ai_provider, "warm_up", None)
+    # Local model: warm up in the background (synthetic text only); startup is not blocked and a failure is not fatal.
+    app.state.ai_warm_up = asyncio.create_task(_warm_up(warm)) if warm is not None else None
+    from app.ai.guardrails import build_guardrails
+
+    app.state.guardrails = build_guardrails(settings)  # None unless GUARDRAILS_ENABLED=1; refuses to start if not installed
+    if app.state.guardrails is not None:
+        await app.state.guardrails.warm_up()
     app.state.translator = None
     if settings.translation_enabled:
         from app.ai.translate import build_translator
 
         app.state.translator = build_translator(settings)
     yield
+    if app.state.ai_warm_up is not None and not app.state.ai_warm_up.done():
+        app.state.ai_warm_up.cancel()
     from app.ocr.worker_client import shutdown_all
 
     shutdown_all()  # the local OCR worker (and its llama-server) never outlives the API
