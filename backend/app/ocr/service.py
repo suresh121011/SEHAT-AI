@@ -1083,6 +1083,9 @@ async def startup_sweep(conn, settings: Settings) -> int:
             swept += 1
     await retention_sweep(conn, settings)
     await retry_purged_files(conn, settings)
+    from app.ocr import image_service  # lazy: image_service imports this module
+
+    await image_service.startup_sweep(conn, settings)  # medical images (docs/18): same store, `.img` files
     root = settings.ocr_document_dir
     if root.is_dir():
         async with conn.execute("SELECT file_ref FROM ocr_pages") as cur:
@@ -1173,9 +1176,18 @@ async def delete_document(conn, principal: Principal, case_id: str, document_id:
 
 async def retention_sweep(conn, settings: Settings) -> int:
     """Purge documents older than OCR_RETENTION_DAYS (if set) and retry deleting files of purged documents.
-    Run at startup and before every document request, so expired content is never served."""
+    Run at startup and before every document request, so expired content is never served. Medical images
+    (docs/18) follow the same policy and are swept here too."""
     if settings.ocr_retention_days is None:
         return 0
+    from app.ocr import image_service  # lazy: image_service imports this module
+
+    images_purged = await image_service.retention_sweep(conn, settings)
+    return images_purged + await _retention_sweep_documents(conn, settings)
+
+
+async def _retention_sweep_documents(conn, settings: Settings) -> int:
+    assert settings.ocr_retention_days is not None
     from datetime import timedelta
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=settings.ocr_retention_days)).isoformat(timespec="microseconds")

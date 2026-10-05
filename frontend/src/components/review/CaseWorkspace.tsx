@@ -27,9 +27,11 @@ type Props = {
   onAction: (d: ActionDone) => void;
   onStale: () => void;
   onDialogChange: (open: boolean) => void;
+  /** Medical images whose AI findings still need "Findings reviewed" (from the evidence panel); blocks sign-off. */
+  imageAcksPending?: number;
 };
 
-export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDialogChange }: Props) {
+export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDialogChange, imageAcksPending = 0 }: Props) {
   const [dialog, setDialogState] = useState<Dialog>(null);
   const setDialog = (d: Dialog) => {
     setDialogState(d);
@@ -144,7 +146,7 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
           <p className="text-sm text-muted">No action can be recorded without triage consent.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setDialog("sign_off")} disabled={signedOff}>
+            <Button onClick={() => setDialog("sign_off")} disabled={signedOff || imageAcksPending > 0}>
               <Icon name="check" size={16} /> {signedOff ? "Signed off" : "Sign off review…"}
             </Button>
             <Button variant="danger" onClick={() => setDialog("override")} disabled={signedOff}>
@@ -154,6 +156,7 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
               <Icon name="pencil" size={16} /> Correct vitals…
             </Button>
             {signedOff && <p className="basis-full text-xs text-muted">This run is signed off. A corrected re-run starts a new review.</p>}
+            {!signedOff && imageAcksPending > 0 && <ImageAckLine count={imageAcksPending} />}
             {!latest.input && <p className="basis-full text-xs text-muted">Correct vitals is unavailable: this run was recorded before inputs were stored.</p>}
           </div>
         )}
@@ -213,6 +216,15 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
       {/* One set of dialogs per workspace; polling pauses while one is open (onDialogChange). */}
       <CaseDialogs review={review} dialog={dialog} setDialog={setDialog} onAction={onAction} onStale={onStale} />
     </div>
+  );
+}
+
+function ImageAckLine({ count }: { count: number }) {
+  return (
+    <p className="flex basis-full items-start gap-1 text-sm font-bold text-warning">
+      <Icon name="alert" size={16} className="mt-0.5" />
+      Sign-off waits until you mark the AI image findings as reviewed ({count} image{count === 1 ? "" : "s"}) under Source evidence → Medical image findings.
+    </p>
   );
 }
 

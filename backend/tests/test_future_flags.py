@@ -1,5 +1,5 @@
-"""Placeholder flag for a later phase (MedGemma; MAKER voting is implemented in Phase 6, docs/16): off by default, "0" means off, and switching
-one on refuses to start because the feature does not exist yet."""
+"""MEDGEMMA_ENABLED was a placeholder flag until the medical image pipeline (docs/18). It stays off by default, "0"
+means off, and switching it on with a cloud backend but without the cloud gates refuses to start."""
 
 import pytest
 
@@ -24,7 +24,11 @@ def test_off_by_default_and_zero_means_off(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["MEDGEMMA_ENABLED"])
-def test_enabling_an_unimplemented_feature_refuses_to_start(monkeypatch, name):
+def test_enabling_without_its_gates_refuses_to_start(monkeypatch, name):
     monkeypatch.setenv(name, "1")
-    with pytest.raises(RuntimeError, match="not implemented"):
+    monkeypatch.setenv("OCR_ENABLED", "1")
+    monkeypatch.setenv("OCR_RETENTION_DAYS", "none")
+    monkeypatch.setenv("MEDGEMMA_BACKEND", "google_ai")
+    monkeypatch.setenv("AI_CLOUD_ENABLED", "0")
+    with pytest.raises(RuntimeError, match="AI_CLOUD_ENABLED"):
         get_settings()

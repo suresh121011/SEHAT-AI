@@ -466,8 +466,87 @@ TRIAGE_CORRECTION_STATEMENTS: tuple[str, ...] = (
     "DROP INDEX idx_review_events_one_ack",
 )
 
+# ── Step 10: medical image visual-findings description (architecture §10A, docs/18). Additive only: new tables,
+# `ocr_documents` is not touched. The stored image (metadata-stripped re-encode) lives on the local filesystem next to
+# OCR pages; rows hold its path and hash. A row is finalised exactly once; after an append-only purge event it may
+# change once more, only to clear its content columns (same pattern as step 5). Acknowledgements ("findings
+# reviewed") are append-only, one per image. Provenance columns record backend, model, prompt/guard versions and the
+# rule sets that ran. Rollback: older code ignores these tables.
+_IMG_TYPES = "('chest_xray', 'ecg_strip', 'ct_report_image', 'wound_photo', 'skin_lesion')"
+_ALL_DOC_TYPES = "('lab_report', 'prescription', 'discharge_summary', 'chest_xray', 'ecg_strip', 'ct_report_image', 'wound_photo', 'skin_lesion')"
+_IMG_PURGED = "EXISTS (SELECT 1 FROM medical_image_purge_events p WHERE p.document_id = OLD.document_id)"
+MEDICAL_IMAGE_STATEMENTS: tuple[str, ...] = (
+    f"""CREATE TABLE medical_images (
+    document_id               TEXT PRIMARY KEY,
+    case_id                   TEXT NOT NULL REFERENCES cases(case_id),
+    created_by                TEXT NOT NULL,
+    idempotency_key           TEXT NOT NULL,
+    upload_sha256             TEXT NOT NULL,
+    media_type                TEXT NOT NULL CHECK (media_type IN ('image/png', 'image/jpeg')),
+    byte_size                 INTEGER NOT NULL,
+    declared_type             TEXT NOT NULL CHECK (declared_type IN {_IMG_TYPES}),
+    classifier_hint           TEXT CHECK (classifier_hint IS NULL OR classifier_hint IN {_ALL_DOC_TYPES}),
+    classifier_mismatch       INTEGER NOT NULL CHECK (classifier_mismatch IN (0, 1)),
+    synthetic_attestation     INTEGER NOT NULL CHECK (synthetic_attestation IN (0, 1)),
+    status                    TEXT NOT NULL CHECK (status IN ('pending', 'described', 'not_available', 'unsupported_type', 'failed')),
+    not_available_reason      TEXT CHECK (not_available_reason IS NULL OR not_available_reason IN ('disabled', 'consent_ai_assist_missing', 'synthetic_attestation_missing')),
+    failure_code              TEXT,
+    file_ref                  TEXT NOT NULL,
+    image_sha256              TEXT NOT NULL,
+    width                     INTEGER NOT NULL,
+    height                    INTEGER NOT NULL,
+    findings_json             TEXT,
+    withheld_json             TEXT,
+    urgency_signals_json      TEXT,
+    rule_sets_run             TEXT,
+    confidence                REAL,
+    confidence_band           TEXT CHECK (confidence_band IS NULL OR confidence_band IN ('high', 'moderate', 'low')),
+    requires_acknowledgement  INTEGER NOT NULL DEFAULT 0 CHECK (requires_acknowledgement IN (0, 1)),
+    backend                   TEXT,
+    model_id                  TEXT,
+    prompt_version            TEXT NOT NULL,
+    guard_version             TEXT NOT NULL,
+    consent_seq               INTEGER NOT NULL REFERENCES consent_events(seq),
+    created_at                TEXT NOT NULL,
+    completed_at              TEXT,
+    UNIQUE (case_id, idempotency_key)
+)""",
+    "CREATE INDEX idx_medical_images_case ON medical_images(case_id)",
+    """CREATE TABLE medical_image_acknowledgements (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    document_id  TEXT NOT NULL UNIQUE REFERENCES medical_images(document_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+)""",
+    """CREATE TABLE medical_image_purge_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    document_id  TEXT NOT NULL UNIQUE REFERENCES medical_images(document_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    reason       TEXT NOT NULL CHECK (reason IN ('reviewer_request', 'retention_expired')),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+)""",
+    *_append_only("medical_image_acknowledgements"),
+    *_append_only("medical_image_purge_events"),
+    "CREATE TRIGGER medical_images_no_delete BEFORE DELETE ON medical_images BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+    "CREATE TRIGGER medical_images_final BEFORE UPDATE ON medical_images WHEN OLD.status != 'pending' AND ("
+    f"NOT {_IMG_PURGED} OR "
+    + " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in (
+        "document_id", "case_id", "created_by", "idempotency_key", "upload_sha256", "media_type", "byte_size", "declared_type", "classifier_hint",
+        "classifier_mismatch", "synthetic_attestation", "status", "not_available_reason", "failure_code", "file_ref", "image_sha256", "width", "height",
+        "withheld_json", "rule_sets_run", "confidence_band", "requires_acknowledgement", "backend", "model_id", "prompt_version", "guard_version",
+        "consent_seq", "created_at", "completed_at"))
+    + " OR NEW.findings_json IS NOT NULL OR NEW.urgency_signals_json IS NOT NULL OR NEW.confidence IS NOT NULL) "
+    "BEGIN SELECT RAISE(ABORT, 'append-only'); END",
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
-                                           TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS)
+                                           TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
@@ -479,6 +558,7 @@ PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
 VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
 AI_TABLES = ("ai_extraction_runs", "ai_fields", "ai_field_review_events", "ai_note_drafts")
 OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")
+MEDICAL_IMAGE_TABLES = ("medical_images", "medical_image_acknowledgements", "medical_image_purge_events")
 
 
 class MigrationError(RuntimeError):

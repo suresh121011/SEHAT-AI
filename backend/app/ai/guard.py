@@ -16,6 +16,7 @@ DIAGNOSIS = [re.compile(p, _I) for p in (
     r"\bconsistent with\b", r"\bsuggestive of\b",
     r"\b(?:likely|probable|probably|suspected|possible|presumed|query|\?)\s+(?:case of\s+)?(?:dengue|malaria|typhoid|sepsis|stroke|tb|tuberculosis|"
     r"pneumonia|covid|mi|infarct\w*|heart attack|appendicitis|meningitis|eclampsia|pre-?eclampsia|anaemia|anemia|diabetes|hypertension|infection)\b", r"\bconfirms?\b.*\b(?:infection|disease|dengue|malaria|sepsis|stroke|infarct)",
+    r"\bconfirmed case of\b",  # architecture §10A image guard; "confirms?" above does not match "confirmed"
 )]
 PRESCRIPTION = [re.compile(p, _I) for p in (
     r"\b(?:take|give|administer|start|prescribe[ds]?|increase|decrease|stop)\s+(?:taking\s+)?\w+\s+\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|tablets?|tabs?)\b",

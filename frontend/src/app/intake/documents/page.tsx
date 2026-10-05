@@ -8,8 +8,19 @@ import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { type DocType, DOC_TYPE_LABEL, DocumentUpload } from "@/components/DocumentUpload";
 import { EvidenceViewer } from "@/components/EvidenceViewer";
+import { MedGemmaFindings } from "@/components/MedGemmaFindings";
+import { MedicalImageUpload } from "@/components/MedicalImageUpload";
 import { ApiError, api } from "@/lib/api";
 import { instruction, RANGE_TEXT, type Region, REVIEW_TEXT } from "@/lib/evidence";
+import {
+  IMAGE_TYPES,
+  aiAvailabilityNote,
+  imageTypeAvailability,
+  type ImageCaps,
+  type ImageType,
+  type MedicalImageItem,
+  type MedicalImagesResp,
+} from "@/lib/medicalImages";
 import { retakeAdvice } from "@/lib/retake";
 
 type Check = { check: string; status: string; reason: string };
@@ -36,7 +47,9 @@ type Doc = {
   deleted?: { reason: string; at: string; by_role: string };
   quality?: { ok: boolean; reasons: string[] }[] | null;
 };
-type Caps = { ocr_enabled: boolean; document_types: Record<string, boolean>; max_bytes: number; retention_days: number | null; engines: Record<string, { enabled: boolean; ready: boolean }> };
+// MedGemma keys (medgemma_*, supported_image_types) come from ImageCaps and are optional: an older backend omits them.
+type Caps = ImageCaps & { max_bytes: number; retention_days: number | null; engines: Record<string, { enabled: boolean; ready: boolean }> };
+type Category = "text" | "image";
 type CaseView = { patient_token: string; is_creator: boolean; consent: { triage: string } };
 type Reviewed = { values: { field_id: string; name: string; name_raw: string; outcome: string; value: Record<string, unknown>; ranges: { printed_range_status: string; reference: Reference } | null }[]; unresolved: unknown[]; note: string };
 
@@ -236,6 +249,9 @@ function DocumentsScreen() {
   const [selected, setSelected] = useState<{ doc: string; field: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [category, setCategory] = useState<Category>("text");
+  const [images, setImages] = useState<MedicalImageItem[]>([]);
+  const [lastImage, setLastImage] = useState<MedicalImageItem | null>(null);
   const reviewer = role === "anm" || role === "medical_officer";
 
   const refresh = useCallback(async () => {
@@ -246,9 +262,13 @@ function DocumentsScreen() {
       if (cv.consent.triage === "granted") {
         setDocs((await api.get<{ documents: Doc[] }>(`cases/${caseId}/documents`)).documents.reverse());
         if (reviewer) setReviewed(await api.get<Reviewed>(`cases/${caseId}/documents/reviewed`));
+        // Medical images: an older backend or a disabled feature answers 404/503; then there is simply nothing to list.
+        const imgs = await api.get<MedicalImagesResp>(`cases/${caseId}/medical-images`).catch(() => null);
+        setImages(imgs?.medical_images ? [...imgs.medical_images].reverse() : []);
       } else {
         setDocs([]);
         setReviewed(null);
+        setImages([]);
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 404 && err.code !== "FEATURE_DISABLED") setNotFound(true);
@@ -263,22 +283,41 @@ function DocumentsScreen() {
     refresh();
   }, [refresh]);
 
-  async function upload(file: File, type: DocType, signal: AbortSignal) {
-    if (!caseId) return;
+  // One upload path for text documents and medical images: same form fields, idempotency key and error handling.
+  async function send<T>(file: File, type: DocType | ImageType, signal: AbortSignal, extra: Record<string, string> = {}): Promise<T | null> {
+    if (!caseId) return null;
     setMessage(null);
     const form = new FormData();
     form.set("case_id", caseId);
     form.set("document_type", type);
     form.set("idempotency_key", crypto.randomUUID());
+    for (const [k, v] of Object.entries(extra)) form.set(k, v);
     form.set("file", file);
+    let out: T | null = null;
     try {
-      const doc = await api.postForm<Doc>("intake/document", form, signal);
-      setSelected(doc.fields[0] ? { doc: doc.document_id, field: doc.fields[0].field_id } : null);
+      out = await api.postForm<T>("intake/document", form, signal);
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) setMessage(explain(err));
     }
     await refresh();
+    return out;
   }
+
+  async function upload(file: File, type: DocType, signal: AbortSignal) {
+    const doc = await send<Doc>(file, type, signal);
+    if (doc) setSelected(doc.fields[0] ? { doc: doc.document_id, field: doc.fields[0].field_id } : null);
+  }
+
+  async function uploadImage(file: File, type: ImageType, synthetic: boolean | null, signal: AbortSignal): Promise<boolean> {
+    const item = await send<MedicalImageItem>(file, type, signal, synthetic === null ? {} : { synthetic_attestation: synthetic ? "true" : "false" });
+    if (item) setLastImage(item);
+    return !!item;
+  }
+
+  const imageAvailability = useMemo(
+    () => Object.fromEntries(IMAGE_TYPES.map((t) => [t.key, imageTypeAvailability(caps, t.key)])) as Record<ImageType, { ok: boolean; reason: string | null }>,
+    [caps],
+  );
 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   async function remove(doc: Doc) {
@@ -321,13 +360,44 @@ function DocumentsScreen() {
       role={role}
       triage={(caseView?.consent.triage ?? null) as "not_provided" | "granted" | "declined" | "withdrawn" | null}
       token={caseView?.patient_token}
-      intro="Upload a photo or scan of a lab report or prescription. The health worker checks every value against the paper."
+      intro="Upload a photo or scan of a lab report or prescription, or a medical image. The health worker checks every value against the paper."
     >
-      <p className="rounded-lg border border-info/40 bg-info-bg px-4 py-3">
+      <fieldset className="space-y-2">
+        <legend className="font-bold">Upload category</legend>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["text", "📄", "Text documents (lab reports, prescriptions)"],
+              ["image", "🩻", "Medical images (X-ray, ECG, CT scans, wounds)"],
+            ] as const
+          ).map(([k, emoji, text]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={category === k}
+              onClick={() => setCategory(k)}
+              className={`min-h-11 rounded border-2 px-4 py-2 text-left font-bold ${category === k ? (k === "image" ? "border-warning bg-warning-bg text-ink" : "border-primary bg-primary text-white") : "border-line bg-card"}`}
+            >
+              <span aria-hidden="true">{emoji} </span>
+              {text}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {category === "image" && (
+        <div className="space-y-1 rounded-lg border border-warning/60 bg-warning-bg px-4 py-3">
+          <p>
+            <strong>AI-described visual findings — not a diagnosis.</strong> A doctor reviews the original image. Image findings <strong>never change triage urgency</strong>;
+            a matched keyword only flags the case for the reviewer.
+          </p>
+          {aiAvailabilityNote(caps) && <p className="text-sm">{aiAvailabilityNote(caps)}</p>}
+        </div>
+      )}
+      {category === "text" && <p className="rounded-lg border border-info/40 bg-info-bg px-4 py-3">
         Machine-read and auto-checked — <strong>not yet confirmed by you</strong>. Reviewed values are a checked record shown alongside the case. They
         <strong> never change triage or urgency</strong>; a person enters any value on the triage form, which keeps a human responsible. Documents are read on this
         server only.
-      </p>
+      </p>}
       {caps && !caps.ocr_enabled && <p role="note">Document reading is turned off on this server.</p>}
       {caseView && !triageOk && (
         <p role="alert">
@@ -341,13 +411,33 @@ function DocumentsScreen() {
           the organisation running this system). Copies of the database file (backups) are not covered.
         </p>
       )}
-      {triageOk && caps?.ocr_enabled && canUpload && (
+      {category === "text" && triageOk && caps?.ocr_enabled && canUpload && (
         <DocumentUpload maxBytes={caps.max_bytes} available={caps.document_types} onUpload={upload} />
+      )}
+      {category === "image" && triageOk && caps?.ocr_enabled && canUpload && (
+        <MedicalImageUpload maxBytes={caps.max_bytes} availability={imageAvailability} cloud={!!caps.medgemma_cloud} onUpload={uploadImage} />
       )}
       {triageOk && !canUpload && role === "patient" && <p className="text-sm">Please hand the report to the health worker to upload.</p>}
       {message && <p role="alert" className="text-sm text-error">{message}</p>}
 
-      {docs.map((d) => {
+      {category === "image" && triageOk && (
+        <section aria-label="Medical images for this case" className="space-y-3">
+          {lastImage && <MedGemmaFindings findings={images.find((i) => i.document_id === lastImage.document_id) ?? lastImage} caseId={caseId} />}
+          {images.filter((i) => i.document_id !== lastImage?.document_id).length > 0 && (
+            <>
+              <h2 className="font-bold">Medical images uploaded earlier for this case</h2>
+              {images
+                .filter((i) => i.document_id !== lastImage?.document_id)
+                .map((i) => (
+                  <MedGemmaFindings key={i.document_id} findings={i} caseId={caseId} />
+                ))}
+            </>
+          )}
+          {!lastImage && images.length === 0 && <p className="text-sm text-muted">No medical images uploaded for this case yet.</p>}
+        </section>
+      )}
+
+      {category === "text" && docs.map((d) => {
         const count = (st: string[]) => d.fields.filter((f) => st.includes(f.review_status)).length;
         const done = count(["confirmed", "corrected"]);
         const unsure = count(["unsure"]);
@@ -447,7 +537,7 @@ function DocumentsScreen() {
         );
       })}
 
-      {reviewer && reviewed && (
+      {category === "text" && reviewer && reviewed && (
         <aside className="space-y-2 rounded border border-success/50 p-4">
           <h2 className="font-bold">Reviewed values</h2>
           <p className="text-xs">Only rows the health worker or doctor confirmed or corrected appear here.</p>

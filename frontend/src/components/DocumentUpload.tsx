@@ -6,11 +6,10 @@ import { useEffect, useRef, useState } from "react";
 // The file goes only to this SEHAT server (local OCR); nothing is sent to an outside company.
 
 export type DocType = "lab_report" | "prescription" | "discharge_summary";
-export const DOC_TYPE_LABEL: Record<DocType | "xray_ecg", string> = {
+export const DOC_TYPE_LABEL: Record<DocType, string> = {
   lab_report: "Lab report (printed)",
   prescription: "Prescription (handwritten)",
   discharge_summary: "Discharge summary",
-  xray_ecg: "X-ray / ECG image",
 };
 
 type Props = {
@@ -55,7 +54,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
       <fieldset className="space-y-2">
         <legend className="font-bold">What kind of document is it?</legend>
         <div className="flex flex-wrap gap-2">
-          {(["lab_report", "prescription", "discharge_summary", "xray_ecg"] as const).map((t) => {
+          {(["lab_report", "prescription", "discharge_summary"] as const).map((t) => {
             const ok = available[t] ?? false;
             return (
               <button
@@ -63,7 +62,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
                 type="button"
                 aria-pressed={type === t}
                 disabled={!ok || disabled || busy}
-                onClick={() => ok && t !== "xray_ecg" && setType(t)}
+                onClick={() => ok && setType(t)}
                 className={`rounded border px-3 py-1.5 text-sm ${type === t ? "border-primary bg-primary text-white" : "border-line "} disabled:opacity-50`}
               >
                 {DOC_TYPE_LABEL[t]}

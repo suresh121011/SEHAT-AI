@@ -19,6 +19,7 @@ _PLACEHOLDERS = {
     "your_azure_openai_api_key_here",
     "https://your-resource-name.openai.azure.com/",
     "your_sarvam_api_key_here",
+    "your_google_ai_api_key_here",
     "change_this_to_a_long_random_secret",
 }
 
@@ -35,6 +36,7 @@ SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
 # Kept in code on purpose, like SARVAM_ALLOWED_HOSTS.
 AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
 AI_PROVIDERS = ("none", "fake", "azure")
+MEDGEMMA_BACKENDS = ("fake", "google_ai", "azure")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -101,10 +103,15 @@ class Settings:
     # Phase 6 P2: IndicTrans2 (indic → en), local only. Off unless enabled.
     translation_enabled: bool = False
     translation_model_dir: Path = REPO_ROOT / "models" / "translation"
-    # Reserved for a later phase. Not implemented: enabling it refuses to start, so a switch can never
-    # suggest that a check runs when it does not. (MAKER voting is part of Phase 6 extraction and needs no
-    # switch; OCR verification still reports MAKER as `not_run`, see docs/14.)
-    medgemma_enabled: bool = False  # X-ray/ECG description, deferred (docs/14 §11)
+    # Medical image visual-findings description (architecture §10A, docs/18). Off unless enabled. `fake` = canned
+    # offline outputs (not a model). `google_ai` / `azure` send the image to a cloud model: only with
+    # AI_CLOUD_ENABLED=1, AI_CLOUD_SYNTHETIC_DATA_ONLY=1 and credentials, and per request only with ai_assist consent
+    # and a synthetic-image attestation. Never a fallback between backends.
+    medgemma_enabled: bool = False
+    medgemma_backend: str = "google_ai"
+    medgemma_model: str = "gemini-3.8-flash"
+    google_ai_api_key: str = field(default="", repr=False)  # never printed
+    medgemma_timeout_s: float = 30.0
     # Facility isolation (docs/17 §8). Trusted server config, never client input. None = isolation OFF (every
     # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
     # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
@@ -174,7 +181,7 @@ def get_settings() -> Settings:
         ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
-        medgemma_enabled=_not_implemented("MEDGEMMA_ENABLED", "MedGemma image description (deferred)"),
+        **_medgemma_settings(_flag("OCR_ENABLED")),
         account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
     )
 
@@ -254,6 +261,43 @@ def _ai_settings() -> dict:
         "translation_enabled": _flag("TRANSLATION_ENABLED"),
         "translation_model_dir": _path(_env("TRANSLATION_MODEL_DIR") or "./models/translation"),
     }
+
+
+def _medgemma_settings(ocr_enabled: bool) -> dict:
+    """MEDGEMMA_* (docs/18 §4). Validated only when MEDGEMMA_ENABLED=1. Refusals name what is missing, never values."""
+    enabled = _flag("MEDGEMMA_ENABLED")
+    backend = (_env("MEDGEMMA_BACKEND") or "google_ai").lower()
+    model = _env("MEDGEMMA_MODEL") or "gemini-3.8-flash"
+    key = _env("GOOGLE_AI_API_KEY")
+    timeout_raw = _env("MEDGEMMA_TIMEOUT_S") or "30"
+    try:
+        timeout = float(timeout_raw)
+    except ValueError:
+        raise RuntimeError("MEDGEMMA_TIMEOUT_S must be a number of seconds") from None
+    if enabled:
+        if not ocr_enabled:
+            raise RuntimeError("MEDGEMMA_ENABLED=1 requires OCR_ENABLED=1 (images are uploaded through the document route)")
+        if backend not in MEDGEMMA_BACKENDS:
+            raise RuntimeError("MEDGEMMA_BACKEND must be one of: fake, google_ai, azure")
+        if not 1 <= timeout <= 120:
+            raise RuntimeError("MEDGEMMA_TIMEOUT_S must be between 1 and 120 seconds")
+        if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,100}", model):
+            raise RuntimeError("MEDGEMMA_MODEL must be a model id (letters, digits, . _ : / -)")
+        if backend in ("google_ai", "azure"):
+            if not _flag("AI_CLOUD_ENABLED"):
+                raise RuntimeError(f"MEDGEMMA_BACKEND={backend} requires AI_CLOUD_ENABLED=1 (images leave this machine)")
+            if not _flag("AI_CLOUD_SYNTHETIC_DATA_ONLY"):
+                raise RuntimeError(f"MEDGEMMA_BACKEND={backend} requires AI_CLOUD_SYNTHETIC_DATA_ONLY=1: only synthetic/demo images may be "
+                                   "sent to a cloud model in this build")
+        if backend == "google_ai" and not key:
+            raise RuntimeError("MEDGEMMA_BACKEND=google_ai requires GOOGLE_AI_API_KEY")
+        if backend == "azure":
+            missing = [n for n in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT_NAME", "AZURE_OPENAI_API_VERSION") if not _env(n)]
+            if missing:
+                raise RuntimeError(f"MEDGEMMA_BACKEND=azure requires {', '.join(missing)}")
+            _azure_endpoint(_env("AZURE_OPENAI_ENDPOINT"))
+    return {"medgemma_enabled": enabled, "medgemma_backend": backend, "medgemma_model": model, "google_ai_api_key": key,
+            "medgemma_timeout_s": timeout if 1 <= timeout <= 120 else 30.0}
 
 
 def _azure_endpoint(value: str) -> str:

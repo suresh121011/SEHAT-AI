@@ -14,6 +14,10 @@ Safety model
   the earliest such run as the anchor (`anchor_source: "earlier_red_run"`). An acknowledgment or sign-off on the
   latest run acknowledges it. Unacknowledged past the deadline is "overdue"; the first observation records ONE audit event.
   No notification is sent by this prototype: "overdue" is a displayed state, not a delivered alert.
+- Medical image findings (docs/18): RED/YELLOW keyword hits on AI-described image findings are shown as raise-only
+  reviewer flags in the case review; they never change the rules-engine urgency. Sign-off is refused (409
+  IMAGE_FINDINGS_NOT_REVIEWED) while any image of the case needs acknowledgement (a flag or a classifier mismatch)
+  and has not been acknowledged.
 """
 
 import json
@@ -428,6 +432,39 @@ def _field_provenance(latest_run_id: str, corrections: list[dict]) -> dict[str, 
         "*": {"source": "unchanged_from_previous_run", "from_run_id": corr["corrects_run_id"]}}
 
 
+_IMG_LIVE = "NOT EXISTS (SELECT 1 FROM medical_image_purge_events p WHERE p.document_id = m.document_id)"
+_IMG_UNACKED = "NOT EXISTS (SELECT 1 FROM medical_image_acknowledgements a WHERE a.document_id = m.document_id)"
+
+
+async def unacknowledged_images(conn: aiosqlite.Connection, case_id: str) -> list[str]:
+    """Image document ids that require acknowledgement and have none (deleted images excluded)."""
+    async with conn.execute(f"SELECT m.document_id FROM medical_images m WHERE m.case_id = ? AND m.requires_acknowledgement = 1 AND {_IMG_LIVE} "
+                            f"AND {_IMG_UNACKED} ORDER BY m.created_at", (case_id,)) as cur:
+        return [r["document_id"] for r in await cur.fetchall()]
+
+
+async def _image_flags(conn: aiosqlite.Connection, case_id: str) -> dict:
+    """Raise-only reviewer flags from AI-described image findings. Display only: never feeds the rules engine."""
+    async with conn.execute(f"SELECT m.document_id, m.declared_type, m.classifier_mismatch, m.requires_acknowledgement, m.urgency_signals_json, "
+                            f"EXISTS (SELECT 1 FROM medical_image_acknowledgements a WHERE a.document_id = m.document_id) AS acked "
+                            f"FROM medical_images m WHERE m.case_id = ? AND m.status != 'pending' AND {_IMG_LIVE} ORDER BY m.created_at", (case_id,)) as cur:
+        rows = await cur.fetchall()
+    flags = []
+    for r in rows:
+        for sig in json.loads(r["urgency_signals_json"]) if r["urgency_signals_json"] else []:
+            if sig.get("action") in ("RED_FLAG", "YELLOW_FLAG"):
+                flags.append({"document_id": r["document_id"], "image_class": r["declared_type"], "signal": sig["signal"], "action": sig["action"],
+                              "note": sig.get("note"), "rule_set": sig.get("rule_set"), "source": sig.get("source"), "acknowledged": bool(r["acked"])})
+    return {
+        "flags": flags,
+        "unacknowledged": sum(1 for r in rows if r["requires_acknowledgement"] and not r["acked"]),
+        "mismatches": sum(1 for r in rows if r["classifier_mismatch"]),
+        "keyword_rules_validated": False,
+        "note": "Raise-only reviewer flags from AI-described image findings (keyword rules, not clinician-validated). "
+                "They never change the rules-engine urgency.",
+    }
+
+
 async def case_review(conn: aiosqlite.Connection, principal: Principal, case_id: str) -> dict:
     """Case detail for the reviewer. Clinical content needs effective triage consent (docs/11 D5: earlier results
     are kept, but are not served after withdrawal); the urgency and escalation stay visible for safety."""
@@ -444,6 +481,7 @@ async def case_review(conn: aiosqlite.Connection, principal: Principal, case_id:
         async with conn.execute("SELECT seq, timestamp, actor_role, action, outcome FROM audit_log WHERE case_id = ? ORDER BY seq", (case_id,)) as cur:
             audit_rows = [dict(r) for r in await cur.fetchall()]
         input_json = None
+        image_findings = await _image_flags(conn, case_id)
         chains = await _red_chain_anchors(conn, [case_id])
         if runs:
             async with conn.execute("SELECT input_json FROM triage_runs WHERE run_id = ?", (runs[0]["run_id"],)) as cur:
@@ -461,6 +499,7 @@ async def case_review(conn: aiosqlite.Connection, principal: Principal, case_id:
         "correction_reasons": [{"code": k, "label": v, "requires_text": k == "other"} for k, v in CORRECTION_REASONS.items()],
         "escalation_window_seconds": ESCALATION_SECONDS,
         "audit": audit_rows,
+        "image_findings": image_findings if clinical_allowed else {**image_findings, "flags": None},
     }
     corrections = _corrections_view(history, principal, clinical_allowed)
     runs_out = [{k: h[k] for k in ("run_id", "urgency", "engine_version", "ruleset_version", "created_at", "has_input", "corrects_run_id", "correction_reason_code")}
@@ -547,6 +586,10 @@ async def sign_off(conn: aiosqlite.Connection, principal: Principal, case_id: st
         run, events, chain = await _load_for_action(conn, principal, case_id, str(body.triage_run_id), need_consent=True)
         if any(e["kind"] == "sign_off" for e in events):
             raise ApiError(409, "ALREADY_SIGNED_OFF", "This triage run has already been signed off")
+        pending_images = await unacknowledged_images(conn, case_id)
+        if pending_images:
+            raise ApiError(409, "IMAGE_FINDINGS_NOT_REVIEWED", "AI-described image findings with flags or a type mismatch must be marked as reviewed before sign-off",
+                           {"document_ids": pending_images})
         state = _review_state(run, events, _now(), chain)
         event_id, created_at = await _insert_event(conn, case_id=case_id, run=run, kind="sign_off", principal=principal)
         await audit.record(conn, principal=principal, action="review_signed_off", outcome="success", case_id=case_id, request_id=request_id,
