@@ -19,7 +19,7 @@ export function UrgencyBadge({ urgency, size = "md", label }: { urgency: Urgency
   const u = URGENCY[urgency];
   const pad = size === "lg" ? "px-3 py-1.5 text-lg gap-2" : size === "sm" ? "px-1.5 py-0.5 text-xs gap-1" : "px-2 py-1 text-sm gap-1.5";
   return (
-    <span className={`inline-flex items-center rounded border font-bold tracking-wide ${pad} ${u.cls}`}>
+    <span className={`inline-flex items-center rounded-md border font-bold tracking-wide ${pad} ${u.cls}`}>
       <Icon name={u.icon} size={size === "lg" ? 20 : size === "sm" ? 14 : 16} />
       {u.word}
       {label && <span className="font-normal">{label}</span>}
@@ -30,7 +30,7 @@ export function UrgencyBadge({ urgency, size = "md", label }: { urgency: Urgency
 /** Outlined urgency word for hypothetical results: never the real urgency fill, so it cannot be mistaken for one. */
 export function HypotheticalUrgency({ urgency }: { urgency: Urgency | string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded border-2 border-dashed border-hypo-line bg-card px-2 py-0.5 text-sm font-bold text-ink">
+    <span className="inline-flex items-center gap-1 rounded-md border-2 border-dashed border-hypo-line bg-card px-2 py-0.5 text-sm font-bold text-ink">
       <Icon name="question" size={14} />
       {urgency} <span className="font-normal">(hypothetical)</span>
     </span>
@@ -82,7 +82,7 @@ const PILL: Record<PillTone, string> = {
 
 export function StatusPill({ tone, icon, children }: { tone: PillTone; icon: IconName; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-bold leading-5 ${PILL[tone]}`}>
+    <span className={`inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-bold leading-5 ${PILL[tone]}`}>
       <Icon name={icon} size={14} />
       <span className="min-w-0">{children}</span>
     </span>

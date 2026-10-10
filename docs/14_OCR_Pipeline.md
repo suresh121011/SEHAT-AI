@@ -113,8 +113,9 @@ separate environment. The worker:
 - **Logs**: the Phase 5 canary test found that `aiosqlite` logs every SQL statement *with parameters* at DEBUG
   (case data, voice transcripts, OCR values) — a pre-existing gap. `aiosqlite`, `rapidocr`, `httpx`,
   `python_multipart` and `PIL` loggers are now held at WARNING in `app/main.py`.
-- **Access**: upload — the case's creator ANM (Phase 5 limits upload to ANM: a patient's upload could not be
-  reviewed, because only the creator ANM or an MO may decide and MOs cannot open `/intake/*` yet). Read —
+- **Access**: upload — the case's creator ANM, or the ANM who took over a patient-started case (docs/11 §3a). Patients
+  still cannot upload: a patient's upload could not be reviewed, because only an ANM or an MO may decide and MOs
+  cannot open `/intake/*` yet. Read —
   creator or any MO; **supervisors cannot read document content** (404). Decide — creator ANM or MO.
 
 ## 4. Engines and routing

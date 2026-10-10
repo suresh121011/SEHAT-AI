@@ -15,6 +15,7 @@ import { EvidencePanel } from "@/components/review/EvidencePanel";
 import { PriorityQueue } from "@/components/review/PriorityQueue";
 import { SectionCard } from "@/components/review/Panel";
 import { RedEscalationBanner } from "@/components/review/RedEscalationBanner";
+import { DashboardOverview } from "@/components/review/DashboardOverview";
 import type { ActionDone } from "@/components/review/ReviewActions";
 import { EmptyState, ErrorState, LoadingState, QueueSkeleton, StaleNotice } from "@/components/review/States";
 import { WorkstationBar, shellAction } from "@/components/review/WorkstationBar";
@@ -79,7 +80,7 @@ function ReviewerDashboard() {
   const r = review.data;
 
   return (
-    <div className="workstation -mx-4 -my-6 sm:-my-8">
+    <div className="space-y-4">
       {/* Workstation bar on the dark shell, with the persistent facility-access line from the server. */}
       <WorkstationBar
         title="Reviewer workstation"
@@ -98,8 +99,8 @@ function ReviewerDashboard() {
         )}
       </WorkstationBar>
 
-      <div className="space-y-3 px-4 py-3">
-        <p className="text-xs text-muted">
+      <div className="space-y-3">
+        <p className="text-sm text-muted">
           Research prototype, not a clinically validated device. Urgency comes from fixed rules; AI may only assist and never orders this queue. A medical officer reviews
           every case. Synthetic data only.
         </p>
@@ -111,8 +112,8 @@ function ReviewerDashboard() {
       </div>
 
       {q && (
-        <div className="grid gap-3 px-4 pb-6 md:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[19rem_minmax(0,1fr)_22rem]">
-          <section aria-label="Priority queue" className={`${caseId ? "hidden md:flex" : "flex"} max-h-[calc(100vh-9rem)] min-h-[20rem] flex-col overflow-hidden rounded-lg border border-subtle bg-card md:sticky md:top-2`}>
+        <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)_24rem]">
+          <section aria-label="Priority queue" className={`${caseId ? "hidden md:flex" : "flex"} max-h-[calc(100vh-var(--topbar-h)-2rem)] min-h-[20rem] flex-col overflow-hidden rounded-xl border border-subtle bg-card shadow-card md:sticky md:top-[calc(var(--topbar-h)+1rem)]`}>
             <PriorityQueue
               queue={q}
               filter={filter}
@@ -125,7 +126,7 @@ function ReviewerDashboard() {
             />
           </section>
 
-          <section aria-label="Case review" className={`${caseId ? "" : "hidden md:block"} min-w-0 rounded-lg border border-subtle bg-page`}>
+          <section aria-label="Case review" className={`${caseId ? "" : "hidden md:block 2xl:col-span-2"} min-w-0 rounded-xl border border-subtle bg-surface-2`}>
             {caseId && (
               <div className="border-b border-subtle px-4 py-2 md:hidden">
                 <button type="button" onClick={() => router.push("/dashboard")} className="inline-flex min-h-10 items-center gap-1 font-bold text-primary underline underline-offset-4">
@@ -141,9 +142,7 @@ function ReviewerDashboard() {
               </div>
             )}
             {!caseId && (
-              <div className="p-6">
-                <EmptyState icon="arrowLeft" title="Select a case from the queue">Cases are listed RED first, then by longest waiting. Open one to review the rules result, the evidence and the actions.</EmptyState>
-              </div>
+              <DashboardOverview queue={q} />
             )}
             {caseId && !r && review.error && (
               <div className="p-4">
@@ -173,7 +172,7 @@ function ReviewerDashboard() {
           </section>
 
           {caseId && r?.latest && (
-            <section aria-label="Evidence and explanation" className="min-w-0 space-y-3 md:col-start-2 xl:col-start-auto">
+            <section aria-label="Evidence and explanation" className="min-w-0 space-y-4 md:col-start-2 2xl:col-start-auto">
               <CounterfactualPanel caseId={r.case.case_id} runId={r.latest.triage_run_id} actual={r.latest.rules_urgency} canCompute={r.can_review && r.clinical_content_available && r.latest.has_input} />
               <SectionCard id="evidence-heading" title="Source evidence" icon="document">
                 {r.can_review ? (

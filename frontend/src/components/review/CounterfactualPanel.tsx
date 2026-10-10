@@ -59,7 +59,7 @@ export function CounterfactualPanel({ caseId, runId, actual, canCompute }: { cas
           ) : (
             <ul className="space-y-2">
               {state.data.counterfactuals!.map((c, i) => (
-                <li key={i} className="rounded border border-hypo-line bg-card/90 p-2 text-sm">
+                <li key={i} className="rounded-lg border border-hypo-line bg-card/90 p-2 text-sm">
                   <p className="flex items-start gap-1.5">
                     <Icon name="question" size={16} className="mt-0.5 text-muted" />
                     <span>{describeChange(c.if_changed)},</span>

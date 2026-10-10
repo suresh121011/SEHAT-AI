@@ -22,14 +22,15 @@ export const ROUTE_ACCESS: { prefix: string; roles: Role[] }[] = [
   { prefix: "/dashboard", roles: ["medical_officer", "supervisor"] },
 ];
 
-// docs/08 P1: Patient → intake, MO → dashboard, Supervisor → governance.
+// docs/08 P1: Patient → intake, MO → dashboard, Supervisor → governance. The MO lands on the read-only overview
+// (redesign); the review workstation stays at /dashboard.
 export function homeFor(role: Role): string {
   switch (role) {
     case "patient":
     case "anm":
       return "/intake";
     case "medical_officer":
-      return "/dashboard";
+      return "/dashboard/overview";
     case "supervisor":
       return "/dashboard/governance";
     default:

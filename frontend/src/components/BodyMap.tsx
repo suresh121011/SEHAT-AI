@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { Card } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { REGIONS, type View, labelOf, toggle } from "@/lib/bodyMap";
 
@@ -23,12 +24,12 @@ export function BodyMap({ selected, onChange }: { selected: string[]; onChange: 
   const regions = REGIONS.filter((r) => r.view === view);
 
   return (
-    <div className="space-y-4">
+    <Card as="div" className="space-y-5">
       <fieldset>
         <legend className="font-bold">Side of the body</legend>
         <div className="mt-2 flex gap-2">
           {(["front", "back"] as View[]).map((v) => (
-            <label key={v} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded border-2 px-4 ${view === v ? "border-primary bg-primary-tint font-bold" : "border-line bg-card"}`}>
+            <label key={v} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-[12px] border px-4 transition-all ${view === v ? "border-[#0891B2] bg-[#0891B2]/5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02)] font-bold" : "border-white/60 bg-surface-1 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)]"} hover:-translate-y-0.5 hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)] has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus`}>
               <input type="radio" name="bodyview" className="size-4" checked={view === v} onChange={() => setView(v)} />
               {v === "front" ? "Front" : "Back"}
             </label>
@@ -36,8 +37,8 @@ export function BodyMap({ selected, onChange }: { selected: string[]; onChange: 
         </div>
       </fieldset>
 
-      <div className="grid gap-6 md:grid-cols-[minmax(0,260px)_1fr]">
-        <figure className="mx-auto w-full max-w-[260px]">
+      <div className="grid gap-6 md:grid-cols-[minmax(0,280px)_1fr]">
+        <figure className="mx-auto w-full max-w-[280px] rounded-[16px] bg-surface-1 p-4 shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.7)]">
           {/* Pointer/touch shortcut only: the checkbox list beside it is the keyboard and screen-reader path. */}
           <svg viewBox="0 0 200 420" aria-hidden="true" focusable="false" className="h-auto w-full">
             <Outline />
@@ -76,7 +77,7 @@ export function BodyMap({ selected, onChange }: { selected: string[]; onChange: 
           <legend className="font-bold">Areas ({view === "front" ? "front" : "back"})</legend>
           <div className="mt-2 grid gap-1 sm:grid-cols-2">
             {regions.map((r) => (
-              <label key={r.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded px-2 hover:bg-primary-tint">
+              <label key={r.id} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-[12px] border px-3 transition-all ${selected.includes(r.id) ? "border-[#0891B2] bg-[#0891B2]/5 font-bold shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02)]" : "border-white/60 bg-surface-1 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)]"} hover:-translate-y-0.5 hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)]`}>
                 <input type="checkbox" className="size-5" checked={selected.includes(r.id)} onChange={() => onChange(toggle(selected, r.id))} />
                 {r.label}
               </label>
@@ -88,15 +89,15 @@ export function BodyMap({ selected, onChange }: { selected: string[]; onChange: 
       <p className="sr-only" aria-live="polite">
         {selected.length} {selected.length === 1 ? "area" : "areas"} selected
       </p>
-      <div>
-        <h2 className="font-bold">Selected areas</h2>
+      <div className="border-t border-subtle pt-4">
+        <h2 className="font-bold">Selected areas <span className="font-normal text-muted">({selected.length})</span></h2>
         {selected.length === 0 ? (
           <p className="text-muted">None selected.</p>
         ) : (
           <ul className="mt-2 flex flex-wrap gap-2">
             {selected.map((id) => (
               <li key={id}>
-                <button type="button" onClick={() => onChange(toggle(selected, id))} className="inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-primary bg-primary-tint px-4 font-bold text-primary">
+                <button type="button" onClick={() => onChange(toggle(selected, id))} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/60 bg-surface-1 px-4 font-bold text-ink shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)] transition-all hover:-translate-y-0.5 hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)] hover:text-[#0891B2]">
                   {labelOf(id)} <Icon name="cross" size={16} />
                   <span className="sr-only">(remove)</span>
                 </button>
@@ -105,6 +106,6 @@ export function BodyMap({ selected, onChange }: { selected: string[]; onChange: 
           </ul>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

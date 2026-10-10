@@ -53,6 +53,8 @@ flowchart TD
 
 ## 3. Intake Screens (Patient / Health Worker)
 
+**Patient account and handover.** A patient account can do Case, Consent, Voice and Body map only (docs/06 §2, docs/04 §2). Reports, Questions and Review stay locked for the patient, and the backend refuses them, because every value that reaches triage must be confirmed by a health worker or medical officer. After the body map the patient sees "Your part is done. Nothing has been sent for triage yet." with their case code and is asked to log out before handing over the device. The ANM signs in on their own account, enters the code under "Continue a patient's case" on the intake start page (`POST /cases/handover`, docs/11 §3a) and continues at Reports. Voice and the body map are already saved with the case; the body map is shown on Review as "Patient-reported, not checked" and is never triage input.
+
 ### 3.1 Consent Screen
 
 ```

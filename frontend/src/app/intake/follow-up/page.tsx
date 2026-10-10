@@ -113,7 +113,7 @@ function AiFieldReview({ caseId, ext, onChanged }: { caseId: string; ext: Extrac
               <span>{show(f.value)}</span>
               <SourceTag kind={f.review?.outcome === "accepted" ? "ai_reviewed" : f.review?.outcome === "corrected" ? "ai_corrected" : "ai_pending"} />
               {f.origin === "keyword_rule" ? (
-                <span className="rounded border border-subtle px-2 text-sm font-bold">Keyword rule — not AI model output</span>
+                <span className="rounded-lg border border-subtle px-2 text-sm font-bold">Keyword rule — not AI model output</span>
               ) : (
                 f.agreement && <span className="text-sm text-muted">the AI read it the same way {f.agreement.replace("/", " of ")} times</span>
               )}
@@ -196,7 +196,7 @@ function CorrectionEditor({ field, kind, busy, onCancel, onSave }: { field: AiFi
     const r = buildCorrection(kind, form);
     if (!r.ok) {
       setErrors(r.errors);
-      requestAnimationFrame(() => firstError.current?.querySelector<HTMLElement>("[aria-invalid=true]")?.focus());
+      requestAnimationFrame(() => firstError.current?.querySelector<HTMLElement>("[aria-invalid=true], [data-invalid=true]")?.focus());
       return;
     }
     const failed = await onSave(r.corrected);
@@ -209,7 +209,7 @@ function CorrectionEditor({ field, kind, busy, onCancel, onSave }: { field: AiFi
   }
   const L = CORRECTION_LABELS[kind];
   return (
-    <form onSubmit={submit} noValidate className="mt-3 space-y-3 rounded border-2 border-dashed border-ai bg-ai-bg p-3" aria-labelledby={`${id}-title`}>
+    <form onSubmit={submit} noValidate className="mt-3 space-y-3 rounded-lg border-2 border-dashed border-ai bg-ai-bg p-3" aria-labelledby={`${id}-title`}>
       <p id={`${id}-title`} className="font-bold">
         Correct “{field.field.replace(/^(symptom|medication|red_flag):/, "").replaceAll("_", " ")}”
       </p>
@@ -252,7 +252,7 @@ function CorrectionEditor({ field, kind, busy, onCancel, onSave }: { field: AiFi
             )}
             {(["present", "denied"] as const).map((v) => (
               <label key={v} className="flex min-h-11 items-center gap-2">
-                <input type="radio" name={`${id}-neg`} value={v} checked={form.negated === v} onChange={() => set("negated", v)} aria-invalid={errors.negated ? true : undefined} className="size-5" />
+                <input type="radio" name={`${id}-neg`} value={v} checked={form.negated === v} onChange={() => set("negated", v)} data-invalid={errors.negated ? true : undefined} className="size-5" />
                 {v === "present" ? "Has it" : "Denies it"}
               </label>
             ))}
@@ -488,7 +488,7 @@ function FollowUpScreen() {
             {q.response_options.length > 0 ? (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {[...q.response_options, ...(q.response_options.includes("not sure") ? [] : [NOT_SURE])].map((o) => (
-                  <label key={o} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded border-2 px-4 py-2 ${draft === o ? "border-primary bg-primary-tint font-bold" : "border-line bg-card"}`}>
+                  <label key={o} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border-2 px-4 py-2 ${draft === o ? "border-primary bg-primary-tint font-bold" : "border-line bg-card"}`}>
                     <input type="radio" name="answer" className="size-5" checked={draft === o} onChange={() => setDraft(o)} />
                     {o}
                   </label>

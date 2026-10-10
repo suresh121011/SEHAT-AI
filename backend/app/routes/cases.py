@@ -6,7 +6,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, Depends, Query, Request
 
-from app import case_triage, consent
+from app import body_map, case_triage, consent
 from app.auth import Principal, Role, get_current_principal, require_roles
 from app.consent_notice import Language, Notice, get_notice
 from app.database import get_db
@@ -16,6 +16,7 @@ router = APIRouter(tags=["cases"])
 
 _case_creators = require_roles(Role.PATIENT, Role.ANM)
 _triage_roles = require_roles(Role.ANM, Role.MEDICAL_OFFICER)
+_anm = require_roles(Role.ANM)
 
 
 def _rid(request: Request) -> str | None:
@@ -33,6 +34,23 @@ async def create_case(body: consent.CaseCreate, request: Request, principal: Pri
     return await consent.create_case(db, principal, body, _rid(request))
 
 
+@router.post("/cases/handover")
+async def hand_over(body: consent.HandoverRequest, request: Request, principal: Principal = Depends(_anm), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    """An ANM takes over a patient-started case by its case code (docs/11 §3a). Same facility scope; once per case."""
+    return await consent.hand_over(db, principal, body, _rid(request))
+
+
+@router.put("/cases/{case_id}/body-map")
+async def put_body_map(case_id: uuid.UUID, body: body_map.BodyMapUpdate, request: Request, principal: Principal = Depends(_case_creators), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    """Replace the patient-reported body-map selection (append-only history). Never triage input."""
+    return {"case_id": str(case_id), **await body_map.record(db, principal, str(case_id), body, _rid(request))}
+
+
+@router.get("/cases/{case_id}/body-map")
+async def get_body_map(case_id: uuid.UUID, principal: Principal = Depends(get_current_principal), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    return {"case_id": str(case_id), **await body_map.read(db, principal, str(case_id))}
+
+
 @router.get("/cases/{case_id}")
 async def get_case(case_id: uuid.UUID, principal: Principal = Depends(get_current_principal), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     row = await consent.load_case(db, principal, str(case_id), "read")
@@ -46,6 +64,10 @@ async def get_case(case_id: uuid.UUID, principal: Principal = Depends(get_curren
         "facility_code": row["facility_code"],
         "status": row["status"],
         "is_creator": row["created_by"] == principal.user_id,
+        # Started from a patient account and taken over by this ANM (POST /cases/handover).
+        "is_handler": principal.role == Role.ANM and row["handled_by"] is not None and row["handled_by"] == principal.user_id,
+        "started_by_role": row["created_by_role"],
+        "handed_over": row["handled_by"] is not None,
         "consent": consent.state_view(snap),
         # An id only (no clinical content): the token a re-triage must send as `expected_run_id`.
         "latest_triage_run_id": latest["run_id"] if latest else None,

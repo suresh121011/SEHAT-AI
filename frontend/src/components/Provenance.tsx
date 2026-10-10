@@ -2,7 +2,7 @@ import { Icon, type IconName } from "@/components/Icon";
 
 // Where a value came from, in plain words. Role codes are mapped to people, never shown raw; nothing says
 // "patient confirmed" because the backend records who decided (the account role), not who spoke.
-export type SourceKind = "voice" | "voice_corrected" | "ai_pending" | "ai_reviewed" | "ai_corrected" | "document" | "document_corrected" | "typed" | "local_note";
+export type SourceKind = "voice" | "voice_corrected" | "ai_pending" | "ai_reviewed" | "ai_corrected" | "document" | "document_corrected" | "typed" | "local_note" | "patient_reported";
 
 const SOURCE: Record<SourceKind, { label: string; icon: IconName; cls: string }> = {
   voice: { label: "From voice, checked by health worker", icon: "mic", cls: "border-secondary text-secondary" },
@@ -14,6 +14,7 @@ const SOURCE: Record<SourceKind, { label: string; icon: IconName; cls: string }>
   document_corrected: { label: "Lab report value entered by health worker", icon: "document", cls: "border-info text-info" },
   typed: { label: "Typed on this form", icon: "pencil", cls: "border-line text-muted" },
   local_note: { label: "Note on this device only, not saved", icon: "lock", cls: "border-line text-muted" },
+  patient_reported: { label: "Patient-reported, not checked", icon: "people", cls: "border-line text-muted" },
 };
 
 export function SourceTag({ kind, detail }: { kind: SourceKind; detail?: string }) {

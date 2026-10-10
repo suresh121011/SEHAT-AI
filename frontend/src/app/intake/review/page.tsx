@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
-import { SourceTag, type SourceKind } from "@/components/Provenance";
+import { SourceTag, roleWords, type SourceKind } from "@/components/Provenance";
 import { Button, ButtonLink, Card, Field, Notice, Spinner, inputClass } from "@/components/ui";
 import { type Counterfactuals, type TriageResult, UrgencyResult } from "@/components/UrgencyResult";
 import { ApiError, api } from "@/lib/api";
@@ -56,6 +56,7 @@ function ReviewScreen() {
   const [docs, setDocs] = useState<DocReviewed | null>(null);
   const [sourceNotes, setSourceNotes] = useState<string[]>([]);
   const [notes, setNotes] = useState<LocalNotes>({ bodyMap: [], followUps: {} });
+  const [bodyMap, setBodyMap] = useState<{ regions: string[]; recorded_by_role: string | null } | null>(null);
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("edit");
@@ -93,6 +94,10 @@ function ReviewScreen() {
       });
     } else why.push("AI assistance was not agreed, so no AI-extracted values are used.");
     const d = await api.get<DocReviewed>(`cases/${caseId}/documents/reviewed`).catch(() => null);
+    const bm = await api.get<{ regions: string[]; recorded_by_role: string | null }>(`cases/${caseId}/body-map`).catch(() => {
+      why.push("The saved body map could not be loaded.");
+      return null;
+    });
     const p = mergePrefill(voice, ai);
     const scenario = (SCENARIOS as readonly string[]).includes(caseView.scenario) ? (caseView.scenario as Scenario) : "opd";
     setForm((f) => f ?? { ...emptyForm(scenario), ...p.values });
@@ -102,6 +107,7 @@ function ReviewScreen() {
     setAiPending((ai?.unresolved ?? []).map((u) => ({ field: u.field, state: u.state })));
     setHeldBack(ai?.conflicting_readings ?? []);
     setNotes(readNotes(caseId));
+    setBodyMap(bm);
     setLoading(false);
   }, [caseId, caseView, isWorker]);
 
@@ -281,7 +287,7 @@ function ReviewScreen() {
           <h2 className="text-xl font-bold">Values the rules used</h2>
           {summaryList}
         </Card>
-        <details className="rounded-lg border border-subtle bg-card p-4">
+        <details className="rounded-xl border border-subtle bg-card shadow-card p-4">
           <summary className="min-h-11 cursor-pointer py-2 font-bold">Details for the clinician</summary>
           <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-[auto_1fr]">
             <dt className="font-bold">Case</dt>
@@ -467,9 +473,10 @@ function ReviewScreen() {
         <h2 className="text-xl font-bold">Red-flag screen</h2>
         <p className="text-muted">Ask about each sign and tick only those present. Nothing here is ticked for you; AI or document mentions are only reminders.</p>
         {answerHints("red_flag_screen_completed")}
-        {notes.bodyMap.length > 0 && (
+        {bodyMap && bodyMap.regions.length > 0 && (
           <p className="mt-2 text-sm">
-            <SourceTag kind="local_note" /> Patient pointed to: <strong>{notes.bodyMap.map(labelOf).join(", ")}</strong>
+            <SourceTag kind="patient_reported" detail={`Body map saved by the ${roleWords(bodyMap.recorded_by_role)}`} /> Pointed to:{" "}
+            <strong>{bodyMap.regions.map(labelOf).join(", ")}</strong>
           </p>
         )}
         <fieldset id="f-red_flags_present" className="mt-3">

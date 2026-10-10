@@ -224,7 +224,7 @@ def test_migration_11_keeps_v10_rows_reviews_and_append_only(tmp_path):
         _fill(c, "ai_fields", field_id="f2", extraction_id="e1", case_id="c1", origin="keyword_rule", status="keyword_suggested", field_key="k", kind="red_flag")
     c.close()
 
-    assert asyncio.run(mig(MIGRATIONS)) == SCHEMA_VERSION == 11
+    assert asyncio.run(mig(MIGRATIONS)) == SCHEMA_VERSION == 12
     c = sqlite3.connect(p)
     c.execute("PRAGMA foreign_keys = ON")
     assert c.execute("SELECT field_id, origin, status FROM ai_fields").fetchall() == [("f1", "model", "agreed")]

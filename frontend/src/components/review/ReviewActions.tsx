@@ -124,7 +124,7 @@ function ErrorSummary({ id, items, idFor, focusKey, lead }: { id: string; items:
   }, [focusKey]);
   if (items.length === 0 && !lead) return null;
   return (
-    <div ref={ref} role="alert" tabIndex={-1} aria-labelledby={`${id}-title`} className="rounded border-2 border-error bg-error-bg p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-error">
+    <div ref={ref} role="alert" tabIndex={-1} aria-labelledby={`${id}-title`} className="rounded-[12px] border border-error/50 bg-error-bg p-3 text-sm outline-none shadow-[inset_1px_1px_3px_rgba(220,38,38,0.1),inset_-1px_-1px_3px_rgba(255,255,255,0.7)] focus-visible:ring-2 focus-visible:ring-error">
       <p id={`${id}-title`} className="font-bold text-error">
         Fix before recording:
       </p>
@@ -311,12 +311,12 @@ export function OverrideDialog({ open, onClose, caseId, latest, reasons, onDone,
       <p className="text-sm">An override is your clinical judgement, recorded beside the rules result. It is not a data correction — to fix a wrong value, use “Correct vitals” instead.</p>
       <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className="sr-only">Current and proposed urgency</legend>
-        <div className="rounded border border-subtle p-3">
+        <div className="rounded-[12px] border border-white/60 bg-surface-2 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
           <p className="text-xs font-bold uppercase text-muted">Current</p>
           <UrgencyBadge urgency={current} />
           <p className="mt-1 text-xs text-muted">Rules engine: {latest.rules_urgency} (kept as recorded)</p>
         </div>
-        <div className={`rounded border-2 border-dashed p-3 ${msg("new_urgency") ? "border-error" : "border-human"}`}>
+        <div className={`rounded-[12px] border-2 border-dashed p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.5)] bg-card ${msg("new_urgency") ? "border-error/50 bg-error-bg" : "border-human/40"}`}>
           <p id="override-level-label" className="text-xs font-bold uppercase text-muted">
             You record
           </p>

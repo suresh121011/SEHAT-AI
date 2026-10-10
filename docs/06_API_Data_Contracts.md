@@ -37,7 +37,10 @@ Headers:
 |:---:|:---|:---|:---|
 | GET | `/consent/notice?language=en\|hi\|or` | Versioned notice text + review status (hi/or: unreviewed drafts) | any authenticated |
 | POST | `/cases` | Create case `{scenario, facility_code}` → server `case_id` + opaque `patient_token` | patient, anm |
-| GET | `/cases/{case_id}` | Case summary + effective consent per purpose | creator, medical_officer, supervisor |
+| GET | `/cases/{case_id}` | Case summary + effective consent per purpose; `is_creator`, `is_handler`, `started_by_role`, `handed_over` | creator, handling anm, medical_officer, supervisor |
+| POST | `/cases/handover` | `{patient_token}` → an ANM takes over a case started from a patient account, in its facility scope, while triage consent is in effect ([docs/11 §3a](11_Privacy_Consent_Audit.md)). Once per case; 404 for unknown, out-of-scope or staff-created cases; 409 `CASE_ALREADY_HANDED_OVER` | anm |
+| PUT | `/cases/{case_id}/body-map` | `{regions: [region id]}` (fixed list, no duplicates) → replaces the patient-reported selection (append-only history). Needs `triage` consent. Never triage input | creator (patient, anm), handling anm |
+| GET | `/cases/{case_id}/body-map` | `{regions, recorded_by_role, recorded_at}` (latest selection; empty if none) | creator, handling anm, medical_officer, supervisor |
 | POST | `/cases/{case_id}/consent` | `{decision: grant\|decline, include_ai_assist, language, notice_version}`; method derived server-side | creator (patient, anm) |
 | POST | `/cases/{case_id}/consent/withdraw` | `{purpose: triage\|ai_assist}`; withdrawing triage cascades to ai_assist | creator (patient, anm) |
 | GET | `/cases/{case_id}/consent` | Consent history (actor role only) | creator, medical_officer, supervisor |
@@ -61,7 +64,7 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | DELETE | `/cases/{case_id}/medical-images/{document_id}` | Delete the image and its findings (same retention policy as OCR documents) | anm (creator), medical_officer |
 | GET | `/intake/document/capabilities` | Adds `medgemma_enabled`, `medgemma_backend`, `medgemma_model`, `medgemma_ready`, `medgemma_cloud`, `supported_image_types`; `document_types` lists the five image keys (true only when enabled); `verification.medgemma = "mocked_only"` | any signed-in role |
 | POST | `/intake/image` | Not implemented: medical images use `POST /intake/document` (above) | — |
-| POST | `/intake/body-map` | Submit body map selections | patient, anm |
+| POST | `/intake/body-map` | Superseded by `PUT /cases/{case_id}/body-map` (above) | — |
 | POST | `/intake/text` | Submit text/form input | patient, anm |
 | POST | `/intake/vitals` | Submit vital signs | anm, medical_officer |
 

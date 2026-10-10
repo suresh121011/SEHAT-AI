@@ -75,7 +75,7 @@ export function UrgencyResult({ result, counterfactuals }: { result: TriageResul
         </p>
       </Notice>
 
-      <div className="rounded-lg border border-subtle bg-card p-5">
+      <div className="rounded-xl border border-subtle bg-card shadow-card p-5">
         <h3 className="text-xl font-bold">Why this result</h3>
         {result.triggered_rules.length === 0 ? (
           <p className="mt-2 text-muted">No rule raised the urgency.</p>
@@ -108,7 +108,7 @@ export function UrgencyResult({ result, counterfactuals }: { result: TriageResul
         )}
       </div>
 
-      <div className="rounded-lg border border-subtle bg-card p-5" aria-live="polite">
+      <div className="rounded-xl border border-subtle bg-card shadow-card p-5" aria-live="polite">
         <h3 className="text-xl font-bold">What would change this result?</h3>
         <p className="text-sm text-muted">The rules re-run with one value changed. An explanation only, not part of the triage record, and not advice.</p>
         {counterfactuals === "loading" && <p className="mt-2 text-muted">Working this out…</p>}

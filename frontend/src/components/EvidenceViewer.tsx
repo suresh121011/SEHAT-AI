@@ -15,7 +15,7 @@ export function EvidenceViewer({ imageUrl, page, regions, label }: { imageUrl: s
   const drawable = onPage.map((r) => ({ r, s: regionStyle(r.bbox as BBox, page) })).filter((x) => x.s);
   return (
     <figure className="space-y-1">
-      <div className="relative w-full overflow-hidden rounded border border-line" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
+      <div className="relative w-full overflow-hidden rounded-lg border border-line" style={{ aspectRatio: `${page.width} / ${page.height}` }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- authenticated, no-store page image via the same-origin proxy */}
         <img src={imageUrl} alt={`Page ${page.page_index + 1} of the uploaded document`} className="absolute inset-0 h-full w-full" />
         {drawable.map(({ r, s }, i) => (

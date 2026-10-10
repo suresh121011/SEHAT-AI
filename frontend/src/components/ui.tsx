@@ -5,17 +5,18 @@ import type { ComponentProps, ReactNode } from "react";
 
 import { Icon, type IconName } from "@/components/Icon";
 
-type Variant = "primary" | "secondary" | "danger" | "quiet";
+type Variant = "primary" | "secondary" | "danger" | "success" | "quiet";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-primary text-white hover:bg-primary-hover border border-primary",
-  secondary: "bg-card text-primary border-2 border-primary hover:bg-primary-tint",
-  danger: "bg-card text-error border-2 border-error hover:bg-error-bg",
-  quiet: "bg-transparent text-primary underline underline-offset-4 hover:text-primary-hover border border-transparent",
+  primary: "bg-[#0891B2] text-white hover:bg-[#06b6d4] border border-[#0891B2] shadow-[4px_4px_10px_rgba(8,145,178,0.2),-4px_-4px_10px_rgba(255,255,255,0.8)] active:shadow-[inset_2px_2px_5px_rgba(0,0,0,0.1)]",
+  secondary: "bg-card text-[#164E63] hover:bg-[#e8f1f6] shadow-[4px_4px_10px_rgba(165,243,252,0.4),-4px_-4px_10px_rgba(255,255,255,0.9)] active:shadow-[inset_2px_2px_5px_rgba(165,243,252,0.4)]",
+  danger: "bg-card text-error border-2 border-error hover:bg-error-bg shadow-[4px_4px_10px_rgba(220,38,38,0.1),-4px_-4px_10px_rgba(255,255,255,0.9)] active:shadow-[inset_2px_2px_5px_rgba(220,38,38,0.1)]",
+  success: "bg-success text-white border border-success hover:bg-success/90 shadow-[4px_4px_10px_rgba(16,185,129,0.2),-4px_-4px_10px_rgba(255,255,255,0.8)] active:shadow-[inset_2px_2px_5px_rgba(0,0,0,0.1)]",
+  quiet: "bg-transparent text-[#0891B2] underline underline-offset-4 hover:text-[#06b6d4]",
 };
 
 export function buttonClass(variant: Variant = "primary", extra = "") {
-  return `inline-flex min-h-11 items-center justify-center gap-2 rounded px-5 py-2 text-base font-bold transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-55 ${VARIANT[variant]} ${extra}`;
+  return `inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-5 py-2 text-base font-semibold transition-all duration-150 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-55 hover:-translate-y-[1px] active:translate-y-[1px] ${VARIANT[variant]} ${extra}`;
 }
 
 export function Button({ variant = "primary", className = "", ...props }: ComponentProps<"button"> & { variant?: Variant }) {
@@ -41,7 +42,7 @@ const TONE: Record<Tone, { cls: string; icon: IconName }> = {
 export function Notice({ tone = "info", title, children, role, className = "" }: { tone?: Tone; title?: ReactNode; children?: ReactNode; role?: "status" | "alert" | "note"; className?: string }) {
   const t = TONE[tone];
   return (
-    <div role={role} className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-base ${t.cls} ${className}`}>
+    <div role={role} className={`flex items-start gap-3 rounded-[12px] border border-white/60 px-4 py-3 text-base shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)] ${t.cls} ${className}`}>
       <Icon name={t.icon} size={20} className="mt-0.5" />
       <div className="min-w-0 space-y-1 text-ink [&_a]:text-primary">
         {title && <p className="font-bold">{title}</p>}
@@ -51,8 +52,8 @@ export function Notice({ tone = "info", title, children, role, className = "" }:
   );
 }
 
-export function Card({ children, className = "", as: As = "section" }: { children: ReactNode; className?: string; as?: "section" | "div" | "article" | "aside" }) {
-  return <As className={`rounded-lg border border-subtle bg-card p-4 sm:p-5 ${className}`}>{children}</As>;
+export function Card({ children, className = "", as: As = "section" }: { children: ReactNode; className?: string; as?: "section" | "div" | "article" | "aside" | "li" }) {
+  return <As className={`rounded-[16px] border border-white/60 bg-card p-6 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)] transition-all duration-300 hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)] hover:-translate-y-1 ${className}`}>{children}</As>;
 }
 
 export function Field({ id, label, hint, error, children }: { id: string; label: ReactNode; hint?: ReactNode; error?: string; children: ReactNode }) {
@@ -77,7 +78,7 @@ export function Field({ id, label, hint, error, children }: { id: string; label:
   );
 }
 
-export const inputClass = "block min-h-11 w-full rounded border-2 border-line bg-card px-3 py-2 text-base text-ink";
+export const inputClass = "block min-h-11 w-full rounded-[12px] border border-white/60 bg-surface-1 px-3 py-2 text-base text-ink shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.7)] placeholder:text-muted/80 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow";
 
 export function Spinner({ label }: { label: string }) {
   return (
@@ -87,5 +88,28 @@ export function Spinner({ label }: { label: string }) {
       </svg>
       {label}
     </span>
+  );
+}
+
+/** Page title block used at the top of every screen: optional eyebrow, one h1, a short description, and actions
+ * that wrap below the title on small screens. */
+export function PageHeader({ eyebrow, title, description, actions, headingRef }: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  headingRef?: React.Ref<HTMLHeadingElement>;
+}) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div className="min-w-0 space-y-1">
+        {eyebrow && <p className="text-sm font-bold text-primary">{eyebrow}</p>}
+        <h1 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-2xl font-bold leading-tight tracking-tight text-ink outline-none sm:text-[1.75rem]">
+          {title}
+        </h1>
+        {description && <div className="max-w-prose text-base text-muted">{description}</div>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </header>
   );
 }

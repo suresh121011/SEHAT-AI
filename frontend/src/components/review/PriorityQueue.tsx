@@ -39,7 +39,7 @@ export function PriorityQueue({ queue, filter, onFilter, includeSignedOff, onInc
             Priority queue <span className="text-sm font-normal text-muted">({total})</span>
           </h2>
         </div>
-        <div role="group" aria-label="Show urgency" className="flex flex-wrap gap-1">
+        <div role="group" aria-label="Show urgency" className="grid grid-cols-4 gap-1 rounded-[12px] bg-surface-2 p-1 shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.9)]">
           {FILTERS.map((f) => {
             const count = f.key === "all" ? total : queue.counts[f.key as "RED" | "YELLOW" | "GREEN"];
             const active = filter === f.key;
@@ -49,9 +49,9 @@ export function PriorityQueue({ queue, filter, onFilter, includeSignedOff, onInc
                 type="button"
                 aria-pressed={active}
                 onClick={() => onFilter(f.key)}
-                className={`min-h-9 rounded border px-2.5 text-sm font-bold ${active ? "border-primary bg-primary text-white" : "border-subtle bg-card text-ink hover:border-primary"}`}
+                className={`flex min-h-9 flex-col items-center justify-center rounded-[10px] px-1 text-xs font-bold leading-4 transition-all duration-200 ${active ? "bg-primary text-white shadow-[2px_2px_5px_rgba(0,0,0,0.1),-2px_-2px_5px_rgba(255,255,255,0.9)] scale-[1.02]" : "text-ink hover:bg-white/50"}`}
               >
-                {f.label} <span className="font-normal tabular-nums">{count}</span>
+                {f.label} <span className={`font-normal tabular-nums ${active ? "" : "text-muted"}`}>{count}</span>
               </button>
             );
           })}
@@ -95,7 +95,7 @@ function QueueRow({ item, selected, now, offsetMs }: { item: QueueItem; selected
       <Link
         href={`/dashboard?case=${item.case_id}`}
         aria-current={selected ? "page" : undefined}
-        className={`block border-l-4 px-3 py-2.5 hover:bg-primary-tint/60 ${selected ? "border-row-bar bg-row-selected" : item.priority_urgency === "RED" ? "border-urg-red" : "border-transparent"}`}
+        className={`block border-l-4 px-3 py-3 transition-colors duration-150 hover:bg-surface-2 ${selected ? "border-row-bar bg-row-selected" : item.priority_urgency === "RED" ? "border-urg-red" : "border-transparent"}`}
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <UrgencyBadge urgency={item.priority_urgency} size="sm" />

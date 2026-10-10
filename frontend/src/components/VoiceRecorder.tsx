@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
+import { Button } from "@/components/ui";
 import { blobToWav16k } from "@/lib/wav";
 
 // Records from the microphone and hands back a 16 kHz mono WAV. Browser speech *recognition* is not
@@ -137,16 +138,16 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-subtle bg-card p-4">
+    <div className="space-y-3 rounded-xl border border-subtle bg-card shadow-card p-4">
       <div className="flex flex-wrap items-center gap-3">
         {!recording ? (
-          <button type="button" onClick={start} disabled={disabled || !micAvailable} className="inline-flex min-h-12 items-center gap-2 rounded bg-primary px-5 py-2 text-lg font-bold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-55">
+          <Button type="button" onClick={start} disabled={disabled || !micAvailable}>
             <Icon name="mic" size={22} /> Start recording
-          </button>
+          </Button>
         ) : (
-          <button type="button" onClick={stop} className="inline-flex min-h-12 items-center gap-2 rounded border-2 border-error bg-card px-5 py-2 text-lg font-bold text-error">
+          <Button type="button" variant="danger" onClick={stop}>
             <span className="inline-block size-3 rounded-sm bg-error" aria-hidden="true" /> Stop recording
-          </button>
+          </Button>
         )}
         {/* Visible timer updates every second; the screen-reader announcement only changes on start, stop and 10 s left. */}
         <span className="inline-flex items-center gap-2 font-mono text-base" aria-hidden="true">
@@ -165,9 +166,9 @@ export function VoiceRecorder({ maxSeconds, disabled, onRecorded, samples = [] }
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted">Demo fallback:</span>
           {samples.map((s) => (
-            <button key={s.url} type="button" disabled={disabled || recording} onClick={() => playSample(s.url)} className="rounded border border-line min-h-11 px-4 py-2 disabled:opacity-50">
+            <Button key={s.url} variant="secondary" disabled={disabled || recording} onClick={() => playSample(s.url)}>
               {s.label}
-            </button>
+            </Button>
           ))}
         </div>
       )}

@@ -59,7 +59,7 @@ export function RedEscalationBanner({ items, now, offsetMs, windowSeconds, selec
   return (
     <>
     {live}
-    <section aria-labelledby="esc-heading" className={`overflow-hidden rounded-lg border-2 ${overdue ? "border-esc-overdue" : "border-esc-pending-line"} bg-esc-pending`}>
+    <section aria-labelledby="esc-heading" className={`overflow-hidden rounded-xl border-2 ${overdue ? "border-esc-overdue" : "border-esc-pending-line"} bg-esc-pending`}>
       <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 ${overdue ? "bg-esc-overdue text-esc-overdue-ink" : "text-esc-pending-ink"}`}>
         <Icon name={overdue ? "alert" : "clock"} size={20} />
         <h2 id="esc-heading" className="text-lg font-bold leading-7">
@@ -87,14 +87,14 @@ export function RedEscalationBanner({ items, now, offsetMs, windowSeconds, selec
               </span>
             )}
             {view.display === "past_target" && (
-              <span className="inline-flex items-center gap-1 rounded bg-esc-overdue px-2 py-0.5 font-bold text-esc-overdue-ink">
+              <span className="inline-flex flex-wrap items-center gap-x-1 rounded-md bg-esc-overdue px-2 py-0.5 font-bold text-esc-overdue-ink">
                 <Icon name="alert" size={16} />
                 Past target by <span className="font-mono">{formatClock(view.remainingMs)}</span>
                 <span className="font-normal">· server confirmation on next refresh</span>
               </span>
             )}
             {view.display === "overdue" && (
-              <span className="inline-flex items-center gap-1 rounded bg-esc-overdue px-2 py-0.5 font-bold text-esc-overdue-ink">
+              <span className="inline-flex flex-wrap items-center gap-x-1 rounded-md bg-esc-overdue px-2 py-0.5 font-bold text-esc-overdue-ink">
                 <Icon name="alert" size={16} />
                 OVERDUE by <span className="font-mono">{formatClock(view.remainingMs)}</span>
                 <span className="font-normal">· recorded in the audit log</span>

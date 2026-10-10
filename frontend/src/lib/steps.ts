@@ -41,3 +41,9 @@ export function nextStep(id: StepId, role: string | null, triageConsent: Consent
   }
   return null;
 }
+
+// A patient account has nothing left to do here: the remaining steps belong to the health worker. The backend refuses
+// them for a patient (docs/06), so the screen says so instead of offering a Continue button that would fail.
+export function handoffDue(step: StepId, role: string | null, triageConsent: ConsentState | null): boolean {
+  return role === "patient" && triageConsent === "granted" && step !== "case" && step !== "consent" && nextStep(step, role, triageConsent) === null;
+}

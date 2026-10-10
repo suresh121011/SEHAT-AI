@@ -1,6 +1,6 @@
-// Local, unsubmitted notes for one case: body-map locations and follow-up answers. There is no backend endpoint for
-// either (docs/06 lists /intake/body-map, but it is not implemented), so they live in this browser tab only
-// (sessionStorage), keyed by case. They are never sent to the server and never become triage input by themselves.
+// Local, unsubmitted notes for one case: follow-up answers (the body map is now saved with the case, PUT
+// /cases/{id}/body-map; the `bodyMap` field is kept only so older stored notes still parse). There is no backend
+// endpoint for follow-up answers, so they live in this browser tab only (sessionStorage), keyed by case. They are never sent to the server and never become triage input by themselves.
 // Cleared on triage submit, consent withdrawal, logout, and when another case is opened (shared-device safety).
 
 export type LocalNotes = { bodyMap: string[]; followUps: Record<string, { answer: string; question: string }> };

@@ -37,7 +37,7 @@ async def _migrate(path, migrations=MIGRATIONS) -> int:
 
 def test_fresh_database_reaches_current_version(tmp_path):
     db = tmp_path / "fresh.db"
-    assert asyncio.run(_migrate(db)) == SCHEMA_VERSION == 11
+    assert asyncio.run(_migrate(db)) == SCHEMA_VERSION == 12
     assert set(TABLES) | set(PRIVACY_TABLES) <= _tables(db)
 
 

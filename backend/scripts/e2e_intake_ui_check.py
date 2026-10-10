@@ -77,6 +77,21 @@ def main() -> int:
     after = anm.get(f"/api/backend/cases/{cid}/ai/reviewed")
     check("13 after withdrawing AI assistance, AI values are no longer served", w.status_code == 200 and after.status_code == 403)
 
+    # Patient-started case handed over to the ANM (docs/11 §3a).
+    pcid = patient.post("/api/backend/cases", json={"scenario": "opd", "facility_code": "PHC-KHURDA-01"}).json()["case_id"]
+    patient.post(f"/api/backend/cases/{pcid}/consent", json={"decision": "grant", "include_ai_assist": False, "include_voice_cloud": False, "language": "en", "notice_version": v})
+    bm = patient.put(f"/api/backend/cases/{pcid}/body-map", json={"regions": ["chest_left"]})
+    check("14 patient saves the body map through the proxy (PUT)", bm.status_code == 200 and bm.json()["regions"] == ["chest_left"])
+    check("15 before handover the ANM cannot open the patient's case", anm.get(f"/api/backend/cases/{pcid}").status_code == 404)
+    code = patient.get(f"/api/backend/cases/{pcid}").json()["patient_token"]
+    h = anm.post("/api/backend/cases/handover", json={"patient_token": code})
+    check("16 ANM takes over by case code", h.status_code == 200 and h.json()["case_id"] == pcid)
+    seen = anm.get(f"/api/backend/cases/{pcid}/body-map").json()
+    check("17 ANM sees the patient's body map, labelled as patient-recorded", seen["regions"] == ["chest_left"] and seen["recorded_by_role"] == "patient")
+    t2 = anm.post(f"/api/backend/cases/{pcid}/triage", json=payload, params={"expected_run_id": "none"})
+    check("18 ANM submits triage on the handed-over case", t2.status_code == 200)
+    check("19 the patient account still cannot submit triage after handover", patient.post(f"/api/backend/cases/{pcid}/triage", json=payload).status_code in (403, 404))
+
     failed = [n for n, ok in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} passed")
     return 1 if failed else 0
