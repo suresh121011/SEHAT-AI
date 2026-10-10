@@ -113,9 +113,15 @@ separate environment. The worker:
 - **Logs**: the Phase 5 canary test found that `aiosqlite` logs every SQL statement *with parameters* at DEBUG
   (case data, voice transcripts, OCR values) — a pre-existing gap. `aiosqlite`, `rapidocr`, `httpx`,
   `python_multipart` and `PIL` loggers are now held at WARNING in `app/main.py`.
-- **Access**: upload — the case's creator ANM, or the ANM who took over a patient-started case (docs/11 §3a). Patients
-  still cannot upload: a patient's upload could not be reviewed, because only an ANM or an MO may decide and MOs
-  cannot open `/intake/*` yet. Read —
+- **Access**: upload — the case's creator (patient or ANM), or the ANM who took over a patient-started case
+  (docs/11 §3a). Phase 5 limited upload to the ANM because a patient's upload could not be reviewed; the handover
+  removes that reason: the ANM who takes the case over attests and reviews the patient's uploads. A patient account
+  may upload **text types only** (lab report, prescription, discharge summary; medical images → 403, checked in the
+  image service before anything is read, so the cloud image path and its synthetic-image attestation stay with staff),
+  and at most `PATIENT_MAX_DOCUMENTS_PER_CASE` (10) undeleted documents of its own per case (409
+  `UPLOAD_LIMIT_REACHED`). A patient cannot attest, review, read the reviewed-values feed or delete (403). Audit rows
+  record `actor_role` = `patient`. A text document labelled wrongly (e.g. an x-ray sent as a lab report) only reaches
+  the on-server OCR, never the image pipeline. Demo limitation: all `patient_demo` sessions share one account. Read —
   creator or any MO; **supervisors cannot read document content** (404). Decide — creator ANM or MO.
 
 ## 4. Engines and routing

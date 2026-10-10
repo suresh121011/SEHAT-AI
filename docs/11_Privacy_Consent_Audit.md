@@ -87,7 +87,7 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
 
 ### 3a. Patient-to-health-worker handover (2026-10-10)
 
-A patient account may start a case, give consent, record voice and mark the body map. Reports, follow-up questions and the triage form stay with staff, so the patient's account never confirms values that reach triage. To finish the case, an ANM takes it over:
+A patient account may start a case, give consent, record voice, mark the body map and upload text documents (docs/14 §3; review of those documents stays with staff). Follow-up questions, document review and the triage form stay with staff, so the patient's account never confirms values that reach triage. To finish the case, an ANM takes it over:
 
 - **`POST /cases/handover {patient_token}`**, ANM only. The case must have been created by a patient account (`cases.created_by_role`, backfilled for older cases from their `case_created` audit row), be inside the ANM's facility scope, and have triage consent in effect (else 403 and a `consent_denied` audit row). Unknown codes, out-of-scope cases and staff-created cases get the same 404 with no audit row. A case is taken over once (`cases.handled_by`); the same ANM may repeat the call; another ANM gets 409. Audit: `case_handed_over` (scenario and facility code; never the case code).
 - **The handling ANM** gets the creating ANM's access (`write`, `triage`, `read`), so uploads, voice confirmation, AI review and triage work as on an ANM-started case. **Consent stays with the creator:** the handling ANM cannot record or withdraw it (new access mode `consent`). The patient account keeps exactly its earlier permissions; it still cannot submit triage or confirm values.

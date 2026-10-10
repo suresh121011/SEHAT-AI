@@ -169,7 +169,7 @@ export function IntakeShell({
       {handoff && (
         <Notice tone="warning" title="Your part is done. Nothing has been sent for triage yet.">
           <p>
-            Reports, follow-up questions and the triage form are done by a health worker, who checks every value with you.
+            A health worker checks your reports with you, then does the follow-up questions and the triage form.
             {token ? (
               <>
                 {" "}Show them this case code: <span className="font-mono text-lg font-bold">{token}</span>
@@ -177,8 +177,8 @@ export function IntakeShell({
             ) : null}
           </p>
           <p className="mt-2">
-            The health worker signs in on their own account and chooses &ldquo;Continue a patient&apos;s case&rdquo;. Your voice recording and
-            body map are already saved with the case. Log out before you hand over this device.
+            The health worker signs in on their own account and chooses &ldquo;Continue a patient&apos;s case&rdquo;. Your voice recording,
+            body map and reports are already saved with the case. Until then nobody has checked them. Log out before you hand over this device.
           </p>
         </Notice>
       )}

@@ -351,7 +351,10 @@ function DocumentsScreen() {
   if (!caseId || notFound) return <CaseNotFound />;
 
   const triageOk = caseView?.consent.triage === "granted";
-  const canUpload = !!(caseView?.is_creator || caseView?.is_handler) && role === "anm";
+  // A patient uploads text documents to a case its own account started; review stays with the health worker or doctor.
+  const isPatient = role === "patient";
+  const canUpload = role === "anm" ? !!(caseView?.is_creator || caseView?.is_handler) : isPatient && !!caseView?.is_creator;
+  const shownCategory: Category = isPatient ? "text" : category;
 
   return (
     <IntakeShell
@@ -361,9 +364,13 @@ function DocumentsScreen() {
       role={role}
       triage={(caseView?.consent.triage ?? null) as "not_provided" | "granted" | "declined" | "withdrawn" | null}
       token={caseView?.patient_token}
-      intro="Upload a photo or scan of a lab report or prescription, or a medical image. The health worker checks every value against the paper."
+      intro={
+        isPatient
+          ? "Upload a photo or scan of your lab report, prescription or discharge summary. A health worker checks every value with you before it is used."
+          : "Upload a photo or scan of a lab report or prescription, or a medical image. The health worker checks every value against the paper."
+      }
     >
-      <fieldset className="space-y-2">
+      {!isPatient && <fieldset className="space-y-2">
         <legend className="font-bold">Upload category</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           {(
@@ -393,8 +400,8 @@ function DocumentsScreen() {
             );
           })}
         </div>
-      </fieldset>
-      {category === "image" && (
+      </fieldset>}
+      {shownCategory === "image" && (
         <Notice tone="warning" className="space-y-1">
           <p>
             <strong>AI-described visual findings — not a diagnosis.</strong> A doctor reviews the original image. Image findings <strong>never change triage urgency</strong>;
@@ -403,7 +410,16 @@ function DocumentsScreen() {
           {aiAvailabilityNote(caps) && <p className="text-sm">{aiAvailabilityNote(caps)}</p>}
         </Notice>
       )}
-      {category === "text" && <Notice tone="info">
+      {isPatient && (
+        <Notice tone="info" title="What happens to your report">
+          <p>
+            The report is read on this server only. The numbers it finds are <strong>not checked yet</strong> and are not used for anything until a
+            health worker checks them with you against the paper. They never change how urgent your case is. X-rays and other medical images are
+            uploaded by the health worker.
+          </p>
+        </Notice>
+      )}
+      {!isPatient && shownCategory === "text" && <Notice tone="info">
         <p>
           Machine-read and auto-checked — <strong>not yet confirmed by you</strong>. Reviewed values are a checked record shown alongside the case. They
           <strong> never change triage or urgency</strong>; a person enters any value on the triage form, which keeps a human responsible. Documents are read on this
@@ -423,16 +439,16 @@ function DocumentsScreen() {
           the organisation running this system). Copies of the database file (backups) are not covered.
         </p>
       )}
-      {category === "text" && triageOk && caps?.ocr_enabled && canUpload && (
+      {shownCategory === "text" && triageOk && caps?.ocr_enabled && canUpload && (
         <DocumentUpload maxBytes={caps.max_bytes} available={caps.document_types} onUpload={upload} />
       )}
-      {category === "image" && triageOk && caps?.ocr_enabled && canUpload && (
+      {shownCategory === "image" && triageOk && caps?.ocr_enabled && canUpload && (
         <MedicalImageUpload maxBytes={caps.max_bytes} availability={imageAvailability} cloud={!!caps.medgemma_cloud} onUpload={uploadImage} />
       )}
       {triageOk && !canUpload && role === "patient" && <p className="text-sm">Please hand the report to the health worker to upload.</p>}
       {message && <p role="alert" className="text-sm text-error">{message}</p>}
 
-      {category === "image" && triageOk && (
+      {shownCategory === "image" && triageOk && (
         <section aria-label="Medical images for this case" className="space-y-3">
           {lastImage && <MedGemmaFindings findings={images.find((i) => i.document_id === lastImage.document_id) ?? lastImage} caseId={caseId} />}
           {images.filter((i) => i.document_id !== lastImage?.document_id).length > 0 && (
@@ -449,7 +465,7 @@ function DocumentsScreen() {
         </section>
       )}
 
-      {category === "text" && docs.map((d) => {
+      {shownCategory === "text" && docs.map((d) => {
         const count = (st: string[]) => d.fields.filter((f) => st.includes(f.review_status)).length;
         const done = count(["confirmed", "corrected"]);
         const unsure = count(["unsure"]);
@@ -457,10 +473,15 @@ function DocumentsScreen() {
         const open = count(["machine_read"]);
         return (
           <Card as="article" key={d.document_id} className="space-y-3">
-            <p className="text-sm">
+            {isPatient ? (
+              <p className="text-sm">
+                <strong>{DOC_TYPE_LABEL[d.document_type]}</strong>
+                <span className="text-muted"> · uploaded {new Date(d.created_at).toLocaleTimeString()}</span>
+              </p>
+            ) : <p className="text-sm">
               <strong>{DOC_TYPE_LABEL[d.document_type]}</strong> · read by {Object.entries(d.engines).map(([e, s]) => `${ENGINE_LABEL[e] ?? e}: ${s === "ok" ? "done" : s.replaceAll("_", " ")}`).join(" · ")}
               <span className="text-muted"> · {new Date(d.created_at).toLocaleTimeString()}</span>
-            </p>
+            </p>}
             {d.status === "deleted" && (
               <p role="note">
                 Deleted ({d.deleted?.reason === "retention_expired" ? "retention period ended" : `by the ${d.deleted?.by_role ?? "reviewer"}`}) — page images, read
@@ -475,7 +496,7 @@ function DocumentsScreen() {
                 </ul>
               </div>
             )}
-            {d.status !== "completed" && d.status !== "deleted" && d.status !== "quality_rejected" && (
+            {d.status !== "completed" && d.status !== "deleted" && d.status !== "quality_rejected" && !(d.status === "pending" && isPatient) && (
               <p role="alert">This document was not read ({d.status.replaceAll("_", " ")}). Nothing was extracted.</p>
             )}
             {reviewer && d.status !== "deleted" && d.status !== "pending" && (
@@ -493,7 +514,17 @@ function DocumentsScreen() {
                 )}
               </div>
             )}
-            {d.status === "completed" && (
+            {d.status === "pending" && isPatient && <p role="status">Processing… the report is still being read.</p>}
+            {d.status === "completed" && isPatient && (
+              <p role="status" className="text-sm">
+                {d.fields.length === 0
+                  ? "Uploaded. No values were recognised; the health worker will read the paper with you."
+                  : open > 0
+                    ? `Uploaded and read (${d.fields.length} ${d.fields.length === 1 ? "value" : "values"} found). Waiting for a health worker to check it with you.`
+                    : "Checked by a health worker."}
+              </p>
+            )}
+            {d.status === "completed" && !isPatient && (
               <>
                 <fieldset className="space-y-2 rounded-[16px] border border-warning/40 bg-warning-bg/50 p-4 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                   <legend className="px-1 font-bold text-warning">Is this report for the patient in front of you, for this visit?</legend>
@@ -549,7 +580,7 @@ function DocumentsScreen() {
         );
       })}
 
-      {category === "text" && reviewer && reviewed && (
+      {shownCategory === "text" && reviewer && reviewed && (
         <Card as="aside" className="space-y-2">
           <h2 className="font-bold">Reviewed values</h2>
           <p className="text-xs">Only rows the health worker or doctor confirmed or corrected appear here.</p>

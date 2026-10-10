@@ -376,7 +376,8 @@ def test_authorisation_matrix(ocr_client):
     case_id = _ready_case(ocr_client, anm)
     doc = _upload(ocr_client, anm, case_id).json()
     base = f"/api/v1/cases/{case_id}/documents"
-    assert _upload(ocr_client, pat, case_id).status_code == 403  # Phase 5: ANM-only upload
+    # A patient may upload only to a case its own account created (tests/ocr/test_patient_upload.py); an ANM's case is 404.
+    assert _upload(ocr_client, pat, case_id).status_code == 404
     assert ocr_client.get(base, headers=auth(mo)).status_code == 200
     for tok in (sup, other):
         assert ocr_client.get(base, headers=auth(tok)).status_code == 404
