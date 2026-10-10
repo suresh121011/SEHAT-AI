@@ -162,6 +162,7 @@ export function factsFor(s: EncounterSummary, ids: string[]): Fact[] {
 export function flagWords(flag: string): string | null {
   if (flag === "uncertain_handwriting") return "Handwriting uncertain — confirm against the paper; do not act on this reading";
   if (flag === "disputed_reading") return "Two machine readings differ";
+  if (flag === "strength_readings_differ") return "Strength unclear: the two readings differ — type it from the paper before use";
   if (flag.startsWith("drug_name_not_matched")) return "Drug name not matched in the offline drug list";
   if (flag.startsWith("band:")) return null; // engine band is shown by the document view
   if (flag.startsWith("linked_to:")) return null;

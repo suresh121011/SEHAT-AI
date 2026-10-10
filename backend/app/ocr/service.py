@@ -729,7 +729,21 @@ def _field_view(row, review, png_sha: dict[int, str]) -> dict:
     }
     if reviewed is not None and row["kind"] == "lab":
         out["reviewed_ranges"] = _status_on_reviewed(payload.get("analyte_key"), reviewed)
+    if row["kind"] == "medication":
+        parts = med_disputed_parts(out["checks"])
+        out["disputed_parts"] = parts
+        # The strength the machine read is kept for comparison, but flagged so no screen presents it as the value.
+        out["strength_status"] = "readings_differ" if "strength" in parts else ("read" if payload.get("strength_raw") else "not_read")
+        out["strength_correctable"] = "drug_name" not in parts and row["band"] != "human_entry" and bool(payload.get("drug_raw"))
     return out
+
+
+def med_disputed_parts(checks: list[dict]) -> list[str]:
+    """Which part of a prescription line the two engines read differently: "drug_name" and/or "strength". A strength
+    disagreement must never be shown as a value: Chandra read a handwritten "800mg" as "500mg" (2026-10-02, again on
+    a real prescription 2026-10-11) and the screen showed 500 mg."""
+    reasons = {c.get("reason") for c in checks if c.get("check") == "second_engine_agreement" and c.get("status") == "fail"}
+    return [p for p, r in (("drug_name", "drug_name_differs"), ("strength", "strength_differs")) if r in reasons]
 
 
 def _can_confirm(row, payload: dict, regions: list[dict]) -> bool:
@@ -912,7 +926,7 @@ class Correction(BaseModel):
     strength_raw: str | None = Field(default=None, pattern=r"^\d{1,5}(\.\d{1,3})?\s?(mg|mcg|g|ml|iu|%)$", max_length=16)
     dosage_pattern: str | None = Field(default=None, pattern=r"^[0-2½](-[0-2½]){2,3}$", max_length=12)
     # Closed vocabularies only (no free text): a frequency abbreviation as written, and a whole-number duration.
-    frequency_raw: Literal["OD", "BD", "TDS", "QID", "HS", "SOS", "STAT", "PRN"] | None = None
+    frequency_raw: Literal["OD", "BD", "TDS", "QID", "5 times a day", "HS", "SOS", "STAT", "PRN"] | None = None
     duration_raw: str | None = Field(default=None, pattern=r"^\d{1,3} (days?|weeks?|months?)$", max_length=12)
 
 
@@ -1019,8 +1033,12 @@ def _validate_correction(row, payload: dict, regions: list[dict], corr: Correcti
         if set(data) - _MED_CORRECTABLE:
             raise ApiError(400, "CORRECTION_INVALID", "Only strength, dose pattern, frequency and duration can be corrected; reject a wrong drug name",
                            {"reason": "field_not_correctable"})
-        if row["disputed"] or row["band"] == "human_entry":
+        parts = med_disputed_parts(json.loads(row["checks_json"]))
+        if "drug_name" in parts or row["band"] == "human_entry" or not payload.get("drug_raw"):
             raise ApiError(409, "CORRECTION_REQUIRED", "The drug name itself is uncertain; reject or mark unsure", {"reason": "drug_name_uncertain"})
+        if "strength" in parts and "strength_raw" not in data:
+            raise ApiError(409, "CORRECTION_REQUIRED", "The two readings of the strength differ; type the strength from the paper",
+                           {"reason": "strength_required"})
         return data
     if set(data) & _MED_CORRECTABLE:
         raise ApiError(400, "CORRECTION_INVALID", "Not a lab-value field", {"reason": "field_not_correctable"})

@@ -67,3 +67,43 @@ def test_prescription_frequency_and_duration_can_be_corrected_with_closed_values
     for bad in ({"frequency_raw": "twice a day maybe"}, {"duration_raw": "until better"}, {"frequency_raw": "BD", "drug_raw": "Other"}):
         r = _review(ocr_client, anm, case_id, pant, "corrected", bad)
         assert r.status_code in (400, 422), (bad, r.text)
+
+
+# ── A strength the engines read differently (the real "800mg" → "500mg" case, 2026-10-11) ────────────────────
+
+def _strength_dispute_case(c, anm):
+    # PaddleOCR misreads only the strength; the drug name still agrees, so only the strength is disputed.
+    c.app.state.ocr_engines = FakeEngines("rx_handwritten", paddle_edit={"1. Tab. Paracetamol 650 mg 1-0-1 x 5 days": "1. Tab. Paracetamol 6S0 mg 1-0-1 x 5 days"})
+    case_id = new_case(c, anm)
+    assert grant(c, anm, case_id, ai=True).status_code == 200
+    doc = _upload(c, anm, case_id, "rx_handwritten.png", "prescription").json()
+    assert _attest(c, anm, case_id, doc["document_id"]).status_code == 200
+    return case_id, {f["drug_raw"]: f for f in doc["fields"] if f["kind"] == "medication"}
+
+
+def test_a_disputed_strength_is_flagged_and_must_be_typed_from_the_paper(ocr_client):  # noqa: F811
+    anm = token_for(ocr_client, "anm")
+    case_id, meds = _strength_dispute_case(ocr_client, anm)
+    para = meds["Paracetamol"]
+    assert para["disputed_parts"] == ["strength"] and para["strength_status"] == "readings_differ"
+    assert para["strength_correctable"] is True and para["can_confirm"] is False
+
+    r = _review(ocr_client, anm, case_id, para, "corrected", {"frequency_raw": "BD"})
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "strength_required"
+    ok = _review(ocr_client, anm, case_id, para, "corrected", {"strength_raw": "650 mg", "frequency_raw": "5 times a day"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["reviewed_value"]["strength_raw"] == "650 mg" and ok.json()["reviewed_value"]["frequency_raw"] == "5 times a day"
+
+    amox = meds["Amoxicillin"]  # the drug NAME differs: still not correctable, must be rejected
+    assert "drug_name" in amox["disputed_parts"] and amox["strength_correctable"] is False
+    r = _review(ocr_client, anm, case_id, amox, "corrected", {"strength_raw": "500 mg"})
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "drug_name_uncertain"
+
+
+def test_the_summary_never_shows_a_disputed_strength_as_the_dose(ocr_client):  # noqa: F811
+    anm = token_for(ocr_client, "anm")
+    case_id, _ = _strength_dispute_case(ocr_client, anm)
+    s = ocr_client.post(f"/api/v1/cases/{case_id}/encounter-summary", headers=auth(anm)).json()["summary"]
+    para = next(f for f in s["facts"].values() if f["section"] == "medications" and f["value"].get("drug_raw") == "Paracetamol")
+    assert "650" not in para["display"] and "strength unclear" in para["display"] and "strength_readings_differ" in para["flags"]
+    assert "Paracetamol" not in " ".join(x["text"] for x in s["narrative"])

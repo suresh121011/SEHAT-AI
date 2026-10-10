@@ -418,8 +418,13 @@ async def _ocr_source(conn, case_id: str, b: _Builder, out: dict) -> None:
                     flags.append(f"drug_name_not_matched:{rx['status']}")
                 if not checked and (f.get("disputed") or f.get("band") == "human_entry"):
                     flags.append("uncertain_handwriting")
+                shown = v
+                if not checked and "strength" in (f.get("disputed_parts") or []):
+                    # The engines disagree on the strength (e.g. "800mg" read as "500mg"): never show either reading as the dose.
+                    flags.append("strength_readings_differ")
+                    shown = {**v, "strength_raw": "[strength unclear — check the paper]"}
                 b.add("medications", f"documented:{(v.get('drug_raw') or '').lower()}:{date}", "Documented on prescription",
-                      note.ocr_medication_text(v) or (f.get("line_raw") or "unreadable line"), {**v, "document_date": date}, prov, src, flags,
+                      note.ocr_medication_text(shown) or (f.get("line_raw") or "unreadable line"), {**v, "document_date": date}, prov, src, flags,
                       merge_key=[v, date])
             else:
                 v = f["reviewed_value"] if checked else {"value": (f.get("value") or {}).get("value"), "comparator": (f.get("value") or {}).get("comparator"),

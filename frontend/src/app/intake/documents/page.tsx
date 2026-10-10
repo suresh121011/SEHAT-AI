@@ -12,6 +12,7 @@ import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { MedGemmaFindings } from "@/components/MedGemmaFindings";
 import { MedicalImageUpload } from "@/components/MedicalImageUpload";
 import { ApiError, api } from "@/lib/api";
+import { DURATION_UNITS, FREQUENCIES, buildMedCorrection, medLineText, type MedInput } from "@/lib/medCorrection";
 import { instruction, RANGE_TEXT, type Region, REVIEW_TEXT } from "@/lib/evidence";
 import {
   IMAGE_TYPES,
@@ -39,6 +40,7 @@ type Field = {
   // medication
   line_raw?: string; drug_raw?: string; strength_raw?: string | null; dosage_pattern?: string | null; frequency_raw?: string | null;
   duration_raw?: string | null; rxnorm?: { status: string; name: string | null; reason: string } | null;
+  disputed_parts?: string[]; strength_status?: "readings_differ" | "read" | "not_read"; strength_correctable?: boolean;
 };
 type Doc = {
   document_id: string; status: string; document_type: DocType; engines: Record<string, string>; overall_confidence: number | null;
@@ -102,7 +104,7 @@ function FieldRow({ f, selected, onSelect }: { f: Field; selected: boolean; onSe
           {f.value?.raw || "—"} {f.unit?.raw} <span className="text-muted">· range {f.range?.raw || "not printed"}{f.flag_raw ? ` · flag ${f.flag_raw}` : ""}</span>
         </div>
       ) : (
-        <div className="font-mono">{[f.strength_raw, f.dosage_pattern, f.frequency_raw, f.duration_raw].filter(Boolean).join(" · ") || f.line_raw}</div>
+        <div className={`font-mono ${f.strength_status === "readings_differ" ? "text-warning font-bold" : ""}`}>{medLineText(f)}</div>
       )}
       <div className="mt-1 text-xs">
         <span aria-hidden="true">{ins.symbol} </span>
@@ -121,7 +123,9 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
   const [value, setValue] = useState("");
   const [comparator, setComparator] = useState<string>(f.value?.comparator ?? "=");
   const [unit, setUnit] = useState<string>("");
+  const [med, setMed] = useState<MedInput>({ strength: "", pattern: "", frequency: "", durationNumber: "", durationUnit: "days" });
   const [busy, setBusy] = useState(false);
+  const strengthDisputed = f.strength_status === "readings_differ";
   const attested = doc.attestation?.answer === "matches";
   async function decide(outcome: string, correction?: Record<string, unknown>) {
     setBusy(true);
@@ -148,6 +152,11 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
     if (!Object.keys(correction).length) return setMessage("Type the result and/or choose the unit as printed on the paper.");
     decide("corrected", correction);
   };
+  const correctMed = () => {
+    const out = buildMedCorrection(med, strengthDisputed);
+    if ("error" in out) return setMessage(out.error);
+    decide("corrected", out.correction);
+  };
   return (
     <Card className="space-y-3 text-sm">
       <h3 className="font-bold">Readings</h3>
@@ -159,6 +168,11 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
         ))}
       </ul>
       {f.disputed && <p role="alert">The readings differ. Choose the correct value from the paper — nothing is chosen for you.</p>}
+      {strengthDisputed && (
+        <p role="alert" className="font-bold text-warning">
+          The two engines read the strength differently (Chandra: “{f.strength_raw}”). Do not use either reading — type the strength from the paper below.
+        </p>
+      )}
       {f.kind === "lab" && f.reference && (
         <p className="text-xs">
           Reference: {RANGE_TEXT[f.reference.status]?.symbol} {RANGE_TEXT[f.reference.status]?.text} ({f.reference.population}; {f.reference.citation})
@@ -200,7 +214,11 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
             <p className="text-xs">
               Confirm is off for this row:{" "}
               {f.disputed ? "the engines read it differently" : f.band === "human_entry" ? "it could not be read" : "part of the row cannot be shown on the image"}.
-              {f.kind === "medication" ? " Reject it and write the medicine on the triage form from the paper." : " Type it from the paper below, mark it not sure, or reject it."}
+              {f.kind === "medication"
+                ? f.strength_correctable
+                  ? " Type the values from the paper below, mark it not sure, or reject it."
+                  : " The drug name itself is uncertain: reject it and write the medicine on the triage form from the paper."
+                : " Type it from the paper below, mark it not sure, or reject it."}
             </p>
           )}
           {f.kind === "lab" && (
@@ -229,6 +247,41 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
               <button type="button" disabled={busy || !attested} onClick={correctValue} className={buttonClass("primary", "flex-1 sm:flex-none")}>
                 <Icon name="pencil" /> Save correction
               </button>
+            </div>
+          )}
+          {f.kind === "medication" && f.strength_correctable && (
+            <div className="space-y-2 rounded-lg border border-subtle p-2" role="group" aria-label="Correct this medicine line from the paper">
+              <p className="text-xs font-bold">Type from the paper (leave a box empty to keep the machine reading{strengthDisputed ? "; the strength is required" : ""}):</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs">
+                  Strength{strengthDisputed ? " (required)" : ""}{" "}
+                  <input value={med.strength} onChange={(e) => setMed({ ...med, strength: e.target.value })} placeholder="e.g. 800 mg"
+                    className={`${inputClass} w-28 min-h-8 py-1 px-2 font-mono inline-block`} />
+                </label>
+                <label className="text-xs">
+                  Dose pattern{" "}
+                  <input value={med.pattern} onChange={(e) => setMed({ ...med, pattern: e.target.value })} placeholder="1-0-1"
+                    className={`${inputClass} w-20 min-h-8 py-1 px-2 font-mono inline-block`} />
+                </label>
+                <label className="text-xs">
+                  Frequency{" "}
+                  <select value={med.frequency} onChange={(e) => setMed({ ...med, frequency: e.target.value })} className={`${inputClass} min-h-8 py-1 px-2 w-auto inline-block`}>
+                    <option value="">keep</option>
+                    {FREQUENCIES.map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs">
+                  Duration{" "}
+                  <input inputMode="numeric" value={med.durationNumber} onChange={(e) => setMed({ ...med, durationNumber: e.target.value })} placeholder="7"
+                    className={`${inputClass} w-14 min-h-8 py-1 px-2 font-mono inline-block`} />
+                  <select value={med.durationUnit} onChange={(e) => setMed({ ...med, durationUnit: e.target.value })} className={`${inputClass} ml-1 min-h-8 py-1 px-2 w-auto inline-block`}>
+                    {DURATION_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={busy || !attested} onClick={correctMed} className={buttonClass("primary", "flex-1 sm:flex-none")}>
+                  <Icon name="pencil" /> Save from paper
+                </button>
+              </div>
             </div>
           )}
           <p className="text-xs text-muted">Wrong test or drug name? Reject the row. Your decision is recorded with your role; the machine reading is kept unchanged.</p>
