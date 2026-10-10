@@ -37,7 +37,7 @@ import anyio
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit, consent
-from app.auth import Principal
+from app.auth import Principal, Role
 from app.config import Settings
 from app.consent_notice import DOCUMENT_NOTICE_VERSIONS
 from app.database import read_transaction, transaction
@@ -59,6 +59,9 @@ DocType = Literal["lab_report", "prescription", "discharge_summary"]
 MAX_PAGES = files.MAX_PAGES
 BUSY_WAIT_S = 30.0
 MAX_WAITERS = 2
+# A patient account may keep at most this many (not deleted) documents of its own on one case: patient uploads are
+# the least-trusted input and each one takes OCR time and disk. Staff uploads are not capped.
+PATIENT_MAX_DOCUMENTS_PER_CASE = 10
 
 _slot = threading.BoundedSemaphore(1)
 _waiting = 0
@@ -414,6 +417,14 @@ async def upload(conn: aiosqlite.Connection, principal: Principal, case_id: str,
             else:
                 async with conn.execute("SELECT * FROM ocr_documents WHERE case_id = ? AND idempotency_key = ?", (case_id, idempotency_key)) as cur:
                     existing = await cur.fetchone()
+                if existing is None and principal.role == Role.PATIENT:
+                    async with conn.execute(
+                        "SELECT COUNT(*) AS n FROM ocr_documents d WHERE d.case_id = ? AND d.created_by = ? "
+                        "AND NOT EXISTS (SELECT 1 FROM ocr_purge_events p WHERE p.document_id = d.document_id)", (case_id, principal.user_id),
+                    ) as cur:
+                        if (await cur.fetchone())["n"] >= PATIENT_MAX_DOCUMENTS_PER_CASE:
+                            raise ApiError(409, "UPLOAD_LIMIT_REACHED", "This case already has the most documents a patient account can upload",
+                                           {"limit": PATIENT_MAX_DOCUMENTS_PER_CASE})
                 if existing is None:
                     await conn.execute(
                         "INSERT INTO ocr_documents (document_id, case_id, created_by, idempotency_key, upload_sha256, media_type, document_type, byte_size, status, "

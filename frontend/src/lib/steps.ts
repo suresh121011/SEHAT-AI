@@ -1,6 +1,6 @@
-// The intake journey and who can do each step. Mirrors backend permissions (docs/06, docs/11): a patient account
-// can start a case, give consent, record voice and mark the body map; documents, AI follow-ups and the triage form
-// need the health-worker (ANM) account that created the case. Pure, unit-tested.
+// The intake journey and who can do each step. Mirrors backend permissions (docs/06, docs/11, docs/14): a patient
+// account can start a case, give consent, record voice, mark the body map and upload text documents; AI follow-ups
+// and the triage form need the health-worker (ANM) account that created or took over the case. Pure, unit-tested.
 
 export const STEPS = [
   { id: "case", path: "/intake", label: "Case", title: "Facility and situation" },
@@ -16,7 +16,7 @@ export type StepId = (typeof STEPS)[number]["id"];
 export type ConsentState = "not_provided" | "granted" | "declined" | "withdrawn";
 export type Availability = "open" | "needs_consent" | "health_worker_only";
 
-const WORKER_ONLY: StepId[] = ["documents", "followup", "review"];
+const WORKER_ONLY: StepId[] = ["followup", "review"];
 
 export function availability(step: StepId, role: string | null, triageConsent: ConsentState | null): Availability {
   if (step === "case" || step === "consent") return "open";

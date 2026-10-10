@@ -32,7 +32,7 @@ import anyio
 from pydantic import BaseModel, ConfigDict
 
 from app import audit, consent
-from app.auth import Principal
+from app.auth import Principal, Role
 from app.config import Settings
 from app.consent_notice import DOCUMENT_NOTICE_VERSIONS
 from app.database import read_transaction, transaction
@@ -163,6 +163,10 @@ async def _finalize_failed(conn, principal, case_id, document_id, image_type, mi
 async def upload(conn, principal: Principal, case_id: str, data: bytes, image_type: str, idempotency_key: str, settings: Settings,
                  request_id: str | None = None, *, filename: str | None = None, content_type: str | None = None,
                  synthetic_attestation: bool = False, backend=None) -> dict:
+    # Medical images run AI visual findings, possibly on a cloud backend behind the uploader's synthetic-image
+    # attestation; that attestation and the image choice stay with staff. Checked before anything is read or stored.
+    if principal.role == Role.PATIENT:
+        raise ApiError(403, "FORBIDDEN", "Medical images are uploaded by a health worker")
     if image_type not in MEDGEMMA_TYPES:
         raise ApiError(400, "VALIDATION_ERROR", "Request validation failed", {"fields": ["document_type"]})
     sha = hashlib.sha256(data).hexdigest()

@@ -53,21 +53,31 @@ test("corrupt stored notes are ignored, not trusted", () => {
 
 test("steps: patients never unlock health-worker steps; nothing past consent without triage consent", () => {
   assert.equal(availability("review", "patient", "granted"), "health_worker_only");
-  assert.equal(availability("documents", "patient", "granted"), "health_worker_only");
+  assert.equal(availability("followup", "patient", "granted"), "health_worker_only");
+  assert.equal(availability("documents", "patient", "granted"), "open"); // patients upload their own reports
+  assert.equal(availability("documents", "patient", "not_provided"), "needs_consent");
   assert.equal(availability("voice", "anm", "not_provided"), "needs_consent");
   assert.equal(availability("voice", "anm", "withdrawn"), "needs_consent");
   assert.equal(availability("review", "anm", "granted"), "open");
-  assert.equal(nextStep("body", "patient", "granted"), null);
+  assert.equal(nextStep("body", "patient", "granted"), "documents");
+  assert.equal(nextStep("documents", "patient", "granted"), null);
   assert.equal(nextStep("body", "anm", "granted"), "documents");
   assert.equal(hrefFor("voice", "abc"), "/intake/voice?case=abc");
   assert.equal(hrefFor("case", "abc"), "/intake");
 });
 
 test("steps: a patient's last usable step shows the handoff; health workers and earlier steps never do", () => {
-  assert.equal(handoffDue("body", "patient", "granted"), true);
-  assert.equal(handoffDue("voice", "patient", "granted"), false); // body map still ahead
+  assert.equal(handoffDue("documents", "patient", "granted"), true);
+  assert.equal(handoffDue("body", "patient", "granted"), false); // reports still ahead
   assert.equal(handoffDue("body", "patient", "withdrawn"), false); // consent screen handles this
   assert.equal(handoffDue("consent", "patient", "granted"), false);
   assert.equal(handoffDue("body", "anm", "granted"), false);
   assert.equal(handoffDue("review", "anm", "granted"), false);
+});
+
+test("route guard: a patient may open the Reports page; reviewer dashboards stay staff-only", async () => {
+  const { allowedRoles } = await import("./auth.ts");
+  assert.ok(allowedRoles("/intake/documents")?.includes("patient"));
+  assert.ok(allowedRoles("/intake/documents")?.includes("anm"));
+  assert.ok(!allowedRoles("/dashboard")?.includes("patient"));
 });

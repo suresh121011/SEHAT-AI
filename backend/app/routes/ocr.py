@@ -28,7 +28,10 @@ from app.ocr.image_classifier import ALL_TYPES, MEDGEMMA_TYPES
 
 router = APIRouter(tags=["documents"])
 
-_uploaders = require_roles(Role.ANM)  # Phase 5: ANM only (docs/14 §4A: a patient upload could not be reviewed)
+# The case creator (patient or ANM) or the ANM who took over a patient-started case; the service checks case access.
+# A patient may upload text documents only (image_service refuses medical images for patients). Review stays with
+# the ANM or an MO: a patient's upload is reviewed once an ANM takes the case over (docs/14 §4A, docs/11 §3a).
+_uploaders = require_roles(Role.PATIENT, Role.ANM)
 _reviewers = require_roles(Role.ANM, Role.MEDICAL_OFFICER)
 _DOC_TYPES = ALL_TYPES  # text types + medical image types (docs/18)
 _REQUIRED_FIELDS = {"file", "case_id", "document_type", "idempotency_key"}
