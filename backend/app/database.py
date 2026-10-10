@@ -601,9 +601,48 @@ HANDOVER_STATEMENTS: tuple[str, ...] = (
     *_append_only("body_map_events"),
 )
 
+# ── Step 13: clinical encounter summary (docs/19). A case-level, source-linked summary assembled deterministically from
+# every stored source (no model call). Each generation is an append-only snapshot keyed by the hash of the source
+# inventory it read, so a later change anywhere in the case marks it stale. Review events (accepted / needs_changes)
+# are bound to one summary, name the event they supersede, and never touch triage_runs or review_events.
+# Rollback: older code ignores both tables.
+ENCOUNTER_SUMMARY_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE encounter_summaries (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    summary_id        TEXT NOT NULL UNIQUE,
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    triage_run_id     TEXT REFERENCES triage_runs(run_id),
+    recorded_urgency  TEXT CHECK (recorded_urgency IN ('RED', 'YELLOW', 'GREEN')),  -- the rules engine's, copied
+    inventory_sha256  TEXT NOT NULL,
+    schema_version    TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('complete', 'partial')),
+    summary_json      TEXT NOT NULL,
+    consent_seq       INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id          TEXT NOT NULL,
+    actor_role        TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_encounter_summaries_case ON encounter_summaries(case_id, seq)",
+    """CREATE TABLE encounter_summary_review_events (
+    seq                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id               TEXT NOT NULL UNIQUE,
+    summary_id             TEXT NOT NULL REFERENCES encounter_summaries(summary_id),
+    case_id                TEXT NOT NULL REFERENCES cases(case_id),
+    outcome                TEXT NOT NULL CHECK (outcome IN ('accepted', 'needs_changes')),
+    acknowledged_conflicts INTEGER NOT NULL CHECK (acknowledged_conflicts IN (0, 1)),
+    supersedes             TEXT,
+    actor_id               TEXT NOT NULL,
+    actor_role             TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_encounter_summary_reviews ON encounter_summary_review_events(summary_id, seq)",
+    *_append_only("encounter_summaries"),
+    *_append_only("encounter_summary_review_events"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
-                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS)
+                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
@@ -614,6 +653,7 @@ TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
 VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
 AI_TABLES = ("ai_extraction_runs", "ai_fields", "ai_field_review_events", "ai_note_drafts")
+ENCOUNTER_SUMMARY_TABLES = ("encounter_summaries", "encounter_summary_review_events")
 OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")
 MEDICAL_IMAGE_TABLES = ("medical_images", "medical_image_acknowledgements", "medical_image_purge_events")
 

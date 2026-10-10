@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { ProvenanceBadge, StatusPill, URGENCY_MEANING, UrgencyBadge } from "@/components/review/Badges";
 import { AcknowledgeButton, CorrectVitalsDialog, OverrideDialog, SignOffDialog, type ActionDone } from "@/components/review/ReviewActions";
+import { EncounterSummaryPanel } from "@/components/review/EncounterSummaryPanel";
 import { Eyebrow, SectionCard } from "@/components/review/Panel";
 import { Button, Notice } from "@/components/ui";
 import { SCENARIO_WORDS, correctionLine, escalationView, fieldWords, formatClock, priorityExplanation, provenanceNote, roleLabel, type CaseReview, type FieldProvenance, type ReviewEvent } from "@/lib/review";
@@ -208,6 +209,8 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
           )}
         </SectionCard>
       )}
+
+      {review.clinical_content_available && review.can_review && <EncounterSummaryPanel caseId={c.case_id} canReview={review.can_review} />}
 
       {review.clinical_content_available && <RecordedInput input={latest.input ?? null} provenance={latest.field_provenance} />}
 

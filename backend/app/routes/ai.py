@@ -1,4 +1,5 @@
-"""Phase 6 AI extraction, review and note routes (docs/16 §10). Thin wrappers over app.ai services.
+"""Phase 6 AI extraction, review and note routes (docs/16 §10), and the clinical encounter summary (docs/19). Thin
+wrappers over app.ai services.
 
 Nothing here submits triage or writes `triage_runs`. Roles: the ANM who created the case, or a medical
 officer (`consent.load_case(..., "triage")`); `triage` and `ai_assist` consent must both be in effect.
@@ -10,7 +11,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, Depends, Request
 
-from app.ai import extract, guardrails, note, providers, redflag_keywords, review
+from app.ai import encounter_summary, extract, guardrails, note, providers, redflag_keywords, review
 from app.auth import Principal, Role, get_current_principal, require_roles
 from app.config import Settings, get_settings
 from app.database import get_db
@@ -81,3 +82,30 @@ async def draft_note(case_id: uuid.UUID, body: note.NoteRequest, request: Reques
 @router.get("/cases/{case_id}/ai/notes")
 async def list_notes(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     return await note.list_notes(db, principal, str(case_id), _rid(request))
+
+
+# ── Clinical encounter summary (docs/19). Deterministic, no model call; never writes triage_runs or review_events. ──
+
+
+@router.post("/cases/{case_id}/encounter-summary", status_code=201)
+async def generate_encounter_summary(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers),
+                                     db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    return await encounter_summary.generate(db, principal, str(case_id), _rid(request))
+
+
+@router.get("/cases/{case_id}/encounter-summary")
+async def get_encounter_summary(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers),
+                                db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    return await encounter_summary.latest(db, principal, str(case_id), _rid(request))
+
+
+@router.get("/cases/{case_id}/encounter-summary/history")
+async def encounter_summary_history(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers),
+                                    db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    return await encounter_summary.history(db, principal, str(case_id), _rid(request))
+
+
+@router.post("/cases/{case_id}/encounter-summary/{summary_id}/review")
+async def review_encounter_summary(case_id: uuid.UUID, summary_id: uuid.UUID, body: encounter_summary.SummaryReviewBody, request: Request,
+                                   principal: Principal = Depends(_reviewers), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    return await encounter_summary.review_summary(db, principal, str(case_id), str(summary_id), body, _rid(request))

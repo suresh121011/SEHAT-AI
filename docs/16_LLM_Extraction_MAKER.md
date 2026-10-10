@@ -306,6 +306,7 @@ The docs/09 values "0.95 / 0.5 confidence" are not used. A probability would ove
   - There is no bulk-accept endpoint.
 - **Reviewed view** (`GET /ai/reviewed`) returns accepted and corrected values with their sources, plus `form_hints` that map them to `TriageInput` fields. Red-flag mentions come only as candidates for the red-flag screen.
   - **Nothing is submitted:** a human enters values on the triage form.
+- **Case-level encounter summary (2026-10-11):** the note below covers ONE extraction run. The clinician-facing summary that combines every run, voice read-back, documents, triage vitals and reviewer status is [docs/19](19_Encounter_Summary.md). Two note bugs found there are fixed: reviewed prescription lines keep strength, pattern, frequency and duration (`note.ocr_medication_text`), and an unreviewed keyword red flag no longer crashes the draft (500 → tagged `[unreviewed keyword match]`).
 - **Note draft** (`app/ai/note.py`) is a **server template** in this phase, not model prose (council amendment):
   - Every claim is built from one stored field and cites its `field_id`.
   - Rejected and disputed fields produce no claim. Disputed values are listed under `needs_human_entry` with their candidates.
@@ -357,7 +358,7 @@ The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening 
   - A run of 8 or more bare digits fails the whole request closed, e.g. "glucose 245 312 280" → `422 PII_DETECTED`. This fail-safe is accepted as is.
 - **Spoken numbers:** see §4. "one forty" is dropped, not guessed.
 - **One bad segment blocks the whole request.** Fail-closed redaction applies per request: one Hindi or Odia word in otherwise English text (`unsupported_script`), or a run of bare readings, returns 422 for the entire extraction.
-- **Silent over-redaction:** "LMP 12/03/2026, G2P1" can become "LMP [DATE_REDACTED], [PERSON_REDACTED]", and romanised "Bukhar hai" can be redacted as a name. The value is lost, and no error is raised.
+- **Silent over-redaction** (partly addressed 2026-10-11: clinical words such as "Fever" mislabelled as a name or place are no longer redacted, docs/19 §2 R11; the examples here still apply): "LMP 12/03/2026, G2P1" can become "LMP [DATE_REDACTED], [PERSON_REDACTED]", and romanised "Bukhar hai" can be redacted as a name. The value is lost, and no error is raised.
 - **The form-hint path is not guarded by `enforce_raise_only`.** Accepted values come with hints for the triage form. If a person copies a wrong reviewed value into the form, it changes the rules input itself, and nothing records where a triage input came from. Mitigations:
   - hints exist only for human-reviewed values;
   - repeated readings that differ get no hint (`conflicting_readings`);

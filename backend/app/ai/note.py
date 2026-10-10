@@ -28,7 +28,7 @@ from app.rules.counterfactual import counterfactuals
 # The mandated wording (docs/04 §Safety, docs/07) is kept verbatim; `provider_notice` says what produced the values.
 DISCLAIMER = "AI-drafted, pending review by a qualified clinician. Not a diagnosis. Research prototype, not a clinically validated device."
 FAKE_NOTICE = "Values were extracted by the fake provider, a deterministic keyword extractor (not an LLM), for development and demos."
-_TAGS = {"reviewed": "", "document_reviewed": "", "unreviewed_ai_extracted": " [unreviewed]"}
+_TAGS = {"reviewed": "", "document_reviewed": "", "unreviewed_ai_extracted": " [unreviewed]", "unreviewed_keyword_suggestion": " [unreviewed keyword match]"}
 # Alarms first so that length limits can never cut them; then reviewed values; unreviewed last.
 _ORDER = {"red_flag": 0}
 MAX_SUMMARY_CHARS = 500
@@ -62,6 +62,18 @@ def _ocr_value_text(value) -> str:
     return text
 
 
+def ocr_medication_text(value) -> str:
+    """A reviewed prescription line as written: drug, then strength, dosage pattern, frequency and duration when the
+    reviewer kept them. Wording stays "documented on prescription": a prescription is not evidence the medicine was taken."""
+    if not isinstance(value, dict):
+        return str(value)
+    parts = [value.get(k) for k in ("drug_raw", "strength_raw", "dosage_pattern", "frequency_raw")]
+    text = " ".join(str(p) for p in parts if p)
+    if value.get("duration_raw"):
+        text = f"{text} for {value['duration_raw']}"
+    return text
+
+
 def claim_text(f: dict, v) -> str | None:
     kind, key = f["kind"], f["field"].split("#")[0]
     if kind == "text":
@@ -80,6 +92,8 @@ def claim_text(f: dict, v) -> str | None:
         if v["negated"]:
             return f"Source text denies: {flag} (not a completed red-flag screen)."
         return f"Red-flag mention to check on the screen: {flag}."
+    if kind == "ocr_medication":
+        return f"Documented on prescription (reviewed): {ocr_medication_text(v['value'])}."
     if kind.startswith("ocr_"):
         return f"Document value (reviewed): {v['name']} {_ocr_value_text(v['value'])}."
     return None

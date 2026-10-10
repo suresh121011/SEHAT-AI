@@ -431,6 +431,52 @@ async def resolve_readback(conn, principal: Principal, case_id: str, candidate_i
 # ── prefill ──────────────────────────────────────────────────────────────────────────────────────
 
 
+async def case_resolutions(conn, case_id: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """(resolved, unresolved, display_only) for a case, inside the caller's read transaction and after its access and
+    consent checks. `resolved` and `unresolved` cover the pre-fill fields (and unassigned numbers); `display_only` holds
+    every display-only candidate (symptom duration) with its latest state, and its spoken value and unit once confirmed:
+    shown in the encounter summary, never a triage input."""
+    resolutions = await _latest_resolutions(conn, "case_id = ?", (case_id,))
+    async with conn.execute(
+        "SELECT c.*, t.segments_json FROM voice_candidates c JOIN voice_transcriptions t USING (transcription_id) WHERE c.case_id = ? ORDER BY t.created_at, c.ordinal",
+        (case_id,),
+    ) as cur:
+        cands = {r["candidate_id"]: r for r in await cur.fetchall()}
+    resolved, unresolved, display_only = [], [], []
+    for cid, c in cands.items():
+        ev = resolutions.get(cid)
+        segs = json.loads(c["segments_json"])
+        source = {
+            "type": "voice_manual_correction" if ev is not None and ev["outcome"] == "corrected" else "voice_transcript",
+            "transcription_id": c["transcription_id"],
+            "candidate_id": cid,
+            "transcript_chars": [c["char_start"], c["char_end"]],
+            # Speech span of the whole clip (VAD). Engines give no reliable per-word timing, so the
+            # exact evidence is the highlighted transcript span, not an audio timestamp.
+            "clip_speech_sec": [segs[0][0], segs[-1][1]] if segs else None,
+            "readback_outcome": ev["outcome"] if ev is not None else None,
+            "resolved_by_role": ev["actor_role"] if ev is not None else None,
+        }
+        if c["field"] in readback.DISPLAY_ONLY_FIELDS:
+            state = "undecided" if ev is None else ev["outcome"]
+            confirmed = state == "confirmed" and c["raw_value"] is not None
+            display_only.append({"field": c["field"], "state": state, "value": c["raw_value"] if confirmed else None,
+                                 "unit": (ev["resolved_unit"] or c["unit"]) if confirmed else None, "source": source})
+            continue
+        if c["field"] not in readback.PREFILL_FIELDS and c["field"] != "unassigned":
+            continue
+        if ev is None or ev["outcome"] == "unsure":
+            unresolved.append({"candidate_id": cid, "field": c["field"], "transcription_id": c["transcription_id"], "state": "undecided" if ev is None else "unsure"})
+            continue
+        resolved.append({
+            "field": ev["resolved_field"],
+            "outcome": ev["outcome"],
+            "values": json.loads(ev["resolved_json"]) if ev["resolved_json"] and ev["resolved_field"] in readback.PREFILL_FIELDS else None,
+            "source": source,
+        })
+    return resolved, unresolved, display_only
+
+
 async def prefill(conn, principal: Principal, case_id: str, request_id: str | None = None) -> dict:
     """Reviewer-confirmed values shaped for the existing triage input. Never submits triage."""
     denial = None
@@ -445,38 +491,7 @@ async def prefill(conn, principal: Principal, case_id: str, request_id: str | No
     async with read_transaction(conn):  # one consistent snapshot, re-checking consent inside it
         if not (await consent.snapshot(conn, case_id)).is_effective("triage"):
             raise ApiError(409, "CONSENT_WITHDRAWN", "Consent changed; reload")
-        resolutions = await _latest_resolutions(conn, "case_id = ?", (case_id,))
-        async with conn.execute(
-            "SELECT c.*, t.segments_json FROM voice_candidates c JOIN voice_transcriptions t USING (transcription_id) WHERE c.case_id = ? ORDER BY t.created_at, c.ordinal",
-            (case_id,),
-        ) as cur:
-            cands = {r["candidate_id"]: r for r in await cur.fetchall()}
-    resolved = []
-    unresolved = []
-    for cid, c in cands.items():
-        ev = resolutions.get(cid)
-        if c["field"] not in readback.PREFILL_FIELDS and c["field"] != "unassigned":
-            continue
-        if ev is None or ev["outcome"] == "unsure":
-            unresolved.append({"candidate_id": cid, "field": c["field"], "transcription_id": c["transcription_id"], "state": "undecided" if ev is None else "unsure"})
-            continue
-        segs = json.loads(c["segments_json"])
-        resolved.append({
-            "field": ev["resolved_field"],
-            "outcome": ev["outcome"],
-            "values": json.loads(ev["resolved_json"]) if ev["resolved_json"] and ev["resolved_field"] in readback.PREFILL_FIELDS else None,
-            "source": {
-                "type": "voice_manual_correction" if ev["outcome"] == "corrected" else "voice_transcript",
-                "transcription_id": c["transcription_id"],
-                "candidate_id": cid,
-                "transcript_chars": [c["char_start"], c["char_end"]],
-                # Speech span of the whole clip (VAD). Engines give no reliable per-word timing, so the
-                # exact evidence is the highlighted transcript span, not an audio timestamp.
-                "clip_speech_sec": [segs[0][0], segs[-1][1]] if segs else None,
-                "readback_outcome": ev["outcome"],
-                "resolved_by_role": ev["actor_role"],
-            },
-        })
+        resolved, unresolved, _ = await case_resolutions(conn, case_id)
     out = readback.assemble_prefill(resolved)
     out["unresolved"] = unresolved
     out["case_id"] = case_id

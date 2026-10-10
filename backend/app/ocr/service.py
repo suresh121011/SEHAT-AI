@@ -911,6 +911,9 @@ class Correction(BaseModel):
     # medications
     strength_raw: str | None = Field(default=None, pattern=r"^\d{1,5}(\.\d{1,3})?\s?(mg|mcg|g|ml|iu|%)$", max_length=16)
     dosage_pattern: str | None = Field(default=None, pattern=r"^[0-2½](-[0-2½]){2,3}$", max_length=12)
+    # Closed vocabularies only (no free text): a frequency abbreviation as written, and a whole-number duration.
+    frequency_raw: Literal["OD", "BD", "TDS", "QID", "HS", "SOS", "STAT", "PRN"] | None = None
+    duration_raw: str | None = Field(default=None, pattern=r"^\d{1,3} (days?|weeks?|months?)$", max_length=12)
 
 
 class ReviewBody(BaseModel):
@@ -1003,6 +1006,9 @@ async def review(conn, principal: Principal, case_id: str, field_id: str, body: 
     return next(f for f in view["fields"] if f["field_id"] == field_id)
 
 
+_MED_CORRECTABLE = frozenset({"strength_raw", "dosage_pattern", "frequency_raw", "duration_raw"})
+
+
 def _validate_correction(row, payload: dict, regions: list[dict], corr: Correction | None) -> dict:
     if corr is None:
         raise ApiError(400, "CORRECTION_INVALID", "A correction needs at least one corrected value", {"reason": "empty"})
@@ -1010,12 +1016,13 @@ def _validate_correction(row, payload: dict, regions: list[dict], corr: Correcti
     if not data:
         raise ApiError(400, "CORRECTION_INVALID", "A correction needs at least one corrected value", {"reason": "empty"})
     if row["kind"] == "medication":
-        if set(data) - {"strength_raw", "dosage_pattern"}:
-            raise ApiError(400, "CORRECTION_INVALID", "Only strength and dose pattern can be corrected; reject a wrong drug name", {"reason": "field_not_correctable"})
+        if set(data) - _MED_CORRECTABLE:
+            raise ApiError(400, "CORRECTION_INVALID", "Only strength, dose pattern, frequency and duration can be corrected; reject a wrong drug name",
+                           {"reason": "field_not_correctable"})
         if row["disputed"] or row["band"] == "human_entry":
             raise ApiError(409, "CORRECTION_REQUIRED", "The drug name itself is uncertain; reject or mark unsure", {"reason": "drug_name_uncertain"})
         return data
-    if set(data) & {"strength_raw", "dosage_pattern"}:
+    if set(data) & _MED_CORRECTABLE:
         raise ApiError(400, "CORRECTION_INVALID", "Not a lab-value field", {"reason": "field_not_correctable"})
     r = data.get("result")
     if r is not None:

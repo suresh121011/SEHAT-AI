@@ -66,6 +66,22 @@ NAME_PATTERNS: list[tuple[str, float]] = [
     (rf"(?<=\b(?:son|daughter|wife|husband) of\s){_NAME}", 0.7),
 ]
 _OUTPUT_CHECK = [re.compile(p, re.IGNORECASE) for plist in PATTERNS.values() for p, _ in plist]
+# Clinical words the small spaCy NER model mislabels as a PERSON or LOCATION ("Fever, headache…" → LOCATION), which
+# silently erased the symptom before extraction (docs/19 §2, found by the encounter-summary corpus). A name-type span is
+# kept un-redacted ONLY when its whole text, case-insensitively, is one of these closed clinical terms. Pattern
+# identifiers (phone, Aadhaar-like, ABHA, PAN, email, DOB) are never affected, and the residual sweep still runs.
+CLINICAL_TERMS: frozenset[str] = frozenset({
+    "fever", "cough", "cold", "headache", "vomiting", "nausea", "diarrhoea", "diarrhea", "loose motions", "rash", "dizziness", "giddiness",
+    "weakness", "fatigue", "swelling", "bleeding", "breathlessness", "chest pain", "abdominal pain", "stomach pain", "back pain", "body ache",
+    "joint pain", "pain", "chills", "jaundice", "seizure", "seizures", "fits", "fainting", "sore throat", "itching", "burning urination",
+    "temperature", "pulse", "bp", "spo2", "hb", "haemoglobin", "hemoglobin", "platelets", "sugar", "paracetamol",
+})
+_NAME_TYPES = frozenset({"PERSON", "LOCATION"})
+
+
+def drop_clinical_terms(text: str, spans: list["_Span"]) -> list["_Span"]:
+    return [s for s in spans if not (s.entity in _NAME_TYPES and text[s.start:s.end].strip().lower() in CLINICAL_TERMS)]
+
 
 # Residual sweep (fails closed): long digit runs with short separators, spelled-out number sequences.
 _DIGIT_RUN = re.compile(r"\d(?:[^A-Za-z0-9\[\]]{0,3}\d){7,}")
@@ -311,7 +327,7 @@ def _process_raw(raw: str) -> _SafeOutcome:
             return _SafeOutcome(None, "unsupported_script")
         analyzer = get_analyzer()
         results = analyzer.analyze(text=text, language="en", entities=ENTITIES, score_threshold=SCORE_THRESHOLD)
-        spans = merge_spans([_Span(r.start, r.end, r.entity_type, r.score) for r in results])
+        spans = merge_spans(drop_clinical_terms(text, [_Span(r.start, r.end, r.entity_type, r.score) for r in results]))
         out = apply_redactions(text, spans)
         if residual_hit(out):
             return _SafeOutcome(None, "residual_identifier_pattern")
@@ -414,7 +430,7 @@ def _process_segments(raw_segments: list[tuple[str, str]]) -> _SafeSegmentsOutco
                 return _SafeSegmentsOutcome(None, "unsupported_script")
             analyzer = get_analyzer()
             results = analyzer.analyze(text=text, language="en", entities=ENTITIES, score_threshold=SCORE_THRESHOLD)
-            spans = merge_spans([_Span(r.start, r.end, r.entity_type, r.score) for r in results])
+            spans = merge_spans(drop_clinical_terms(text, [_Span(r.start, r.end, r.entity_type, r.score) for r in results]))
             redacted = apply_redactions(text, spans)
             if residual_hit(redacted):
                 return _SafeSegmentsOutcome(None, "residual_identifier_pattern")
