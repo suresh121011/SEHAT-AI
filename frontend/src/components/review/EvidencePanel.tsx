@@ -139,7 +139,7 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
             {d.unresolved.length > 0 && (
               <ul className="space-y-1">
                 {d.unresolved.map((u) => (
-                  <li key={u.field_id} className="rounded border border-dashed border-ai bg-ai-bg px-2 py-1.5 text-sm">
+                  <li key={u.field_id} className="rounded-lg border border-dashed border-ai bg-ai-bg px-2 py-1.5 text-sm">
                     <div className="flex flex-wrap items-center gap-1">
                       <strong>{u.field.replaceAll("_", " ")}</strong>
                       {u.origin === "keyword_rule" ? (
@@ -154,9 +154,9 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
               </ul>
             )}
             {d.values.length === 0 && d.unresolved.length === 0 && <Empty>No AI-extracted values for this case.</Empty>}
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {d.values.map((v) => (
-                <li key={v.field_id} className="rounded border border-subtle px-2 py-1.5 text-sm">
+                <li key={v.field_id} className="rounded-[12px] border border-white/60 bg-surface-2 p-3 text-sm shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                   <div className="flex flex-wrap items-center justify-between gap-1">
                     <strong>{v.field.split("#")[0].replaceAll("_", " ")}</strong>
                     <span className="font-mono">{show(v.value)}</span>
@@ -223,13 +223,13 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
           return (
             <>
               {conflicts.map(([field, readings]) => (
-                <section key={`conflict-${field}`} aria-label={`Disagreeing voice readings for ${voiceFieldWords(field)}`} className="rounded border-2 border-warning bg-warning-bg px-2 py-1.5 text-sm">
+                <section key={`conflict-${field}`} aria-label={`Disagreeing voice readings for ${voiceFieldWords(field)}`} className="rounded-lg border-2 border-warning bg-warning-bg px-2 py-1.5 text-sm">
                   <p className="flex items-center gap-1 font-bold text-warning">
                     <Icon name="alert" size={14} /> {voiceFieldWords(field)}: {readings.length} readings disagree
                   </p>
                   <ul className="mt-1 space-y-1">
                     {readings.map((r, i) => (
-                      <li key={`${r.source.transcription_id}-${i}`} className="rounded border border-warning/40 bg-card px-2 py-1">
+                      <li key={`${r.source.transcription_id}-${i}`} className="rounded-lg border border-warning/40 bg-card px-2 py-1">
                         <span className="font-mono font-bold">{show(r.values)}</span>
                         <VoiceSourceLine s={r.source} />
                       </li>
@@ -241,7 +241,7 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
               {entries.length > 0 && (
                 <ul className="space-y-1.5">
                   {entries.map(([field, x]) => (
-                    <li key={field} className="rounded border border-subtle px-2 py-1.5 text-sm">
+                    <li key={field} className="rounded-lg border border-subtle px-2 py-1.5 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-1">
                         <strong>{voiceFieldWords(field)}</strong>
                         <span className="font-mono">{show(x.values)}</span>
@@ -256,7 +256,7 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
               {unresolved.length > 0 && (
                 <ul className="space-y-1">
                   {unresolved.map((u) => (
-                    <li key={u.candidate_id} className="rounded border border-dashed border-subtle px-2 py-1.5 text-sm">
+                    <li key={u.candidate_id} className="rounded-lg border border-dashed border-subtle px-2 py-1.5 text-sm">
                       <strong>{voiceFieldWords(u.field)}</strong> — Not yet confirmed by a person{u.state === "unsure" ? " (marked unsure at read-back)" : ""}. No value is shown or used.
                     </li>
                   ))}
@@ -316,7 +316,7 @@ function DocItem({ caseId, v }: { caseId: string; v: DocValue }) {
   }, [open, doc, caseId, v.source.document_id]);
   const page = doc && doc !== "error" ? (doc.pages.find((p) => p.page_index === v.source.page_index) ?? null) : null;
   return (
-    <li className="rounded border border-subtle px-2 py-1.5 text-sm">
+    <li className="rounded-lg border border-subtle px-2 py-1.5 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-1">
         <strong>{v.name}</strong>
         <span className="font-mono">{show(v.value)}</span>

@@ -575,9 +575,35 @@ KEYWORD_RED_FLAG_STATEMENTS: tuple[str, ...] = (
     *_append_only("ai_fields"),
 )
 
+# ── Step 12: patient-to-health-worker handover and body map (docs/11 §3a). Additive. `created_by_role` is backfilled
+# from each case's `case_created` audit row (the actor role recorded at creation); a case with no such row stays NULL
+# and can never be handed over. `handled_by` is set once, by the ANM who takes over a patient-started case. Body-map
+# selections are append-only; the latest event is the current selection. Rollback: older code ignores the new
+# columns and table. ──────────────────────────────────────────────────────────────────────────────────────────
+HANDOVER_STATEMENTS: tuple[str, ...] = (
+    "ALTER TABLE cases ADD COLUMN created_by_role TEXT",
+    "ALTER TABLE cases ADD COLUMN handled_by TEXT",
+    "ALTER TABLE cases ADD COLUMN handled_at TEXT",
+    "UPDATE cases SET created_by_role = (SELECT a.actor_role FROM audit_log a WHERE a.action = 'case_created' AND a.case_id = cases.case_id "
+    "ORDER BY a.seq LIMIT 1) WHERE created_by_role IS NULL",
+    "CREATE INDEX idx_cases_patient_token ON cases(patient_token)",
+    """CREATE TABLE body_map_events (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      TEXT NOT NULL UNIQUE,
+    case_id       TEXT NOT NULL REFERENCES cases(case_id),
+    regions_json  TEXT NOT NULL,
+    consent_seq   INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id      TEXT NOT NULL,
+    actor_role    TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_body_map_case ON body_map_events(case_id, seq)",
+    *_append_only("body_map_events"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
-                                           KEYWORD_RED_FLAG_STATEMENTS)
+                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

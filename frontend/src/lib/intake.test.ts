@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { REGIONS, labelOf, sanitize, toggle } from "./bodyMap.ts";
 import { activateCase, clearAllLocalNotes, clearNotes, readNotes, writeNotes } from "./intakeStore.ts";
-import { availability, hrefFor, nextStep } from "./steps.ts";
+import { availability, handoffDue, hrefFor, nextStep } from "./steps.ts";
 
 class MemoryStorage {
   private m = new Map<string, string>();
@@ -61,4 +61,13 @@ test("steps: patients never unlock health-worker steps; nothing past consent wit
   assert.equal(nextStep("body", "anm", "granted"), "documents");
   assert.equal(hrefFor("voice", "abc"), "/intake/voice?case=abc");
   assert.equal(hrefFor("case", "abc"), "/intake");
+});
+
+test("steps: a patient's last usable step shows the handoff; health workers and earlier steps never do", () => {
+  assert.equal(handoffDue("body", "patient", "granted"), true);
+  assert.equal(handoffDue("voice", "patient", "granted"), false); // body map still ahead
+  assert.equal(handoffDue("body", "patient", "withdrawn"), false); // consent screen handles this
+  assert.equal(handoffDue("consent", "patient", "granted"), false);
+  assert.equal(handoffDue("body", "anm", "granted"), false);
+  assert.equal(handoffDue("review", "anm", "granted"), false);
 });

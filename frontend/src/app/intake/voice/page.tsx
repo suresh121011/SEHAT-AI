@@ -7,7 +7,7 @@ import { type FormEvent, type ReactNode, Suspense, useCallback, useEffect, useRe
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { roleWords } from "@/components/Provenance";
-import { Notice } from "@/components/ui";
+import { Notice, inputClass, buttonClass, Card } from "@/components/ui";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { ApiError, api } from "@/lib/api";
 import { useMatchingVoice } from "@/lib/useMatchingVoice";
@@ -15,7 +15,7 @@ import { useMatchingVoice } from "@/lib/useMatchingVoice";
 type Language = "en" | "hi" | "or";
 type Engine = "local" | "cloud";
 type State = "not_provided" | "granted" | "declined" | "withdrawn";
-type CaseView = { case_id: string; patient_token: string; is_creator: boolean; consent: { triage: State; ai_assist: State; voice_cloud: State } };
+type CaseView = { case_id: string; patient_token: string; is_creator: boolean; is_handler?: boolean; consent: { triage: State; ai_assist: State; voice_cloud: State } };
 type EngineCaps = { enabled: boolean; ready: boolean; label: string; model: string; languages: Record<Language, boolean> };
 type Caps = {
   voice_enabled: boolean;
@@ -170,7 +170,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
     <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-2 text-sm">
       <label className="flex flex-col">
         Measures
-        <select required value={field} onChange={(e) => setField(e.target.value)} className="rounded border-2 border-line min-h-11 px-3 py-2">
+        <select required value={field} onChange={(e) => setField(e.target.value)} className={inputClass}>
           <option value="" disabled>
             Choose…
           </option>
@@ -184,7 +184,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
       {field === "pregnancy" ? (
         <label className="flex flex-col">
           Value
-          <select required value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className="rounded border-2 border-line min-h-11 px-3 py-2">
+          <select required value={pregnant} onChange={(e) => setPregnant(e.target.value as "1" | "0")} className={inputClass}>
             <option value="" disabled>
               Choose…
             </option>
@@ -195,19 +195,19 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
       ) : (
         <label className="flex flex-col">
           {field === "bp" ? "Systolic" : "Correct value"}
-          <input inputMode="decimal" required value={value} onChange={(e) => setValue(e.target.value)} className="w-24 rounded border-2 border-line min-h-11 px-3 py-2" />
+          <input inputMode="decimal" required value={value} onChange={(e) => setValue(e.target.value)} className={`w-24 ${inputClass}`} />
         </label>
       )}
       {field === "bp" && (
         <label className="flex flex-col">
           Diastolic
-          <input inputMode="numeric" required value={value2} onChange={(e) => setValue2(e.target.value)} className="w-24 rounded border-2 border-line min-h-11 px-3 py-2" />
+          <input inputMode="numeric" required value={value2} onChange={(e) => setValue2(e.target.value)} className={`w-24 ${inputClass}`} />
         </label>
       )}
       {field === "temp" && (
         <label className="flex flex-col">
           Unit
-          <select required value={unit} onChange={(e) => setUnit(e.target.value as "" | "c" | "f")} className="rounded border-2 border-line min-h-11 px-3 py-2">
+          <select required value={unit} onChange={(e) => setUnit(e.target.value as "" | "c" | "f")} className={inputClass}>
             <option value="" disabled>
               Choose…
             </option>
@@ -216,7 +216,7 @@ function CorrectionForm({ candidate, onSubmit, busy }: { candidate: Candidate; b
           </select>
         </label>
       )}
-      <button type="submit" disabled={busy} className="rounded bg-primary min-h-11 px-4 py-2 font-medium text-white disabled:opacity-60">
+      <button type="submit" disabled={busy} className={buttonClass("primary")}>
         Save correction
       </button>
     </form>
@@ -267,7 +267,7 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
   }
 
   return (
-    <li className="space-y-2 rounded border border-subtle p-3">
+    <Card as="li" className="space-y-2 p-3">
       <p lang={language} className="text-base font-medium">
         {c.readback_text}
       </p>
@@ -277,14 +277,14 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
       {c.flags.length > 0 && (
         <ul className="flex flex-wrap gap-1">
           {c.flags.map((f) => (
-            <li key={f} className="rounded border border-warning px-2 py-0.5 text-xs">
+            <li key={f} className="rounded-lg border border-warning px-2 py-0.5 text-xs">
               <Icon name="alert" size={14} /> {FLAG_TEXT[f] ?? f}
             </li>
           ))}
         </ul>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={listen} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
+        <button type="button" onClick={listen} className={buttonClass("secondary", "text-sm")}>
           <Icon name="speaker" /> {ttsReady ? "Listen (online voice — sends this text to Sarvam AI)" : "Listen (this device's voice)"}
         </button>
         {speech && <span className="text-xs text-muted" aria-live="polite">{speech}</span>}
@@ -301,16 +301,16 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
       {reviewer && (
         <div className="space-y-1">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Read-back decision">
-            <button type="button" disabled={busy || playing || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className="rounded bg-success min-h-11 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            <button type="button" disabled={busy || playing || !c.can_confirm} onClick={() => onDecide(c.candidate_id, { outcome: "confirmed", supersedes: c.resolution?.event_id ?? null })} className={buttonClass("success", "text-sm")}>
               <Icon name="check" /> Yes, that&apos;s right
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => setCorrecting((v) => !v)} className="rounded border border-primary min-h-11 px-4 py-2 text-sm">
+            <button type="button" disabled={busy || playing} onClick={() => setCorrecting((v) => !v)} className={buttonClass("secondary", "text-sm")}>
               <Icon name="pencil" /> Change value
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "unsure", supersedes: c.resolution?.event_id ?? null })} className={buttonClass("secondary", "text-sm")}>
               Not sure
             </button>
-            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className="rounded border border-error min-h-11 px-4 py-2 text-sm">
+            <button type="button" disabled={busy || playing} onClick={() => onDecide(c.candidate_id, { outcome: "rejected", supersedes: c.resolution?.event_id ?? null })} className={buttonClass("danger", "text-sm")}>
               <Icon name="cross" /> Wrong / not said
             </button>
           </div>
@@ -319,7 +319,7 @@ function CandidateCard({ c, language, reviewer, ttsReady, busy, onDecide, caseId
           {correcting && <CorrectionForm candidate={c} busy={busy} onSubmit={(body) => onDecide(c.candidate_id, { ...body, supersedes: c.resolution?.event_id ?? null })} />}
         </div>
       )}
-    </li>
+    </Card>
   );
 }
 
@@ -458,7 +458,7 @@ function VoiceScreen() {
   if (!caseId || notFound) return <CaseNotFound />;
 
   const triageOk = caseView?.consent.triage === "granted";
-  const canRecord = !!caseView?.is_creator && (role === "patient" || role === "anm");
+  const canRecord = !!(caseView?.is_creator || caseView?.is_handler) && (role === "patient" || role === "anm");
 
   return (
     <IntakeShell
@@ -489,35 +489,60 @@ function VoiceScreen() {
 
       {triageOk && caps?.voice_enabled && (
         <>
-          <fieldset className="flex flex-wrap gap-2" aria-label="Spoken language">
-            {LANGUAGES.map((l) => (
-              <button key={l.code} type="button" onClick={() => setLanguage(l.code)} aria-pressed={language === l.code} className={`rounded border min-h-11 px-4 py-2 ${language === l.code ? "border-primary bg-primary-tint " : "border-line "}`}>
-                {l.label}
-              </button>
-            ))}
-          </fieldset>
+          <Card as="section" aria-labelledby="voice-setup" className="space-y-4">
+            <h2 id="voice-setup" className="text-lg font-bold">
+              Language and speech processing
+            </h2>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-bold text-muted">Spoken language</legend>
+              <div className="inline-flex flex-wrap gap-1 rounded-[16px] bg-surface-1 p-1 shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.7)]">
+                {LANGUAGES.map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => setLanguage(l.code)}
+                    aria-pressed={language === l.code}
+                    className={`min-h-11 rounded-[12px] px-4 py-2 font-bold transition-all duration-300 ${language === l.code ? "bg-[#0891B2] text-white shadow-[4px_4px_10px_rgba(8,145,178,0.2),-4px_-4px_10px_rgba(255,255,255,0.8)]" : "text-ink hover:bg-white/50"}`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
 
-          <fieldset className="space-y-1 text-sm">
-            <legend className="font-medium">Speech-to-text</legend>
-            {(["local", "cloud"] as Engine[]).map((e) => {
-              const st = engineStatus(e);
-              return (
-                <label key={e} className={`flex items-start gap-2 ${st.usable ? "" : "text-muted"}`}>
-                  <input type="radio" name="engine" disabled={!st.usable} checked={selected === e} onChange={() => setEngine(e)} />
-                  <span>
-                    {caps.engines[e].label} <span className="text-muted">— {st.why}</span>
-                  </span>
-                </label>
-              );
-            })}
-            {!selected && usable.includes("cloud") && <p>Choose “online” above to send this recording to Sarvam AI, or type the symptoms instead.</p>}
-            {!selected && !usable.includes("cloud") && <p>No speech-to-text option is available for this language right now. Please type the symptoms instead.</p>}
-            {selected && (
-              <p className="font-medium">
-                {selected === "cloud" ? "Recordings will be sent over the internet to Sarvam AI." : "Recordings are processed on this server; nothing is sent to Sarvam."}
-              </p>
-            )}
-          </fieldset>
+            <fieldset className="space-y-2 text-sm">
+              <legend className="text-sm font-bold text-muted">Speech-to-text</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(["local", "cloud"] as Engine[]).map((e) => {
+                  const st = engineStatus(e);
+                  return (
+                    <label key={e} className={`flex items-start gap-2.5 rounded-[12px] border p-3 transition-all ${selected === e ? "border-[#0891B2] bg-[#0891B2]/5 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02)]" : "border-white/60 bg-surface-1 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)]"} ${st.usable ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)]" : "opacity-60 cursor-not-allowed"}`}>
+                      <input type="radio" name="engine" className="mt-0.5 size-4" disabled={!st.usable} checked={selected === e} onChange={() => setEngine(e)} />
+                      <span>
+                        <span className={`flex items-center gap-1.5 font-bold ${st.usable ? "text-ink" : ""}`}>
+                          <Icon name={e === "local" ? "lock" : "upload"} size={14} /> {caps.engines[e].label}
+                        </span>
+                        <span className="block text-muted">{st.why}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!selected && usable.includes("cloud") && <p>Choose “online” above to send this recording to Sarvam AI, or type the symptoms instead.</p>}
+              {!selected && !usable.includes("cloud") && (
+                <p className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-ink">
+                  <Icon name="info" size={16} className="mt-0.5 text-warning" />
+                  No speech-to-text option is available for this language right now. Please type the symptoms instead.
+                </p>
+              )}
+              {selected && (
+                <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 font-bold ${selected === "cloud" ? "border-warning/30 bg-warning-bg text-ink" : "border-primary/30 bg-primary-tint/50 text-ink"}`}>
+                  <Icon name={selected === "cloud" ? "alert" : "lock"} size={16} className={`mt-0.5 ${selected === "cloud" ? "text-warning" : "text-primary"}`} />
+                  {selected === "cloud" ? "Recordings will be sent over the internet to Sarvam AI." : "Recordings are processed on this server; nothing is sent to Sarvam."}
+                </p>
+              )}
+            </fieldset>
+          </Card>
 
           {canRecord && (
             <VoiceRecorder
@@ -532,7 +557,7 @@ function VoiceScreen() {
             />
           )}
           {pending && !busy && (
-            <button type="button" onClick={() => upload(pending.wav, pending.key)} className="rounded border border-line min-h-11 px-4 py-2 text-sm">
+            <button type="button" onClick={() => upload(pending.wav, pending.key)} className={buttonClass("secondary", "text-sm")}>
               Retry the same recording
             </button>
           )}
@@ -547,12 +572,12 @@ function VoiceScreen() {
       )}
 
       {items.map((t) => (
-        <article key={t.transcription_id} className="space-y-3 rounded border border-subtle p-4">
+        <Card as="article" key={t.transcription_id} className="space-y-3">
           <p className="text-sm">
             <strong>Transcribed by: {t.engine === "local" ? "On this facility\u2019s server (local model)" : "Internet — Sarvam AI"}</strong>
             <span className="text-muted"> · {t.model_id ?? "—"} · {new Date(t.created_at).toLocaleTimeString()}</span>
             {caps && (
-              <span className="ml-2 rounded border border-line px-1.5 text-xs">
+              <span className="ml-2 rounded-lg border border-line px-1.5 text-xs">
                 {caps.verification[t.engine][t.language] === "tested_real" ? "tried on a few test clips only" : caps.verification[t.engine][t.language] === "tested_mock" ? "not checked on real speech" : "unverified"}
               </span>
             )}
@@ -569,7 +594,7 @@ function VoiceScreen() {
             </div>
           )}
           {t.readback_template_status !== "project_draft" && t.candidates.length > 0 && (
-            <p role="note" className="rounded border border-warning min-h-11 px-4 py-2 text-xs">
+            <p role="note" className="rounded-lg border border-warning min-h-11 px-4 py-2 text-xs">
               Draft translation of the read-back wording — not reviewed by a native speaker. Explain in person if unclear.
             </p>
           )}
@@ -581,11 +606,11 @@ function VoiceScreen() {
             </ul>
           )}
           {t.status === "completed" && t.candidates.length === 0 && <p className="text-sm text-muted">No measurements were recognised. Speak in the language selected above — English speech with Hindi/Odia selected is written phonetically and its numbers are not read. Some spoken number forms (e.g. Odia 21–99 as words) are not read yet — enter them in the triage form.</p>}
-        </article>
+        </Card>
       ))}
 
       {reviewer && prefill && (
-        <aside className="space-y-2 rounded border border-success/50 p-4">
+        <Card as="aside" className="space-y-2 border-success/30 bg-success-bg/20">
           <h2 className="font-bold">Values the health worker confirmed</h2>
           {Object.keys(prefill.vitals).length + Object.keys(prefill.fields).length === 0 ? (
             <p className="text-sm text-muted">None yet.</p>
@@ -614,7 +639,7 @@ function VoiceScreen() {
             </p>
           )}
           <p className="text-xs text-muted">{prefill.note}</p>
-        </aside>
+        </Card>
       )}
     </IntakeShell>
   );

@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
+import { Card, Notice, buttonClass, inputClass } from "@/components/ui";
 import { type DocType, DOC_TYPE_LABEL, DocumentUpload } from "@/components/DocumentUpload";
 import { EvidenceViewer } from "@/components/EvidenceViewer";
 import { MedGemmaFindings } from "@/components/MedGemmaFindings";
@@ -50,7 +51,7 @@ type Doc = {
 // MedGemma keys (medgemma_*, supported_image_types) come from ImageCaps and are optional: an older backend omits them.
 type Caps = ImageCaps & { max_bytes: number; retention_days: number | null; engines: Record<string, { enabled: boolean; ready: boolean }> };
 type Category = "text" | "image";
-type CaseView = { patient_token: string; is_creator: boolean; consent: { triage: string } };
+type CaseView = { patient_token: string; is_creator: boolean; is_handler?: boolean; consent: { triage: string } };
 type Reviewed = { values: { field_id: string; name: string; name_raw: string; outcome: string; value: Record<string, unknown>; ranges: { printed_range_status: string; reference: Reference } | null }[]; unresolved: unknown[]; note: string };
 
 const ENGINE_LABEL: Record<string, string> = { paddleocr: "PaddleOCR", surya: "Surya OCR 2", chandra: "Chandra OCR 2" };
@@ -91,7 +92,7 @@ function FieldRow({ f, selected, onSelect }: { f: Field; selected: boolean; onSe
   const name = f.kind === "lab" ? f.name_raw : f.drug_raw;
   return (
     <button type="button" onClick={onSelect} aria-pressed={selected}
-      className={`w-full rounded border p-2 text-left text-sm ${selected ? "border-secondary ring-2 ring-secondary" : "border-subtle "}`}>
+      className={`w-full rounded-[12px] border border-white/60 p-3 text-left text-sm shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)] ${selected ? "bg-surface-1 ring-2 ring-primary border-primary" : "bg-card hover:shadow-[4px_4px_10px_rgba(0,0,0,0.05)] transition-shadow"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <strong>{name || "(no name read)"}</strong>
         <span className="text-xs">{REVIEW_TEXT[f.review_status] ?? f.review_status}</span>
@@ -148,7 +149,7 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
     decide("corrected", correction);
   };
   return (
-    <div className="space-y-2 rounded border border-subtle p-3 text-sm">
+    <Card className="space-y-3 text-sm">
       <h3 className="font-bold">Readings</h3>
       <ul>
         {f.readings.map((r, i) => (
@@ -185,13 +186,13 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
         <div className="space-y-2" role="group" aria-label="Review decision">
           {!attested && <p role="note">Answer the patient question above before confirming values.</p>}
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={busy || !attested || !f.can_confirm} onClick={() => decide("confirmed")} className="rounded bg-success min-h-11 px-4 py-2 text-white disabled:opacity-50">
+            <button type="button" disabled={busy || !attested || !f.can_confirm} onClick={() => decide("confirmed")} className={buttonClass("success", "flex-1 sm:flex-none")}>
               <Icon name="check" /> Confirm this row (name, value, unit, range)
             </button>
-            <button type="button" disabled={busy} onClick={() => decide("unsure")} className="rounded border border-line min-h-11 px-4 py-2">
+            <button type="button" disabled={busy} onClick={() => decide("unsure")} className={buttonClass("secondary", "flex-1 sm:flex-none")}>
               ? Not sure — leave unresolved
             </button>
-            <button type="button" disabled={busy} onClick={() => decide("rejected")} className="rounded border border-line min-h-11 px-4 py-2">
+            <button type="button" disabled={busy} onClick={() => decide("rejected")} className={buttonClass("secondary", "flex-1 sm:flex-none")}>
               <Icon name="cross" /> Wrong / not on report
             </button>
           </div>
@@ -206,7 +207,7 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-xs">
                 Sign{" "}
-                <select value={comparator} onChange={(e) => setComparator(e.target.value)} className="rounded border border-line px-1">
+                <select value={comparator} onChange={(e) => setComparator(e.target.value)} className={`${inputClass} min-h-8 py-1 px-2 w-auto inline-block`}>
                   {["=", "<", "<=", ">", ">="].map((c) => (
                     <option key={c} value={c}>{c === "=" ? "(none)" : c}</option>
                   ))}
@@ -214,18 +215,18 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
               </label>
               <label className="text-xs">
                 Result from the paper (was “{f.value?.raw || "—"}”):{" "}
-                <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="w-28 rounded border border-line px-2 py-0.5 font-mono" />
+                <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className={`${inputClass} w-28 min-h-8 py-1 px-2 font-mono inline-block`} />
               </label>
               <label className="text-xs">
                 Unit (was “{f.unit?.raw || "—"}”){" "}
-                <select value={unit} onChange={(e) => setUnit(e.target.value)} className="rounded border border-line px-1">
+                <select value={unit} onChange={(e) => setUnit(e.target.value)} className={`${inputClass} min-h-8 py-1 px-2 w-auto inline-block`}>
                   <option value="">keep</option>
                   {UNITS.map((u) => (
                     <option key={u} value={u}>{u === "none" ? "no unit printed" : u}</option>
                   ))}
                 </select>
               </label>
-              <button type="button" disabled={busy || !attested} onClick={correctValue} className="rounded border border-primary min-h-11 px-4 py-2 text-primary disabled:opacity-50">
+              <button type="button" disabled={busy || !attested} onClick={correctValue} className={buttonClass("primary", "flex-1 sm:flex-none")}>
                 <Icon name="pencil" /> Save correction
               </button>
             </div>
@@ -235,7 +236,7 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
       ) : (
         <p className="text-xs">The health worker who created this case reviews these values (a doctor view comes in a later phase).</p>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -350,7 +351,7 @@ function DocumentsScreen() {
   if (!caseId || notFound) return <CaseNotFound />;
 
   const triageOk = caseView?.consent.triage === "granted";
-  const canUpload = !!caseView?.is_creator && role === "anm";
+  const canUpload = !!(caseView?.is_creator || caseView?.is_handler) && role === "anm";
 
   return (
     <IntakeShell
@@ -364,40 +365,51 @@ function DocumentsScreen() {
     >
       <fieldset className="space-y-2">
         <legend className="font-bold">Upload category</legend>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           {(
             [
-              ["text", "📄", "Text documents (lab reports, prescriptions)"],
-              ["image", "🩻", "Medical images (X-ray, ECG, CT scans, wounds)"],
+              ["text", "document", "Text documents", "Lab reports and prescriptions: values are read on this server for you to check."],
+              ["image", "xray", "Medical images", "X-ray, ECG, CT scans and wounds: AI-described findings, never a diagnosis."],
             ] as const
-          ).map(([k, emoji, text]) => (
-            <button
-              key={k}
-              type="button"
-              aria-pressed={category === k}
-              onClick={() => setCategory(k)}
-              className={`min-h-11 rounded border-2 px-4 py-2 text-left font-bold ${category === k ? (k === "image" ? "border-warning bg-warning-bg text-ink" : "border-primary bg-primary text-white") : "border-line bg-card"}`}
-            >
-              <span aria-hidden="true">{emoji} </span>
-              {text}
-            </button>
-          ))}
+          ).map(([k, icon, title, text]) => {
+            const on = category === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setCategory(k)}
+                className={`flex min-h-11 items-start gap-3 rounded-[16px] border border-white/60 p-4 text-left transition-all duration-300 ${on ? "bg-surface-1 shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.7)] ring-2 ring-primary border-primary" : "bg-card shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)] hover:shadow-[6px_6px_15px_0px_rgba(0,0,0,0.05),-6px_-6px_15px_0px_rgba(255,255,255,0.9)] hover:-translate-y-1"}`}
+              >
+                <span className={`inline-flex size-10 shrink-0 items-center justify-center rounded-lg ${on ? "bg-primary text-white" : "bg-primary-tint text-primary"}`}>
+                  <Icon name={icon} size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-bold text-ink">{title}</span>
+                  <span className="block text-sm leading-5 text-muted">{text}</span>
+                </span>
+                {on && <Icon name="check" size={18} className="ml-auto mt-0.5 text-primary" label="Selected" />}
+              </button>
+            );
+          })}
         </div>
       </fieldset>
       {category === "image" && (
-        <div className="space-y-1 rounded-lg border border-warning/60 bg-warning-bg px-4 py-3">
+        <Notice tone="warning" className="space-y-1">
           <p>
             <strong>AI-described visual findings — not a diagnosis.</strong> A doctor reviews the original image. Image findings <strong>never change triage urgency</strong>;
             a matched keyword only flags the case for the reviewer.
           </p>
           {aiAvailabilityNote(caps) && <p className="text-sm">{aiAvailabilityNote(caps)}</p>}
-        </div>
+        </Notice>
       )}
-      {category === "text" && <p className="rounded-lg border border-info/40 bg-info-bg px-4 py-3">
-        Machine-read and auto-checked — <strong>not yet confirmed by you</strong>. Reviewed values are a checked record shown alongside the case. They
-        <strong> never change triage or urgency</strong>; a person enters any value on the triage form, which keeps a human responsible. Documents are read on this
-        server only.
-      </p>}
+      {category === "text" && <Notice tone="info">
+        <p>
+          Machine-read and auto-checked — <strong>not yet confirmed by you</strong>. Reviewed values are a checked record shown alongside the case. They
+          <strong> never change triage or urgency</strong>; a person enters any value on the triage form, which keeps a human responsible. Documents are read on this
+          server only.
+        </p>
+      </Notice>}
       {caps && !caps.ocr_enabled && <p role="note">Document reading is turned off on this server.</p>}
       {caseView && !triageOk && (
         <p role="alert">
@@ -444,7 +456,7 @@ function DocumentsScreen() {
         const rejected = count(["rejected"]);
         const open = count(["machine_read"]);
         return (
-          <article key={d.document_id} className="space-y-3 rounded border border-subtle p-4">
+          <Card as="article" key={d.document_id} className="space-y-3">
             <p className="text-sm">
               <strong>{DOC_TYPE_LABEL[d.document_type]}</strong> · read by {Object.entries(d.engines).map(([e, s]) => `${ENGINE_LABEL[e] ?? e}: ${s === "ok" ? "done" : s.replaceAll("_", " ")}`).join(" · ")}
               <span className="text-muted"> · {new Date(d.created_at).toLocaleTimeString()}</span>
@@ -456,7 +468,7 @@ function DocumentsScreen() {
               </p>
             )}
             {d.status === "quality_rejected" && (
-              <div role="alert" className="space-y-1 rounded border border-error/50 p-3 text-sm">
+              <div role="alert" className="space-y-1 rounded-lg border border-error/50 p-3 text-sm">
                 <p><strong>Not read — please upload a better copy.</strong> Nothing was extracted.</p>
                 <ul className="list-disc pl-5">
                   {retakeAdvice((d.quality ?? []).flatMap((q) => q.reasons)).map((a) => <li key={a}>{a}</li>)}
@@ -471,11 +483,11 @@ function DocumentsScreen() {
                 {confirmDelete === d.document_id ? (
                   <>
                     <span role="alert">Delete this document&apos;s page images, read text and all review decisions? This cannot be undone.</span>
-                    <button type="button" onClick={() => remove(d)} className="rounded bg-error min-h-11 px-4 py-2 text-white">Yes, delete</button>
-                    <button type="button" onClick={() => setConfirmDelete(null)} className="rounded border border-line min-h-11 px-4 py-2">Keep</button>
+                    <button type="button" onClick={() => remove(d)} className={buttonClass("danger")}>Yes, delete</button>
+                    <button type="button" onClick={() => setConfirmDelete(null)} className={buttonClass("secondary")}>Keep</button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setConfirmDelete(d.document_id)} className="rounded border border-error min-h-11 px-4 py-2 text-error">
+                  <button type="button" onClick={() => setConfirmDelete(d.document_id)} className={buttonClass("danger")}>
                     Delete this document
                   </button>
                 )}
@@ -483,8 +495,8 @@ function DocumentsScreen() {
             )}
             {d.status === "completed" && (
               <>
-                <fieldset className="space-y-2 rounded border border-warning p-3">
-                  <legend className="px-1 font-bold">Is this report for the patient in front of you, for this visit?</legend>
+                <fieldset className="space-y-2 rounded-[16px] border border-warning/40 bg-warning-bg/50 p-4 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
+                  <legend className="px-1 font-bold text-warning">Is this report for the patient in front of you, for this visit?</legend>
                   <p className="text-sm">
                     Check the name and date on the paper. Dates read: collected {d.dates?.collected_date ?? "not found"}, reported {d.dates?.report_date ?? "not found"}.
                   </p>
@@ -492,7 +504,7 @@ function DocumentsScreen() {
                     <div className="flex flex-wrap gap-2">
                       {[["matches", "Yes, this patient's report"], ["does_not_match", "No"], ["unsure", "Not sure"]].map(([a, t]) => (
                         <button key={a} type="button" aria-pressed={d.attestation?.answer === a} onClick={() => attest(d, a)}
-                          className={`rounded border min-h-11 px-4 py-2 text-sm ${d.attestation?.answer === a ? "border-primary bg-primary text-white" : "border-line "}`}>
+                          className={buttonClass(d.attestation?.answer === a ? "primary" : "secondary", "text-sm")}>
                           {t}
                         </button>
                       ))}
@@ -533,12 +545,12 @@ function DocumentsScreen() {
                 </div>
               </>
             )}
-          </article>
+          </Card>
         );
       })}
 
       {category === "text" && reviewer && reviewed && (
-        <aside className="space-y-2 rounded border border-success/50 p-4">
+        <Card as="aside" className="space-y-2">
           <h2 className="font-bold">Reviewed values</h2>
           <p className="text-xs">Only rows the health worker or doctor confirmed or corrected appear here.</p>
           {reviewed.values.length === 0 ? (
@@ -562,7 +574,7 @@ function DocumentsScreen() {
             </ul>
           )}
           <p className="text-xs text-muted">{reviewed.note}</p>
-        </aside>
+        </Card>
       )}
     </IntakeShell>
   );

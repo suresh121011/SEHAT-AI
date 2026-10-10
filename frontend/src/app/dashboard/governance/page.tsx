@@ -37,14 +37,14 @@ export default function GovernancePage() {
   const stale = d ? isStale(d.generated_at, now, g.offsetMs) || g.error !== null : false;
 
   return (
-    <div className="workstation -mx-4 -my-6 sm:-my-8">
+    <div className="space-y-5">
       <WorkstationBar title="Governance" icon="chart" me={me} meFailed={meFailed} meta="Aggregates only, no patient or reviewer identifiers">
         <Link href="/dashboard" className={shellAction}>
           <Icon name="list" size={16} /> Reviewer queue (read only)
         </Link>
       </WorkstationBar>
 
-      <div className="mx-auto max-w-6xl space-y-4 px-4 py-4">
+      <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <label htmlFor="period" className="block text-sm font-bold">
@@ -109,7 +109,7 @@ function GovernanceView({ d }: { d: Governance }) {
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <section aria-labelledby="reasons-heading" className="rounded-lg border border-subtle bg-card p-4">
+        <section aria-labelledby="reasons-heading" className="rounded-xl border border-subtle bg-card shadow-card p-4">
           <h2 id="reasons-heading" className="text-base font-bold leading-6">
             Override reasons
           </h2>
@@ -124,7 +124,7 @@ function GovernanceView({ d }: { d: Governance }) {
           )}
         </section>
 
-        <section aria-labelledby="red-heading" className="rounded-lg border border-subtle bg-card p-4">
+        <section aria-labelledby="red-heading" className="rounded-xl border border-subtle bg-card shadow-card p-4">
           <h2 id="red-heading" className="text-base font-bold leading-6">
             RED acknowledgment ({e.window_seconds / 60}-minute target)
           </h2>
@@ -148,7 +148,7 @@ function GovernanceView({ d }: { d: Governance }) {
           )}
         </section>
 
-        <section aria-labelledby="data-heading" className="rounded-lg border border-subtle bg-card p-4">
+        <section aria-labelledby="data-heading" className="rounded-xl border border-subtle bg-card shadow-card p-4">
           <h2 id="data-heading" className="text-base font-bold leading-6">
             Missing information
           </h2>
@@ -156,7 +156,7 @@ function GovernanceView({ d }: { d: Governance }) {
           <p className="text-sm text-muted">Cases whose latest rules result was “needs information” (insufficient data) ÷ cases in the period.</p>
         </section>
 
-        <section aria-labelledby="ai-heading" className="rounded-lg border border-subtle bg-card p-4">
+        <section aria-labelledby="ai-heading" className="rounded-xl border border-subtle bg-card shadow-card p-4">
           <h2 id="ai-heading" className="text-base font-bold leading-6">
             Human decisions on AI-extracted fields
           </h2>
@@ -184,7 +184,7 @@ function GovernanceView({ d }: { d: Governance }) {
 
 function Metric({ title, value, sub }: { title: string; value: string; sub: string }) {
   return (
-    <section className="rounded-lg border border-subtle bg-card p-4">
+    <section className="rounded-xl border border-subtle bg-card shadow-card p-4">
       <h2 className="text-sm font-bold uppercase tracking-wide text-muted">{title}</h2>
       <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
       <p className="mt-1 text-xs text-muted">{sub}</p>

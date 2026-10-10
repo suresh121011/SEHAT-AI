@@ -91,7 +91,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       )}
 
       {f.classifier_mismatch && (
-        <div role="note" className="flex items-start gap-2 rounded border border-warning bg-warning-bg px-3 py-2 text-sm text-ink">
+        <div role="note" className="flex items-start gap-2 rounded-lg border border-warning bg-warning-bg px-3 py-2 text-sm text-ink">
           <Icon name="alert" size={16} className="mt-0.5 text-warning" />
           <span>
             Selected type: <strong>{imageTypeLabel(f.declared_type)}</strong> · filename suggests: <strong>{imageTypeLabel(f.classifier_hint)}</strong> — reviewer must confirm the image type
@@ -100,7 +100,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       )}
 
       {!described && status && (
-        <div role="status" className="flex items-start gap-2 rounded border border-subtle bg-esc-ack px-3 py-2 text-sm text-ink">
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-subtle bg-esc-ack px-3 py-2 text-sm text-ink">
           <Icon name="info" size={16} className="mt-0.5 text-muted" />
           <span>{status}</span>
         </div>
@@ -110,7 +110,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
         <ul className="space-y-1 text-sm" aria-label={demo ? "Signals matched in the canned demo text (not from this image)" : "Imaging signals for the reviewer"}>
           {demo && <li className="text-xs font-bold text-error">Matched in the canned demo text, not read from this image:</li>}
           {raising.map((s, i) => (
-            <li key={`${s.signal}-${i}`} className={`rounded border-l-4 px-2 py-1 ${s.action === "RED_FLAG" ? "border-error bg-error-bg" : "border-warning bg-warning-bg"}`}>
+            <li key={`${s.signal}-${i}`} className={`rounded-lg border-l-4 px-2 py-1 ${s.action === "RED_FLAG" ? "border-error bg-error-bg" : "border-warning bg-warning-bg"}`}>
               <strong>{s.signal.replaceAll("_", " ").toLowerCase()}</strong> <span className="text-xs">({s.action === "RED_FLAG" ? "red flag" : "yellow flag"})</span>
               {s.note && <span className="block text-xs">{s.note}</span>}
             </li>
@@ -129,7 +129,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
       {signalsPresent && !f.keyword_rules_validated && <p className="text-xs text-muted">Urgency keyword rules are not clinician-validated. They only raise attention; the rules engine and the reviewer decide urgency.</p>}
 
       {described && fields.length > 0 && (
-        <section aria-label="Structured findings" className="rounded border border-subtle">
+        <section aria-label="Structured findings" className="rounded-lg border border-subtle">
           <dl className="divide-y divide-subtle">
             {fields.map(([k, v]) => (
               <div key={k} className="grid grid-cols-[minmax(8rem,1fr)_2fr] gap-2 px-3 py-1.5 text-sm">
@@ -181,7 +181,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
           type="button"
           onClick={() => setViewing(true)}
           disabled={!imageUrl}
-          className="inline-flex min-h-11 items-center gap-2 rounded border-2 border-primary bg-card px-4 py-2 font-bold text-primary hover:bg-primary-tint disabled:opacity-55"
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg border-2 border-primary bg-card px-4 py-2 font-bold text-primary hover:bg-primary-tint disabled:opacity-55"
         >
           <Icon name="eye" size={16} /> View original image
         </button>
@@ -190,7 +190,7 @@ export function MedGemmaFindings({ findings: f, reviewer }: Props) {
 
       {reviewer && f.requires_acknowledgement && <AckBox findings={f} onAcknowledge={reviewer.onAcknowledge} />}
 
-      <p className="rounded border border-subtle bg-esc-ack px-3 py-2 text-sm text-ink">{f.disclaimer?.trim() || FALLBACK_DISCLAIMER}</p>
+      <p className="rounded-lg border border-subtle bg-esc-ack px-3 py-2 text-sm text-ink">{f.disclaimer?.trim() || FALLBACK_DISCLAIMER}</p>
 
       {imageUrl && <ImageLightbox open={viewing} onClose={() => setViewing(false)} url={imageUrl} label={label} />}
     </article>
@@ -214,7 +214,7 @@ function AckBox({ findings: f, onAcknowledge }: { findings: MedicalImageItem; on
     }
   }
   return (
-    <div className="space-y-1 rounded border border-warning/60 bg-warning-bg/50 px-3 py-2">
+    <div className="space-y-1 rounded-lg border border-warning/60 bg-warning-bg/50 px-3 py-2">
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" checked={done} disabled={done || busy} onChange={change} className="mt-1 size-5 accent-primary" />
         <span>
@@ -270,11 +270,11 @@ function ImageLightbox({ open, onClose, url, label }: { open: boolean; onClose: 
       onClick={(e) => {
         if (e.target === e.currentTarget) e.currentTarget.close();
       }}
-      className="m-auto max-h-[95vh] w-[min(64rem,calc(100vw-2rem))] rounded-lg border border-subtle bg-card p-0 text-ink shadow-xl backdrop:bg-[#0a3f40]/70"
+      className="m-auto max-h-[95vh] w-[min(64rem,calc(100vw-2rem))] rounded-xl border border-subtle bg-card shadow-card p-0 text-ink shadow-xl backdrop:bg-[#0a3f40]/70"
     >
       <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-2">
         <p className="font-bold">Original image · {label}</p>
-        <button ref={closeBtn} type="button" onClick={() => ref.current?.close()} className="inline-flex min-h-11 items-center gap-1 rounded border border-line px-3 font-bold">
+        <button ref={closeBtn} type="button" onClick={() => ref.current?.close()} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-line px-3 font-bold">
           <Icon name="cross" size={16} /> Close
         </button>
       </div>

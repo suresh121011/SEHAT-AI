@@ -14,7 +14,7 @@ export function SectionCard({ id, title, icon, aside, children, className = "", 
   tone?: "card" | "plain";
 }) {
   return (
-    <section aria-labelledby={id} className={`space-y-3 rounded-lg border border-subtle p-4 ${tone === "card" ? "bg-card" : ""} ${className}`}>
+    <section aria-labelledby={id} className={`space-y-3 rounded-xl border border-subtle p-4 ${tone === "card" ? "bg-card shadow-card" : ""} ${className}`}>
       <PanelHeader id={id} title={title} icon={icon} aside={aside} />
       {children}
     </section>

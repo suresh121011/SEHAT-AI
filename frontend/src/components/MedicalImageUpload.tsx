@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
+import { Button } from "@/components/ui";
 import { IMAGE_MIME_TYPES, IMAGE_TYPES, type ImageType } from "@/lib/medicalImages";
 
 type Props = {
@@ -82,7 +83,7 @@ export function MedicalImageUpload({ maxBytes, availability, cloud, onUpload }: 
   }
 
   return (
-    <div className="space-y-3 rounded border border-warning/60 p-4">
+    <div className="space-y-3 rounded-lg border border-warning/60 p-4">
       <div className="space-y-1">
         <label htmlFor="image-type" className="block font-bold">
           What kind of image is it?
@@ -92,7 +93,7 @@ export function MedicalImageUpload({ maxBytes, availability, cloud, onUpload }: 
           value={type}
           disabled={busy}
           onChange={(e) => setType(e.target.value as ImageType)}
-          className="block min-h-11 w-full max-w-md rounded border-2 border-line bg-card px-3 py-2 text-base"
+          className="block min-h-11 w-full max-w-md rounded-lg border-2 border-line bg-card px-3 py-2 text-base"
         >
           {!firstOk && <option value="">No image type is available</option>}
           {IMAGE_TYPES.map((t) => {
@@ -130,7 +131,7 @@ export function MedicalImageUpload({ maxBytes, availability, cloud, onUpload }: 
               <input type="file" accept="image/png,image/jpeg" capture="environment" className="sr-only" disabled={busy || !type} onChange={(e) => choose(e.target.files?.[0])} />
             </label>
           )}
-          <label className={`inline-flex min-h-11 cursor-pointer items-center rounded border-2 border-primary bg-card px-4 py-2 font-bold text-primary ${busy || !type ? "pointer-events-none opacity-55" : ""}`}>
+          <label className={`inline-flex min-h-11 cursor-pointer items-center rounded-lg border-2 border-primary bg-card px-4 py-2 font-bold text-primary ${busy || !type ? "pointer-events-none opacity-55" : ""}`}>
             Choose image
             <input ref={inputRef} type="file" accept="image/png,image/jpeg" className="sr-only" disabled={busy || !type} onChange={(e) => choose(e.target.files?.[0])} />
           </label>
@@ -141,7 +142,7 @@ export function MedicalImageUpload({ maxBytes, availability, cloud, onUpload }: 
       {file && preview && (
         <div className="flex flex-wrap items-start gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview of the chosen file */}
-          <img src={preview} alt={`Preview of the chosen ${meta?.label.toLowerCase() ?? "image"}`} className="h-28 w-28 rounded border border-subtle object-cover" />
+          <img src={preview} alt={`Preview of the chosen ${meta?.label.toLowerCase() ?? "image"}`} className="h-28 w-28 rounded-lg border border-subtle object-cover" />
           <p className="text-sm">
             <span className="font-bold">{busy ? "Uploading:" : "Chosen:"}</span> <span className="break-all">{file.name}</span>
             <span className="block text-muted">
@@ -161,14 +162,13 @@ export function MedicalImageUpload({ maxBytes, availability, cloud, onUpload }: 
         </label>
       )}
 
-      <button
+      <Button
         type="button"
         onClick={submit}
         disabled={!file || !type || busy}
-        className="inline-flex min-h-11 items-center gap-2 rounded bg-primary px-5 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-55"
       >
         <Icon name="upload" size={16} /> {busy ? "Uploading…" : "Upload image"}
-      </button>
+      </Button>
       {busy && (
         <p aria-live="polite" className="text-sm">
           Saving the image and asking for a visual description… this can take up to half a minute.

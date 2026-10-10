@@ -52,7 +52,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
   }
 
   return (
-    <div className="space-y-3 rounded border border-subtle p-4">
+    <div className="space-y-3 rounded-lg border border-subtle p-4">
       <fieldset className="space-y-2">
         <legend className="font-bold">What kind of document is it?</legend>
         <div className="flex flex-wrap gap-2">
@@ -65,7 +65,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
                 aria-pressed={type === t}
                 disabled={!ok || disabled || busy}
                 onClick={() => ok && setType(t)}
-                className={`rounded border px-3 py-1.5 text-sm ${type === t ? "border-primary bg-primary text-white" : "border-line "} disabled:opacity-50`}
+                className={`rounded-lg border px-3 py-1.5 text-sm ${type === t ? "border-primary bg-primary text-white" : "border-line "} disabled:opacity-50`}
               >
                 {DOC_TYPE_LABEL[t]}
                 {!ok && <span className="ml-1 text-xs">(not available)</span>}
@@ -81,7 +81,7 @@ export function DocumentUpload({ maxBytes, available, disabled, onUpload }: Prop
             <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={busy || disabled} onChange={(e) => pick(e.target.files?.[0])} />
           </label>
         )}
-        <label className={`cursor-pointer rounded border border-line px-4 py-2 ${busy || disabled ? "pointer-events-none text-muted" : ""}`}>
+        <label className={`cursor-pointer rounded-lg border border-line px-4 py-2 ${busy || disabled ? "pointer-events-none text-muted" : ""}`}>
           Choose file
           <input type="file" accept="image/png,image/jpeg,application/pdf" className="sr-only" disabled={busy || disabled} onChange={(e) => pick(e.target.files?.[0])} />
         </label>

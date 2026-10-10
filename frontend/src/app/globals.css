@@ -11,17 +11,21 @@
  * check answers, file upload), USWDS step indicator, WCAG 2.2 SC 2.5.8 / 2.4.13.
  */
 :root {
-  --page: #faf7f2;
+  /* Redesign (2026-10): cooler clinical off-white page (muted text 6.7:1 on it, body text 13.4:1), a second surface
+   * for grouped content, and a sidebar tone shared with --shell-bg. */
+  --page: #ecfeff;
   --card: #ffffff;
-  --text: #1f2a2e;
-  --text-muted: #4a5a60;
-  --primary: #0b5d5e;
-  --primary-hover: #084849;
-  --primary-tint: #e3f0ee;
-  --secondary: #2f5b8a;
-  --border-input: #6b7a7f;
-  --border-subtle: #d9dedc;
-  --focus: #1b2a6b;
+  --surface-2: #e8f1f6;
+  --border-strong: #0891b2;
+  --text: #164e63;
+  --text-muted: #475569;
+  --primary: #0891b2;
+  --primary-hover: #06b6d4;
+  --primary-tint: #cffafe;
+  --secondary: #22d3ee;
+  --border-input: #a5f3fc;
+  --border-subtle: #cffafe;
+  --focus: #0891b2;
   --success-fg: #1e6b3a;
   --success-bg: #e7f3ec;
   --warning-fg: #7a4b00;
@@ -34,12 +38,12 @@
   --consent-bg: #eef1f7;
   --ai-fg: #5a3e7a;
   --ai-bg: #f3eff8;
-  --urg-red-bg: #b3261e;
+  --urg-red-bg: #ef4444;
   --urg-red-fg: #ffffff;
-  --urg-yellow-bg: #f6c343;
-  --urg-yellow-fg: #2b2100;
-  --urg-green-bg: #dcefe2;
-  --urg-green-fg: #14532d;
+  --urg-yellow-bg: #f59e0b;
+  --urg-yellow-fg: #ffffff;
+  --urg-green-bg: #10b981;
+  --urg-green-fg: #ffffff;
   /* Phase 8 reviewer workstation (contrast computed, docs/17 §6):
    * shell text 11.7 · shell muted 8.7 · shell focus ring (white) 11.7 · selected row ink 12.6
    * escalation: pending text 8.0 · overdue white-on 9.1 · acknowledged text 9.8 (neutral grey, never green)
@@ -77,11 +81,24 @@
    * Type scale for the workstation: 12 (meta/pills) · 14 (body-small) · 16 (panel headings) · 18 (bar/banner)
    * · 24 (case title); icons 14 in pills/meta, 16 inline and in buttons, 20 in headings and banners. */
   --skeleton: #e3e7e5;
+  /* Redesign: elevation, layout and motion. Shadows are soft and low: depth only separates surfaces, it never
+   * carries meaning. */
+  --elev-card: 0 1px 2px rgb(16 42 40 / 0.06), 0 1px 1px rgb(16 42 40 / 0.03);
+  --elev-raised: 0 4px 16px -4px rgb(16 42 40 / 0.14), 0 2px 4px rgb(16 42 40 / 0.05);
+  --sidebar-w: 15.5rem;
+  --sidebar-w-collapsed: 4.5rem;
+  --topbar-h: 3.75rem;
+  --content-max: 90rem;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 150ms;
+  --dur: 200ms;
 }
 
 @theme inline {
   --color-page: var(--page);
   --color-card: var(--card);
+  --color-surface-2: var(--surface-2);
+  --color-strong: var(--border-strong);
   --color-ink: var(--text);
   --color-muted: var(--text-muted);
   --color-primary: var(--primary);
@@ -130,6 +147,8 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-skeleton: var(--skeleton);
+  --shadow-card: var(--elev-card);
+  --shadow-raised: var(--elev-raised);
   --font-sans: var(--font-atkinson), "Noto Sans Devanagari", "Noto Sans Oriya", "Kohinoor Devanagari", "Oriya Sangam MN", system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -171,18 +190,14 @@ body {
 }
 
 @media print {
-  header nav,
+  .app-sidebar,
+  .app-topbar,
   .no-print {
     display: none !important;
   }
   body {
     background: #fff;
   }
-}
-
-/* Phase 8: the reviewer workstation is wider than the intake pages (root layout caps <main> at max-w-5xl). */
-main:has(> .workstation) {
-  max-width: 100rem;
 }
 
 /* Hypothetical (counterfactual) surface: hatched so it never looks like a real triage result. */
@@ -203,3 +218,9 @@ main:has(> .workstation) {
   box-shadow: 0 0 0 7px var(--focus);
 }
 
+
+/* Redesign: native radios and checkboxes take the brand colour (the shape and the label still carry the state). */
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--primary);
+}

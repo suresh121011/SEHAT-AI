@@ -184,7 +184,7 @@ function ConsentScreen() {
         <legend className="font-bold">Notice language</legend>
         <div className="mt-2 flex flex-wrap gap-2">
           {LANGUAGES.map((l) => (
-            <label key={l.code} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded border-2 px-4 ${language === l.code ? "border-primary bg-primary-tint font-bold" : "border-line bg-card"}`}>
+            <label key={l.code} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-[12px] border-2 px-4 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.5)] ${language === l.code ? "border-primary/50 bg-primary-tint font-bold" : "border-white/60 bg-card"}`}>
               <input type="radio" name="lang" className="size-4" checked={language === l.code} onChange={() => setLanguage(l.code)} />
               <span lang={l.code}>{l.label}</span>
             </label>
@@ -201,7 +201,7 @@ function ConsentScreen() {
       {!notice ? (
         <Spinner label="Loading the notice…" />
       ) : (
-        <article lang={notice.language} className="space-y-3 rounded-lg border border-consent/30 bg-consent-bg p-5 text-ink">
+        <article lang={notice.language} className="space-y-3 rounded-[12px] border border-consent/30 bg-consent-bg p-5 text-ink shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
           <h2 className="flex items-center gap-2 text-2xl font-bold text-consent">
             <Icon name="shield" size={26} /> {notice.title}
           </h2>
@@ -225,7 +225,7 @@ function ConsentScreen() {
           {(["triage", "ai_assist", "voice_cloud"] as Purpose[]).map((p) => {
             const st = caseView?.consent[p] ?? "not_provided";
             return (
-              <div key={p} className="rounded border border-subtle p-3">
+              <div key={p} className="rounded-[12px] border border-white/60 bg-surface-2 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                 <dt className="text-sm text-muted">{PURPOSE_NAME[p]}</dt>
                 <dd className="flex items-center gap-1 font-bold">
                   <Icon name={st === "granted" ? "check" : st === "not_provided" ? "info" : "cross"} size={18} />
@@ -241,14 +241,14 @@ function ConsentScreen() {
         <Card>
           <h2 className="text-xl font-bold">Choices</h2>
           <div className="mt-3 space-y-3">
-            <div className="flex items-start gap-3 rounded border-2 border-primary p-3">
+            <div className="flex items-start gap-3 rounded-[12px] border-2 border-primary/50 bg-primary-tint/20 p-3 shadow-[inset_1px_1px_3px_rgba(8,145,178,0.1),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
               <Icon name="lock" className="mt-1 text-primary" />
               <p>
                 <strong>Required: </strong>
                 <span lang={notice.language}>{notice.purposes.triage}</span>
               </p>
             </div>
-            <label className="flex min-h-11 items-start gap-3 rounded border border-line p-3">
+            <label className="flex min-h-11 items-start gap-3 rounded-[12px] border border-white/60 bg-surface-1 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
               <input type="checkbox" className="mt-1 size-5" checked={aiOptIn} onChange={(e) => setAiOptIn(e.target.checked)} />
               <span>
                 <strong>Optional: </strong>
@@ -256,7 +256,7 @@ function ConsentScreen() {
                 <span className="block text-sm text-muted">AI assistance works with English text only in this prototype. Saying no does not stop triage.</span>
               </span>
             </label>
-            <label className="flex min-h-11 items-start gap-3 rounded border border-line p-3">
+            <label className="flex min-h-11 items-start gap-3 rounded-[12px] border border-white/60 bg-surface-1 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
               <input type="checkbox" className="mt-1 size-5" checked={voiceCloudOptIn} onChange={(e) => setVoiceCloudOptIn(e.target.checked)} />
               <span>
                 <strong>Optional: </strong>
@@ -265,7 +265,7 @@ function ConsentScreen() {
               </span>
             </label>
             {isAnm && (
-              <label className="flex min-h-11 items-start gap-3 rounded border-2 border-secondary bg-info-bg p-3">
+              <label className="flex min-h-11 items-start gap-3 rounded-[12px] border border-secondary/40 bg-info-bg p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                 <input type="checkbox" className="mt-1 size-5" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
                 <span>
                   I read this notice to the patient in their language, and they said yes to: <strong>{agreedPurposes}</strong>. This records my attestation as the
@@ -309,7 +309,7 @@ function ConsentScreen() {
             </Button>
           </div>
           {confirmWithdraw && (
-            <div role="alertdialog" aria-labelledby="wd-title" aria-describedby="wd-text" className="mt-4 rounded-lg border-2 border-error bg-error-bg p-4">
+            <div role="alertdialog" aria-labelledby="wd-title" aria-describedby="wd-text" className="mt-4 rounded-[12px] border border-error/50 bg-error-bg p-4 shadow-[inset_1px_1px_3px_rgba(220,38,38,0.1),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
               <p id="wd-title" className="font-bold text-error">
                 Withdraw {confirmWithdraw === "triage" ? "all consent (triage, AI assistance and online speech)" : PURPOSE_NAME[confirmWithdraw].replace(" (optional)", "")}?
               </p>
@@ -330,7 +330,7 @@ function ConsentScreen() {
       {caseView && !canRecord && <Notice tone="info">Only the account that started this case can record or withdraw consent.</Notice>}
 
       {history && history.length > 0 && (
-        <details className="rounded-lg border border-subtle bg-card p-4">
+        <details className="rounded-[16px] border border-white/60 bg-card p-4 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)]">
           <summary className="min-h-11 cursor-pointer py-2 font-bold">Consent record ({history.length} entries)</summary>
           <ol className="mt-2 space-y-1 text-sm">
             {history.map((h) => (

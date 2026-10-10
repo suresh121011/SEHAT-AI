@@ -81,9 +81,19 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
 **Who can do what** (checked independently of consent):
 - **Record or withdraw consent:** the account that created the case.
 - **Case triage:** the ANM who created the case, or any medical officer.
-- **Read:** the creator, a medical officer or a supervisor.
+- **Read:** the creator, the ANM who took over a patient-started case (§3a), a medical officer or a supervisor.
 - **Everyone else, and unknown case IDs,** get an identical 404, and no audit row is written for them.
 - **Limitation:** demo accounts are shared (every `patient_demo` user has the same `user_id`), so these rules demonstrate the authorization *code*, not separation between real people.
+
+### 3a. Patient-to-health-worker handover (2026-10-10)
+
+A patient account may start a case, give consent, record voice and mark the body map. Reports, follow-up questions and the triage form stay with staff, so the patient's account never confirms values that reach triage. To finish the case, an ANM takes it over:
+
+- **`POST /cases/handover {patient_token}`**, ANM only. The case must have been created by a patient account (`cases.created_by_role`, backfilled for older cases from their `case_created` audit row), be inside the ANM's facility scope, and have triage consent in effect (else 403 and a `consent_denied` audit row). Unknown codes, out-of-scope cases and staff-created cases get the same 404 with no audit row. A case is taken over once (`cases.handled_by`); the same ANM may repeat the call; another ANM gets 409. Audit: `case_handed_over` (scenario and facility code; never the case code).
+- **The handling ANM** gets the creating ANM's access (`write`, `triage`, `read`), so uploads, voice confirmation, AI review and triage work as on an ANM-started case. **Consent stays with the creator:** the handling ANM cannot record or withdraw it (new access mode `consent`). The patient account keeps exactly its earlier permissions; it still cannot submit triage or confirm values.
+- **The case code is a bearer secret** (`PT-` + 48 random bits). Anyone holding it, with an ANM account in scope, can take the case over. With facility isolation off, that is any ANM account.
+- **Body map** is now stored (`body_map_events`, append-only; latest event wins) so it survives the handover. It is labelled patient-reported, is never triage input, needs triage consent to write, and stays readable after withdrawal (§4 D5). Audit: `body_map_recorded` with a region count only.
+- **Limitation:** demo accounts are shared, so every `patient_demo` session can see every case started from `patient_demo`. These rules demonstrate the authorization code, not separation between real patients.
 
 ## 4. Withdrawal race contract
 

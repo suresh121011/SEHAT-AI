@@ -35,7 +35,7 @@ export function ConfirmDialog({ open, title, onClose, children, footer, labelled
     <dialog
       ref={ref}
       aria-labelledby={labelledBy}
-      className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-lg border border-subtle bg-card p-0 text-ink shadow-xl backdrop:bg-[#0a3f40]/60"
+      className="m-auto w-[min(40rem,calc(100vw-2rem))] rounded-[16px] border border-white/60 bg-card p-0 text-ink shadow-[8px_8px_20px_rgba(0,0,0,0.05),-8px_-8px_20px_rgba(255,255,255,0.8)] backdrop:bg-page/40 backdrop:backdrop-blur-sm"
     >
       <div className="space-y-4 p-5">
         <h2 id={labelledBy} className="text-xl font-bold">
@@ -43,7 +43,7 @@ export function ConfirmDialog({ open, title, onClose, children, footer, labelled
         </h2>
         {children}
       </div>
-      <div className="flex flex-wrap justify-end gap-2 border-t border-subtle bg-page px-5 py-3">{footer}</div>
+      <div className="flex flex-wrap justify-end gap-2 border-t border-white/40 bg-surface-1 px-5 py-3 rounded-b-[16px]">{footer}</div>
     </dialog>
   );
 }

@@ -86,7 +86,7 @@ export function EmptyState({ title, icon = "info", children }: { title: string; 
 
 export function StaleNotice({ error, onRetry, updatedAt }: { error: string | null; onRetry: () => void; updatedAt: string | null }) {
   return (
-    <div role="status" className="flex flex-wrap items-center gap-2 rounded border border-warning/50 bg-warning-bg px-3 py-2 text-sm">
+    <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/50 bg-warning-bg px-3 py-2 text-sm">
       <Icon name="clock" size={16} className="text-warning" />
       <span className="text-ink">
         <strong>Data may be out of date.</strong> {error ?? "The last refresh is older than expected."}

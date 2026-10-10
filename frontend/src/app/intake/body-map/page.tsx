@@ -1,22 +1,37 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 import { BodyMap } from "@/components/BodyMap";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { Notice, Spinner } from "@/components/ui";
 import { sanitize } from "@/lib/bodyMap";
-import { readNotes, writeNotes } from "@/lib/intakeStore";
+import { api } from "@/lib/api";
 import { hrefFor } from "@/lib/steps";
-import { useCase } from "@/lib/useCase";
+import { explainError, useCase } from "@/lib/useCase";
+
+type BodyMapView = { regions: string[] };
 
 function BodyMapScreen() {
   const { caseId, role, caseView, notFound, loadError } = useCase();
   const [selected, setSelected] = useState<string[] | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Saves run one after another so the server always ends with the latest selection.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const pending = useRef(0);
+  const triageGranted = caseView?.consent.triage === "granted";
 
   useEffect(() => {
-    if (caseId) setSelected(sanitize(readNotes(caseId).bodyMap));
-  }, [caseId]);
+    if (!caseId || !triageGranted) return;
+    api
+      .get<BodyMapView>(`cases/${caseId}/body-map`)
+      .then((v) => setSelected(sanitize(v.regions)))
+      .catch((err) => {
+        setSaveError(explainError(err, "Could not load the saved body map. Check the connection and reload."));
+        setSelected([]);
+      });
+  }, [caseId, triageGranted]);
 
   if (notFound) return <CaseNotFound />;
   const triage = caseView?.consent.triage ?? null;
@@ -24,7 +39,19 @@ function BodyMapScreen() {
   function change(next: string[]) {
     if (!caseId) return;
     setSelected(next);
-    writeNotes(caseId, { ...readNotes(caseId), bodyMap: next });
+    setSaveError(null);
+    setSaveState("saving");
+    pending.current += 1;
+    queue.current = queue.current.then(async () => {
+      try {
+        await api.put<BodyMapView>(`cases/${caseId}/body-map`, { regions: next });
+      } catch (err) {
+        setSaveError(explainError(err, "The body map was not saved. Check the connection and choose an area again."));
+      } finally {
+        pending.current -= 1;
+        if (pending.current === 0) setSaveState("saved");
+      }
+    });
   }
 
   return (
@@ -50,13 +77,21 @@ function BodyMapScreen() {
         <Spinner label="Loading…" />
       ) : (
         <>
-          <Notice tone="info" title="Kept on this device only">
+          <Notice tone="info" title="Saved with this case">
             <p>
-              These areas are what the patient points to, not a diagnosis. They are a note for the health worker on the review step. They are not saved
-              to the case and not sent anywhere, and they are cleared when triage is submitted, consent is withdrawn, or you log out.
+              These areas are what the patient points to, not a diagnosis. They are saved with the case so the health worker and doctor can see
+              them. They are never used to work out urgency.
             </p>
           </Notice>
+          {saveError && (
+            <Notice tone="error" role="alert">
+              {saveError}
+            </Notice>
+          )}
           <BodyMap selected={selected} onChange={change} />
+          <p className="text-sm text-muted" role="status" aria-live="polite">
+            {saveState === "saving" ? "Saving…" : saveState === "saved" && !saveError ? "Saved." : ""}
+          </p>
         </>
       )}
     </IntakeShell>

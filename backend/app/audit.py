@@ -60,6 +60,8 @@ AuditAction = Literal[
     "medgemma_image_not_available",
     "medgemma_findings_acknowledged",
     "medgemma_image_deleted",
+    "case_handed_over",
+    "body_map_recorded",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -71,6 +73,15 @@ class _Details(BaseModel):
 class CaseCreatedDetails(_Details):
     scenario: str
     facility_code: str
+
+
+class CaseHandoverDetails(_Details):
+    scenario: str
+    facility_code: str
+
+
+class BodyMapDetails(_Details):
+    region_count: int = Field(ge=0)
 
 
 ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud"]

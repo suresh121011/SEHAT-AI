@@ -37,7 +37,7 @@ logger = logging.getLogger("sehat.consent")
 PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist", "voice_cloud")
 DEPENDENT_PURPOSES: tuple[Purpose, ...] = ("ai_assist", "voice_cloud")  # require triage
 State = Literal["not_provided", "granted", "declined", "withdrawn"]
-AccessMode = Literal["write", "triage", "read"]
+AccessMode = Literal["consent", "write", "triage", "read"]
 
 
 class _Body(BaseModel):
@@ -83,10 +83,14 @@ async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: s
     if row is None or not principal.may_access_facility(row["facility_code"]):
         raise not_found()  # outside the account's facility scope looks exactly like a missing case (docs/17 §8)
     creator = row["created_by"] is not None and row["created_by"] == principal.user_id
+    # The ANM who took over a patient-started case (`hand_over`) works on it as its creating ANM would, except consent:
+    # recording or withdrawing consent stays with the account that created the case.
+    handler = principal.role == Role.ANM and row["handled_by"] is not None and row["handled_by"] == principal.user_id
     allowed = {
-        "write": creator,
-        "triage": (creator and principal.role == Role.ANM) or principal.role == Role.MEDICAL_OFFICER,
-        "read": creator or principal.role in (Role.MEDICAL_OFFICER, Role.SUPERVISOR),
+        "consent": creator,
+        "write": creator or handler,
+        "triage": ((creator or handler) and principal.role == Role.ANM) or principal.role == Role.MEDICAL_OFFICER,
+        "read": creator or handler or principal.role in (Role.MEDICAL_OFFICER, Role.SUPERVISOR),
     }[mode]
     if not allowed:
         raise not_found()
@@ -103,8 +107,8 @@ async def create_case(conn: aiosqlite.Connection, principal: Principal, body: Ca
     patient_token = f"PT-{secrets.token_hex(6).upper()}"  # random, opaque, pseudonymous (not anonymous)
     async with _write(conn):
         await conn.execute(
-            "INSERT INTO cases (case_id, patient_token, facility_code, scenario, status, created_by) VALUES (?, ?, ?, ?, 'open', ?)",
-            (case_id, patient_token, body.facility_code, body.scenario.value, principal.user_id),
+            "INSERT INTO cases (case_id, patient_token, facility_code, scenario, status, created_by, created_by_role) VALUES (?, ?, ?, ?, 'open', ?, ?)",
+            (case_id, patient_token, body.facility_code, body.scenario.value, principal.user_id, principal.role.value),
         )
         await audit.record(
             conn,
@@ -116,6 +120,44 @@ async def create_case(conn: aiosqlite.Connection, principal: Principal, body: Ca
             details=audit.CaseCreatedDetails(scenario=body.scenario.value, facility_code=body.facility_code),
         )
     return {"case_id": case_id, "patient_token": patient_token, "scenario": body.scenario.value, "facility_code": body.facility_code, "status": "open"}
+
+
+class HandoverRequest(_Body):
+    patient_token: str = Field(pattern=r"^PT-[0-9A-F]{12}$")
+
+
+async def hand_over(conn: aiosqlite.Connection, principal: Principal, body: HandoverRequest, request_id: str | None) -> dict:
+    """An ANM takes over a case a patient account started, by the case code the patient shows them (docs/11 §3a).
+
+    Only cases created by a patient account, inside the ANM's facility scope, and only while triage consent is in
+    effect. A case is taken over once: the same ANM may repeat the call (idempotent, no new audit row); any other
+    ANM gets 409. Unknown codes, codes outside the facility scope and staff-created cases all get the same 404 with
+    no audit row, so the endpoint does not reveal which codes exist. The case code is a bearer secret (48 random
+    bits): whoever holds it, with an ANM account in scope, can take the case over."""
+    if principal.role != Role.ANM:
+        raise ApiError(403, "FORBIDDEN", "Role does not have permission")
+    denial: ConsentNotEffective | None = None
+    case_id = ""
+    async with _write(conn):
+        async with conn.execute("SELECT * FROM cases WHERE patient_token = ?", (body.patient_token,)) as cur:
+            rows = await cur.fetchall()
+        if len(rows) != 1 or rows[0]["created_by_role"] != Role.PATIENT.value or not principal.may_access_facility(rows[0]["facility_code"]):
+            raise not_found()
+        row = rows[0]
+        case_id = row["case_id"]
+        if row["handled_by"] is not None and row["handled_by"] != principal.user_id:
+            raise ApiError(409, "CASE_ALREADY_HANDED_OVER", "Another health worker has already taken over this case")
+        try:
+            await require(conn, case_id, "triage")
+        except ConsentNotEffective as exc:
+            denial = exc
+        if denial is None and row["handled_by"] is None:
+            await conn.execute("UPDATE cases SET handled_by = ?, handled_at = ? WHERE case_id = ? AND handled_by IS NULL", (principal.user_id, _now(), case_id))
+            await audit.record(conn, principal=principal, action="case_handed_over", outcome="success", case_id=case_id, request_id=request_id,
+                               details=audit.CaseHandoverDetails(scenario=row["scenario"], facility_code=row["facility_code"]))
+    if denial is not None:
+        raise await audit_denied(conn, principal, case_id, denial, request_id)
+    return {"case_id": case_id, "patient_token": row["patient_token"], "scenario": row["scenario"], "facility_code": row["facility_code"]}
 
 
 # ── Consent state ────────────────────────────────────────────────────────
@@ -221,7 +263,7 @@ async def record_decision(conn: aiosqlite.Connection, principal: Principal, case
         ("voice_cloud", "granted" if grant and body.include_voice_cloud else "declined"),
     )
     async with _write(conn):
-        await load_case(conn, principal, case_id, "write")
+        await load_case(conn, principal, case_id, "consent")
         for purpose, action in actions:
             await _insert_event(conn, case_id=case_id, purpose=purpose, action=action, language=body.language, review_status=notice.review_status, method=method, principal=principal)
         granted = [p for p, a in actions if a == "granted"]
@@ -246,7 +288,7 @@ async def withdraw(conn: aiosqlite.Connection, principal: Principal, case_id: st
     purpose leaves triage consent unchanged."""
     method = _method_for(principal)
     async with _write(conn):
-        await load_case(conn, principal, case_id, "write")
+        await load_case(conn, principal, case_id, "consent")
         snap = await snapshot(conn, case_id)
         language = await _latest_language(conn, case_id)
         notice = get_notice(language)

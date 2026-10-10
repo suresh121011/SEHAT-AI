@@ -66,7 +66,7 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
       <CaseTitle review={review} />
 
       {/* Decision block: rules result first, reviewer-recorded urgency beside it, queue position explained. */}
-      <section aria-labelledby="decision-heading" className="rounded-lg border border-subtle bg-card">
+      <section aria-labelledby="decision-heading" className="rounded-xl border border-subtle bg-card shadow-card">
         <h3 id="decision-heading" className="sr-only">
           Current decision
         </h3>
@@ -164,7 +164,7 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
 
       {result && det && (
         <SectionCard id="why-heading" title={`Why the rules gave ${result.urgency}`} icon="scale" aside={<ProvenanceBadge kind="rules_engine" detail={`engine ${result.engine_version} · rules ${result.ruleset_version}`} />}>
-          <div className={`rounded border-l-4 px-3 py-2 ${latest.determination === "complete" ? "border-primary bg-primary-tint/40" : "border-warning bg-warning-bg"}`}>
+          <div className={`rounded-lg border-l-4 px-3 py-2 ${latest.determination === "complete" ? "border-primary bg-primary-tint/40" : "border-warning bg-warning-bg"}`}>
             <p className="font-bold">{det.title}</p>
             <p className="text-sm">{det.text}</p>
           </div>
@@ -173,10 +173,10 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
           ) : (
             <ol className="space-y-2">
               {result.triggered_rules.map((r) => (
-                <li key={r.rule_id} className="rounded border border-subtle p-2">
+                <li key={r.rule_id} className="rounded-lg border border-subtle p-2">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="font-bold">{r.reason}</p>
-                    <span className="whitespace-nowrap rounded border border-line px-1.5 text-xs font-bold leading-5">Rule level {r.urgency}</span>
+                    <span className="whitespace-nowrap rounded-lg border border-line px-1.5 text-xs font-bold leading-5">Rule level {r.urgency}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted">
                     <span className="font-mono">{r.rule_id}</span> · Source: {r.source || "Source unavailable"}
@@ -186,13 +186,13 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
             </ol>
           )}
           {result.missing_fields.length > 0 && (
-            <div className="rounded border border-warning/50 bg-warning-bg p-2">
+            <div className="rounded-lg border border-warning/50 bg-warning-bg p-2">
               <p className="flex items-center gap-1 font-bold text-warning">
                 <Icon name="question" size={16} /> Missing — needs human review
               </p>
               <ul className="mt-1 flex flex-wrap gap-1">
                 {result.missing_fields.map((f) => (
-                  <li key={f} className="rounded border border-warning/40 bg-card px-2 py-0.5 text-sm">
+                  <li key={f} className="rounded-lg border border-warning/40 bg-card px-2 py-0.5 text-sm">
                     {fieldWords(f)}
                   </li>
                 ))}
