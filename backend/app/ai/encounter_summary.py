@@ -689,7 +689,7 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
             continue
         fid = f.fact_id
         linked = (f.value or {}).get("linked_symptom") if isinstance(f.value, dict) else None
-        what = f"{linked} for" if linked else ("Duration:" if f.key == "duration" else f"{f.label}:")
+        what = f"{linked[:1].upper()}{linked[1:]} for" if linked else ("Duration:" if f.key == "duration" else f"{f.label}:")
         out.append({"section": "timeline", "fact_ids": [fid], "text": f"{_tagged(f, f'{what} {f.display}')} (as reported)."})
     present = [fid for fid in s["symptoms"]["present"] if ok(fid)]
     denied = [fid for fid in s["symptoms"]["denied"] if ok(fid)]

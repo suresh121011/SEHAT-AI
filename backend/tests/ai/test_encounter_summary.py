@@ -300,6 +300,13 @@ def test_no_triage_run_means_urgency_not_determined_and_missing_vitals_are_liste
     assert s["follow_up_questions"] and s["follow_up_questions"][0]["field_name"] == "red_flag_screen"
 
 
+def test_linked_duration_sentence_reads_as_a_sentence(ai_case):
+    c, anm, case_id = ai_case
+    extract(c, anm, case_id, text="Fever for 3 days.")
+    timeline = [x["text"] for x in _generate(c, anm, case_id)["summary"]["narrative"] if x["section"] == "timeline"]
+    assert timeline == ["Fever for 3 days [not yet checked] (as reported)."]
+
+
 def test_contradictory_durations_stay_visible_and_neither_is_narrated(ai_case):
     c, anm, case_id = ai_case
     extract(c, anm, case_id, text="Fever for 3 days.")
@@ -307,6 +314,7 @@ def test_contradictory_durations_stay_visible_and_neither_is_narrated(ai_case):
     s = _generate(c, anm, case_id)["summary"]
     conflict = next(x for x in s["conflicts"] if x["key"] == "duration")
     assert {v["display"] for v in conflict["values"]} == {"3 days", "2 weeks"}
+    assert all(x["text"][:1].isupper() for x in s["narrative"])  # every sentence starts with a capital
     prose = " ".join(x["text"] for x in s["narrative"])
     assert "3 days" not in prose and "2 weeks" not in prose and "Different durations were recorded" in prose
 
