@@ -2,7 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { acceptState, attentionTone, factsFor, flagWords, reviewWords, sortedAttention, sourceWords, TRUST_WORDS, type EncounterSummary, type SummaryView } from "./encounterSummary.ts";
+import {
+  AGREEMENT_WORDS, READINESS_WORDS, acceptState, canOpenVerification, groupWithheld, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement, readinessReasonWords,
+  reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, type EncounterSummary, type Fact, type SummaryView,
+} from "./encounterSummary.ts";
 
 const summary = (over: Partial<EncounterSummary> = {}): EncounterSummary => ({
   schema_version: "x", case_id: "c", scenario: "opd", status: "complete", generated_at: "t", attention: [], presenting_problem: [], timeline: [],
@@ -53,4 +56,64 @@ test("uncertain handwriting is spelled out; internal flags are hidden", () => {
   assert.match(flagWords("uncertain_handwriting") ?? "", /do not act on this reading/);
   assert.equal(flagWords("band:amber"), null);
   assert.equal(flagWords("linked_to:Fabc"), null);
+});
+
+// ── H1-3: unmatched documents, machine agreement, withheld content, evidence status ───────────────────────────
+
+const docFact = (over: Partial<Fact> = {}): Fact => ({
+  fact_id: "f1", section: "labs", key: "lab:calcium", label: "SERUM CALCIUM", display: "8.9 mg/dL", value: {}, provenance: "document_unchecked", trust: "unchecked",
+  sources: [{ type: "ocr", document_id: "d1", field_id: "r1", page_index: 0 }], flags: ["ocr_engines_agree"], ...over,
+});
+
+test("machine agreement is a separate label and only applies to unchecked document values", () => {
+  assert.equal(ocrAgreement(docFact()), "engines_agree");
+  assert.equal(machineAgreed(docFact()), true);
+  assert.equal(machineAgreed(docFact({ trust: "checked", provenance: "document_confirmed" })), false); // a checked value is not "machine-agreed"
+  assert.equal(ocrAgreement(docFact({ flags: ["disputed_reading", "ocr_engines_disagree"] })), "engines_disagree");
+  assert.equal(ocrAgreement(docFact({ flags: [], sources: [{ type: "triage_form" }] })), null); // not a document value
+  assert.equal(AGREEMENT_WORDS.engines_agree, "Machine-agreed — not yet checked");
+});
+
+test("the OCR agreement flags are not repeated as generic flag text", () => {
+  for (const f of ["ocr_engines_agree", "ocr_engines_disagree", "ocr_single_reading"]) assert.equal(flagWords(f), null);
+});
+
+test("verification links open the existing documents workflow for that row or document", () => {
+  assert.equal(verifyLink("c1", docFact()), "/intake/documents?case=c1&field=r1");
+  assert.equal(verifyLink("c1", docFact({ sources: [{ type: "triage_form" }] })), null);
+  assert.equal(documentLink("c1", "d9"), "/intake/documents?case=c1&doc=d9");
+});
+
+test("withheld reasons use the application's own codes; an unknown code still shows as a validation failure", () => {
+  assert.equal(withheldReasonWords("source_not_verified"), "Source not verified by a person");
+  assert.equal(withheldReasonWords("document_not_matched"), "Document not matched to this patient");
+  assert.equal(withheldReasonWords("evidence_conflict"), "Evidence conflict — sources disagree");
+  assert.match(withheldReasonWords("diagnostic_language"), /^Validation failed/);
+  assert.match(withheldReasonWords("something_new"), /^Validation failed \(something new\)/);
+});
+
+test("readiness never claims clinical completeness", () => {
+  assert.match(READINESS_WORDS.ready_for_clinician_review, /not an approval/i);
+  assert.equal(readinessReasonWords(["no_triage_run", "document_matching_pending"]).length, 2);
+  assert.match(readinessReasonWords(["x_y"])[0], /x y/);
+});
+
+test("only roles that can open the documents step get verification links (the medical officer's dashboard cannot)", () => {
+  assert.equal(canOpenVerification("anm"), true);
+  assert.equal(canOpenVerification("medical_officer"), false);
+  assert.equal(canOpenVerification("supervisor"), false);
+  assert.equal(canOpenVerification(null), false);
+});
+
+test("withheld values are grouped by reason and section; sentences and documents stay separate; nothing is dropped", () => {
+  const items = [
+    { kind: "fact" as const, section: "labs", reason: "source_not_verified", fact_ids: ["a"] },
+    { kind: "sentence" as const, section: "labs", reason: "diagnostic_language", fact_ids: ["a"] },
+    { kind: "fact" as const, section: "labs", reason: "source_not_verified", fact_ids: ["b"] },
+    { kind: "fact" as const, section: "labs", reason: "evidence_conflict", fact_ids: ["c", "d"] },
+    { kind: "document" as const, section: "labs", reason: "document_not_matched", fact_ids: [], document_id: "d1" },
+  ];
+  const g = groupWithheld(items);
+  assert.deepEqual(g.map((x) => [x.reason, x.fact_ids]), [["source_not_verified", ["a", "b"]], ["diagnostic_language", ["a"]], ["evidence_conflict", ["c", "d"]], ["document_not_matched", []]]);
+  assert.deepEqual(items[0].fact_ids, ["a"]); // input not changed
 });

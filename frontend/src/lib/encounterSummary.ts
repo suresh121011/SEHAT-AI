@@ -1,3 +1,5 @@
+import { allowedRoles, type Role } from "./auth.ts";
+
 // View logic for the clinical encounter summary (backend app/ai/encounter_summary.py, docs/19). Pure functions only, so
 // they are testable with node --test. Nothing here computes urgency or chooses between conflicting values: the page
 // shows what the server assembled, in a fixed order, with "needs attention" first.
@@ -64,6 +66,26 @@ export type EncounterSummary = {
   facts: Record<string, Fact>;
   trust_legend: Record<Trust, string>;
   disclaimer: string;
+  // H1-3 (schema .2). Optional: a snapshot made before them has none and is shown as stale until refreshed.
+  unmatched_documents?: UnmatchedDocument[];
+  withheld?: Withheld[];
+  evidence_status?: EvidenceStatus;
+};
+
+export type Agreement = "engines_agree" | "engines_disagree" | "single_reading";
+export type UnmatchedRow = {
+  field_id: string; kind: "lab" | "medication"; label: string; shown: string; printed_flag: string | null; page_index: number;
+  regions: unknown[]; review_status: string; ocr_agreement: Agreement;
+};
+export type UnmatchedDocument = { document_id: string; document_type: string; attestation: string | null; dates: Record<string, string | null>; rows: UnmatchedRow[] };
+export type Withheld = { kind: "sentence" | "fact" | "document"; section: string; reason: string; fact_ids: string[]; document_id?: string };
+export type EvidenceStatus = {
+  documents: Record<"total" | "read" | "processing" | "failed" | "quality_rejected" | "deleted" | "unmatched", number> | null;
+  observations: Record<"extracted" | "human_checked" | "unsure" | "rejected" | "unchecked" | "machine_agreed_unchecked" | "engines_disagree", number> | null;
+  summary: Record<"written_sentences" | "withheld_sentences" | "values_withheld_from_text" | "conflicts" | "waiting_for_a_person" | "sources_unavailable", number>;
+  readiness: { state: "incomplete" | "ready_for_clinician_review"; reasons: string[] };
+  scope: string;
+  note: string;
 };
 
 export type ReviewEvent = { event_id: string; outcome: "accepted" | "needs_changes"; acknowledged_conflicts: boolean; actor_role: string; created_at: string };
@@ -166,6 +188,7 @@ export function flagWords(flag: string): string | null {
   if (flag.startsWith("drug_name_not_matched")) return "Drug name not matched in the offline drug list";
   if (flag.startsWith("band:")) return null; // engine band is shown by the document view
   if (flag.startsWith("linked_to:")) return null;
+  if (flag.startsWith("ocr_")) return null; // OCR agreement is shown as its own label (H1-3), not as flag text
   return flag.replaceAll("_", " ");
 }
 
@@ -173,4 +196,101 @@ const SOURCE_NAMES: Record<string, string> = { ai_extraction: "AI extraction", v
 
 export function sourceName(s: string): string {
   return SOURCE_NAMES[s] ?? s.replaceAll("_", " ");
+}
+
+// ── H1-3: three separate states — OCR engine agreement, a person's check, a clinician's acceptance ─────────────────
+
+export const AGREEMENT_WORDS: Record<Agreement, string> = {
+  engines_agree: "Machine-agreed — not yet checked",
+  engines_disagree: "Machine readings differ",
+  single_reading: "One machine reading only",
+};
+
+/** The OCR engines' cross-check for a document value, from its flags; null for anything not read from a document. */
+export function ocrAgreement(f: Fact): Agreement | null {
+  if (!f.sources.some((s) => s.type === "ocr" || s.type === "ocr_manual_correction")) return null;
+  if (f.flags.includes("ocr_engines_disagree") || f.flags.includes("disputed_reading")) return "engines_disagree";
+  if (f.flags.includes("ocr_engines_agree")) return "engines_agree";
+  return f.flags.includes("ocr_single_reading") ? "single_reading" : null;
+}
+
+/** Engines agree but no person has checked it: shown with its own label, never as checked, never in the written summary. */
+export function machineAgreed(f: Fact): boolean {
+  return f.trust === "unchecked" && ocrAgreement(f) === "engines_agree";
+}
+
+/** Whether this role may open the documents step (`/intake/documents`, lib/auth ROUTE_ACCESS). The medical officer's
+ * dashboard cannot: document values are checked there by the health worker, so the summary says so instead of linking. */
+export function canOpenVerification(role: string | null): boolean {
+  return !!role && (allowedRoles("/intake/documents") ?? []).includes(role as Role);
+}
+
+/** Link into the existing documents workflow for this value's row, or null when it is not a document row. */
+export function verifyLink(caseId: string, f: Fact): string | null {
+  const src = f.sources.find((s) => (s.type === "ocr" || s.type === "ocr_manual_correction") && typeof s.field_id === "string");
+  return src ? `/intake/documents?case=${encodeURIComponent(caseId)}&field=${encodeURIComponent(String(src.field_id))}` : null;
+}
+
+export function documentLink(caseId: string, documentId: string): string {
+  return `/intake/documents?case=${encodeURIComponent(caseId)}&doc=${encodeURIComponent(documentId)}`;
+}
+
+// Reason codes come from the server's own code paths (encounter_summary.withheld_items and the sentence gate).
+const WITHHELD_REASONS: Record<string, string> = {
+  source_not_verified: "Source not verified by a person",
+  document_not_matched: "Document not matched to this patient",
+  evidence_conflict: "Evidence conflict — sources disagree",
+  uncited_or_unknown_fact: "Validation failed: the sentence did not cite a recorded fact",
+  number_not_in_cited_facts: "Validation failed: a number did not match its source",
+  unchecked_document_value_in_prose: "Validation failed: it used a document value nobody has checked",
+  missing_unchecked_tag: "Validation failed: an unchecked value was not marked as unchecked",
+  diagnostic_language: "Validation failed: it read like a diagnosis",
+  prescriptive_language: "Validation failed: it read like a prescription",
+  instruction_text: "Validation failed: it contained instruction-like text",
+  pii_pattern_in_output: "Validation failed: it looked like it contained an identifier",
+};
+
+export function withheldReasonWords(code: string): string {
+  return WITHHELD_REASONS[code] ?? `Validation failed (${code.replaceAll("_", " ")})`;
+}
+
+export const READINESS_WORDS: Record<EvidenceStatus["readiness"]["state"], string> = {
+  incomplete: "Incomplete — some evidence is still waiting (below)",
+  ready_for_clinician_review: "Ready for clinician review — nothing is waiting to be read, matched or checked. This is not an approval and not a statement that the record is clinically complete.",
+};
+
+const READINESS_REASONS: Record<string, string> = {
+  source_unavailable: "A source could not be read",
+  document_processing_pending: "A document is still being read",
+  processing_failures: "A document could not be read (failed or needs a better copy)",
+  document_matching_pending: "A document is not matched to this patient yet",
+  verification_pending: "Values are waiting for a person to check them",
+  no_triage_run: "No triage run yet, so there is no urgency",
+  triage_predates_evidence: "Values were added or checked after the last triage run",
+};
+
+export function readinessReasonWords(codes: string[]): string[] {
+  return codes.map((c) => READINESS_REASONS[c] ?? c.replaceAll("_", " "));
+}
+
+/** One entry per reason and section (a long list of single-value cards hides the reason); sentence and document entries
+ * stay separate because each has its own source. Order: first appearance. */
+export function groupWithheld(items: Withheld[]): Withheld[] {
+  const out: Withheld[] = [];
+  const byKey = new Map<string, Withheld>();
+  for (const w of items) {
+    if (w.kind !== "fact") {
+      out.push(w);
+      continue;
+    }
+    const key = `${w.reason}|${w.section}`;
+    const g = byKey.get(key);
+    if (g) g.fact_ids = [...g.fact_ids, ...w.fact_ids];
+    else {
+      const copy = { ...w, fact_ids: [...w.fact_ids] };
+      byKey.set(key, copy);
+      out.push(copy);
+    }
+  }
+  return out;
 }

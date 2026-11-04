@@ -312,7 +312,12 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
 }
 
 function DocumentsScreen() {
-  const caseId = useSearchParams().get("case");
+  const params = useSearchParams();
+  const caseId = params.get("case");
+  // Deep links from the encounter summary (H1-3): `field` opens that row for checking, `doc` goes to its patient question.
+  const focusField = params.get("field");
+  const focusDoc = params.get("doc");
+  const [focused, setFocused] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const [caps, setCaps] = useState<Caps | null>(null);
   const [caseView, setCaseView] = useState<CaseView | null>(null);
@@ -381,6 +386,18 @@ function DocumentsScreen() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  useEffect(() => {
+    if (focused || docs.length === 0 || (!focusField && !focusDoc)) return;
+    setFocused(true);
+    const d = docs.find((x) => (focusField ? x.fields.some((f) => f.field_id === focusField) : x.document_id === focusDoc));
+    if (!d) return;
+    if (focusField) {
+      setSelected({ doc: d.document_id, field: focusField });
+      requestAnimationFrame(() => document.getElementById(`field-${focusField}`)?.scrollIntoView({ block: "center" }));
+    } else {
+      requestAnimationFrame(() => document.getElementById(`attest-${d.document_id}`)?.scrollIntoView({ block: "center" }));
+    }
+  }, [docs, focusField, focusDoc, focused]);
 
   // One upload path for text documents and medical images: same form fields, idempotency key and error handling.
   async function send<T>(file: File, type: DocType | ImageType, signal: AbortSignal, extra: Record<string, string> = {}): Promise<T | null> {

@@ -40,7 +40,7 @@ from app.errors import ApiError, not_found
 from app.rules import TriageInput, TriageResult
 from app.rules.required_fields import missing as required_missing
 
-SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-10-10.1"
+SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-04.2"  # .2: unmatched_documents, withheld, evidence_status (H1-3)
 DISCLAIMER = ("AI-assisted draft assembled from recorded sources, pending review by a qualified clinician. Not a diagnosis. "
               "Urgency is the rules engine's. Research prototype, not a clinically validated device.")
 log = logging.getLogger(__name__)
@@ -146,6 +146,12 @@ class EncounterSummary(_M):
     facts: dict[str, Fact]
     trust_legend: dict[str, str]
     disclaimer: str
+    # H1-3. Documents nobody has matched to this patient: listed with their rows, never facts, never in prose.
+    unmatched_documents: list[dict] = Field(default_factory=list)
+    # What the written summary leaves out, each with the reason from the code path that left it out.
+    withheld: list[dict] = Field(default_factory=list)
+    # Operational counts from the stored rows the summary was built from. Not a clinical confidence score.
+    evidence_status: dict = Field(default_factory=dict)
     clinical_use_allowed: Literal[False] = False
     requires_sign_off: Literal[True] = True
 
@@ -379,24 +385,65 @@ def _doc_source_ref(doc: dict, f: dict, typ: str) -> dict:
             "resolved_by_role": f["review"]["actor_role"] if f["review"] else None}
 
 
+def ocr_agreement(checks: list[dict]) -> Literal["engines_agree", "engines_disagree", "single_reading"]:
+    """What the OCR engines' cross-check said about a row's machine reading. Never a human check: a row whose engines
+    agree is still `document_unchecked` until a person confirms it."""
+    statuses = {c.get("status") for c in checks if c.get("check") == "second_engine_agreement"}
+    return "engines_disagree" if "fail" in statuses else "engines_agree" if "pass" in statuses else "single_reading"
+
+
+_AGREEMENT_FLAG = {"engines_agree": "ocr_engines_agree", "engines_disagree": "ocr_engines_disagree", "single_reading": "ocr_single_reading"}
+
+
+def _row_shown(f: dict) -> str:
+    if f["kind"] == "medication":
+        return note.ocr_medication_text({k: f.get(k) for k in ("drug_raw", "strength_raw", "dosage_pattern", "frequency_raw", "duration_raw")}) or (f.get("line_raw") or "")
+    return f"{(f.get('value') or {}).get('raw') or ''} {(f.get('unit') or {}).get('raw') or ''}".strip()
+
+
+def _doc_stats() -> dict:
+    return {"documents": {"total": 0, "read": 0, "processing": 0, "failed": 0, "quality_rejected": 0, "deleted": 0, "unmatched": 0},
+            "observations": {"extracted": 0, "human_checked": 0, "unsure": 0, "rejected": 0, "unchecked": 0, "machine_agreed_unchecked": 0, "engines_disagree": 0}}
+
+
 async def _ocr_source(conn, case_id: str, b: _Builder, out: dict) -> None:
     from app.ocr.service import document_view
 
     async with conn.execute("SELECT document_id FROM ocr_documents WHERE case_id = ? ORDER BY created_at", (case_id,)) as cur:
         ids = [r["document_id"] for r in await cur.fetchall()]
+    stats = _doc_stats()
+    docs, obs = stats["documents"], stats["observations"]
     for did in ids:
         doc = await document_view(conn, did)
+        docs["total"] += 1
         if doc["status"] == "deleted":
+            docs["deleted"] += 1
             continue
         if doc["status"] != "completed":
+            docs[{"pending": "processing", "quality_rejected": "quality_rejected"}.get(doc["status"], "failed")] += 1
             out["pending"].append({"kind": "document", "ref": did, "label": doc["document_type"], "state": f"processing_{doc['status']}",
                                    "action": "This document was not read (failed or still processing). Retry the upload or enter values by hand."})
             continue
+        docs["read"] += 1
+        for f in doc["fields"]:
+            obs["extracted"] += 1
+            state, agreement = f["review_status"], ocr_agreement(f.get("checks") or [])
+            obs[{"confirmed": "human_checked", "corrected": "human_checked", "unsure": "unsure", "rejected": "rejected"}.get(state, "unchecked")] += 1
+            obs["machine_agreed_unchecked"] += state == "machine_read" and agreement == "engines_agree"
+            obs["engines_disagree"] += agreement == "engines_disagree"
         att = doc["attestation"]
         if att is None or att["answer"] != "matches":
-            # Values of a document nobody has matched to this patient and visit are never shown.
+            # Values of a document nobody has matched to this patient and visit are never facts. They are listed apart
+            # (H1-3), labelled unmatched, with their source regions, so a reviewer can see what is waiting.
+            docs["unmatched"] += 1
             out["pending"].append({"kind": "document", "ref": did, "label": doc["document_type"], "state": "attestation_" + (att["answer"] if att else "missing"),
                                    "action": "Confirm that this document belongs to this patient and this visit before any value is used."})
+            out["unmatched_documents"].append({
+                "document_id": did, "document_type": doc["document_type"], "attestation": att["answer"] if att else None, "dates": doc.get("dates") or {},
+                "rows": [{"field_id": f["field_id"], "kind": f["kind"], "label": (f.get("name_raw") if f["kind"] == "lab" else f.get("drug_raw")) or "(no name read)",
+                          "shown": _row_shown(f), "printed_flag": f.get("printed_flag"), "page_index": f["page_index"], "regions": f["regions"],
+                          "review_status": f["review_status"], "ocr_agreement": ocr_agreement(f.get("checks") or [])} for f in doc["fields"]],
+            })
             continue
         dates = doc.get("dates") or {}
         date = dates.get("collected_date") or dates.get("report_date") or dates.get("prescription_date")
@@ -411,6 +458,8 @@ async def _ocr_source(conn, case_id: str, b: _Builder, out: dict) -> None:
                 out["pending"].append({"kind": "document_field", "ref": f["field_id"], "label": f.get("analyte_key") or f.get("name_raw") or f.get("drug_raw") or "row",
                                        "state": state, "action": "Check this machine-read row against the document image (confirm, correct, reject or mark unsure)."})
             flags = [x for x in (("disputed_reading" if f.get("disputed") else None), (f"band:{f['band']}" if f.get("band") else None)) if x]
+            # The OCR engines' cross-check, kept apart from the human state (trust/provenance): agreement is not a check.
+            flags.append(_AGREEMENT_FLAG[ocr_agreement(f.get("checks") or [])])
             if f["kind"] == "medication":
                 v = f["reviewed_value"] if checked else {k: f.get(k) for k in ("drug_raw", "strength_raw", "dosage_pattern", "frequency_raw", "duration_raw")}
                 rx = f.get("rxnorm") or {}
@@ -436,6 +485,7 @@ async def _ocr_source(conn, case_id: str, b: _Builder, out: dict) -> None:
                          ("reported" if dates.get("report_date") else None), "printed_range": rng}
                 b.add("labs", f"lab:{name}", f.get("name_raw") or name, note._ocr_value_text(v), value, prov, src, flags,
                       merge_key=[name, v.get("value"), v.get("qualitative"), v.get("unit"), date])
+    out["doc_stats"] = stats  # only when every document was read; a failed read leaves it unset (counts not shown)
 
 
 def _triage_vitals(inp: TriageInput) -> dict[str, Any]:
@@ -514,7 +564,8 @@ async def assemble_evidence(conn: aiosqlite.Connection, case_id: str, *, ai_allo
     """Public: every recorded source for a case as facts, inside the caller's (read or write) transaction and after its
     access and consent checks. Reusable by other views (council). AI fields are read only while `ai_assist` is in effect."""
     b = _Builder()
-    out: dict[str, Any] = {"pending": [], "unavailable": [], "excluded": [], "triage_runs": [], "vital_history": {}, "triage_input": None}
+    out: dict[str, Any] = {"pending": [], "unavailable": [], "excluded": [], "triage_runs": [], "vital_history": {}, "triage_input": None,
+                           "unmatched_documents": [], "doc_stats": None}
     for name, fn in SOURCES:
         if name == "ai_extraction" and not ai_allowed:  # a consent choice, not a failure: the summary can still be complete
             out["excluded"].append({"source": name, "reason": "ai_assist_consent_not_in_effect"})
@@ -805,6 +856,70 @@ def urgency_view(triage_runs: list, review: dict | None, evidence_after: str | N
     }
 
 
+def withheld_items(s: dict, facts: dict[str, Fact], blocked: list[Blocked], unmatched: list[dict]) -> list[dict]:
+    """What the written summary leaves out, and why. Each reason is the code path that left it out: the gate's own
+    reason for a blocked sentence; `source_not_verified` and `evidence_conflict` mirror render_narrative's rules exactly;
+    `document_not_matched` is a document whose values are never facts. A blocked sentence's text is never kept."""
+    out: list[dict] = [{"kind": "sentence", "section": x.section, "reason": x.reason, "fact_ids": x.fact_ids} for x in blocked]
+    for r in s["vitals"]:
+        if r.conflict:
+            out.append({"kind": "fact", "section": "vitals", "reason": "evidence_conflict", "fact_ids": r.fact_ids})
+    for r in s["labs"]:
+        f = facts[r.fact_ids[0]]
+        if r.conflict:
+            out.append({"kind": "fact", "section": "labs", "reason": "evidence_conflict", "fact_ids": r.fact_ids})
+        elif not PROVENANCE[f.provenance]["narrative"]:
+            out.append({"kind": "fact", "section": "labs", "reason": "source_not_verified", "fact_ids": [f.fact_id]})
+    for fid in s["medications"]:
+        if not PROVENANCE[facts[fid].provenance]["narrative"]:
+            out.append({"kind": "fact", "section": "medications", "reason": "source_not_verified", "fact_ids": [fid]})
+    for c in s["conflicts"]:
+        if c["key"] == "duration":
+            out.append({"kind": "fact", "section": "timeline", "reason": "evidence_conflict", "fact_ids": c["fact_ids"]})
+    for u in unmatched:
+        out.append({"kind": "document", "reason": "document_not_matched", "document_id": u["document_id"],
+                    "section": "medications" if u["document_type"] == "prescription" else "labs", "fact_ids": []})
+    return out
+
+
+EVIDENCE_NOTE = ("Counts of what is recorded for this case (this visit only; earlier visits are not linked yet). 'Ready for clinician review' "
+                 "means nothing is waiting to be read, matched or checked. It does not mean the record is clinically complete, and it is "
+                 "not an approval: a clinician still reviews and accepts the summary.")
+
+
+def evidence_status(ctx: dict, s: dict, narrative: list[Sentence], blocked: list[Blocked], withheld: list[dict], urgency: dict) -> dict:
+    """Operational indicators from the persisted rows the summary was built from. Document counts are omitted (None) when
+    the documents source could not be read, rather than shown wrong. No confidence score is computed."""
+    stats = ctx.get("doc_stats")
+    reasons = []
+    if ctx["unavailable"]:
+        reasons.append("source_unavailable")
+    if stats:
+        d = stats["documents"]
+        if d["processing"]:
+            reasons.append("document_processing_pending")
+        if d["failed"] or d["quality_rejected"]:
+            reasons.append("processing_failures")
+        if d["unmatched"]:
+            reasons.append("document_matching_pending")
+    if any(p["kind"] != "document" for p in ctx["pending"]):
+        reasons.append("verification_pending")
+    if not ctx["triage_runs"]:
+        reasons.append("no_triage_run")
+    elif urgency.get("triage_predates_evidence"):
+        reasons.append("triage_predates_evidence")
+    return {
+        "documents": stats["documents"] if stats else None,
+        "observations": stats["observations"] if stats else None,
+        "summary": {"written_sentences": len(narrative), "withheld_sentences": len(blocked),
+                    "values_withheld_from_text": sum(1 for w in withheld if w["kind"] == "fact"), "conflicts": len(s["conflicts"]),
+                    "waiting_for_a_person": len(ctx["pending"]), "sources_unavailable": len(ctx["unavailable"])},
+        "readiness": {"state": "incomplete" if reasons else "ready_for_clinician_review", "reasons": reasons},
+        "scope": "this_case_only",
+        "note": EVIDENCE_NOTE,
+    }
+
+
 def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: dict | None, evidence_after: str | None) -> EncounterSummary:
     facts = b.facts
     by_section: dict[str, list[Fact]] = {}
@@ -829,6 +944,7 @@ def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: d
         "conflicts": conflicts,
     }
     narrative, blocked = gate(render_narrative(s, facts), facts)
+    withheld = withheld_items(s, facts, blocked, ctx["unmatched_documents"])
     urgency = urgency_view(triage_runs, review, evidence_after)
     attention: list[Attention] = []
     for u in ctx["unavailable"]:
@@ -858,7 +974,8 @@ def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: d
         medications=s["medications"], body_map=s["body_map"], red_flag_mentions=s["red_flag_mentions"], context=s["context"],
         missing_information=missing, follow_up_questions=questions, conflicts=conflicts, pending_review=ctx["pending"],
         unavailable_sources=ctx["unavailable"], excluded_sources=ctx["excluded"], urgency=urgency, narrative=narrative, blocked=blocked, facts=facts,
-        trust_legend=TRUST_LEGEND, disclaimer=DISCLAIMER,
+        trust_legend=TRUST_LEGEND, disclaimer=DISCLAIMER, unmatched_documents=ctx["unmatched_documents"], withheld=withheld,
+        evidence_status=evidence_status(ctx, s, narrative, blocked, withheld, urgency),
     )
 
 

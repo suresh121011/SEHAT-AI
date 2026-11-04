@@ -95,6 +95,8 @@ def case_requests(cid: str, run_id: str, triage_body: dict) -> list[tuple[str, s
         ("GET", f"/cases/{cid}/documents", None),
         ("GET", f"/cases/{cid}/documents/reviewed", None),
         ("GET", f"/cases/{cid}/verification-queue", None),
+        ("GET", f"/cases/{cid}/encounter-summary", None),
+        ("POST", f"/cases/{cid}/encounter-summary", None),
     ]
 
 
