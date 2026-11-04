@@ -129,6 +129,8 @@ class Settings:
     medgemma_model: str = "gemini-3.8-flash"
     google_ai_api_key: str = field(default="", repr=False)  # never printed
     medgemma_timeout_s: float = 30.0
+    gemini_live_enabled: bool = False
+    gemini_live_model: str = "gemini-2.0-flash-exp"
     # Facility isolation (docs/17 §8). Trusted server config, never client input. None = isolation OFF (every
     # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
     # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
@@ -145,6 +147,10 @@ class Settings:
     @property
     def azure_openai_configured(self) -> bool:
         return bool(self.azure_openai_api_key and self.azure_openai_endpoint and self.azure_openai_deployment_name)
+
+    @property
+    def gemini_live_configured(self) -> bool:
+        return bool(self.google_ai_api_key)
 
 
 @lru_cache
@@ -199,6 +205,8 @@ def get_settings() -> Settings:
         ocr_max_bytes=min(int(_env("OCR_MAX_BYTES", str(10 * 1024 * 1024))), 20 * 1024 * 1024),
         ocr_page_timeout_s=float(_env("OCR_PAGE_TIMEOUT_S", "180")),
         ocr_rxnorm_db=_path(_env("OCR_RXNORM_DB", "./models/rxnorm/rxnorm.sqlite")),
+        gemini_live_enabled=_flag("GEMINI_LIVE_ENABLED", False),
+        gemini_live_model=_env("GEMINI_LIVE_MODEL", "gemini-2.0-flash-exp"),
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
         **_medgemma_settings(_flag("OCR_ENABLED")),

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
+import { DuplexVoiceFollowUp } from "@/components/DuplexVoiceFollowUp";
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { SourceTag } from "@/components/Provenance";
@@ -435,6 +436,8 @@ function FollowUpScreen() {
           {why}
         </Notice>
       )}
+
+      {caseId && <DuplexVoiceFollowUp caseId={caseId} />}
 
       {(!ext || rerun) && state !== "loading" && (
         <Card>
