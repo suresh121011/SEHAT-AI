@@ -88,3 +88,24 @@ def test_flag_in_name_column_reaches_storage_and_summary_evidence(ocr_client):  
     creat_fact = s["facts"][rows["lab:creatinine"]["fact_ids"][0]]
     assert creat_fact["provenance"] == "document_unchecked"  # shown in the table, never in prose until a person checks it
     assert not any("Creatinine is" in json.dumps(f) or "correlate" in json.dumps(f) for f in s["facts"].values())
+
+
+def test_second_engine_flag_printed_before_the_value_is_not_a_disagreement(ocr_client):  # noqa: F811
+    # Real Surya output on the sample KFT report (2026-11-04): the value cell reads "L 17" (flag first). The flag was
+    # already read for the row, so it is not part of the value; a different number would still be a disagreement.
+    class LeadingFlag(KftEngines):
+        def surya_page(self, png):
+            html = SURYA_HTML.replace("<td>SERUM UREA L</td><td>17</td>", "<td>SERUM UREA</td><td>L 17</td>") \
+                             .replace("<td>SERUM CREATININE L</td><td>0.69</td>", "<td>SERUM CREATININE</td><td>L 0.96</td>")
+            return {"blocks": [{"label": "Table", "bbox": [80, 330, 1170, 520], "confidence": 0.97, "html": html}]}
+
+    c = ocr_client
+    c.app.state.ocr_engines = LeadingFlag()
+    anm = token_for(c, "anm")
+    case_id = new_case(c, anm)
+    assert grant(c, anm, case_id).status_code == 200
+    labs = {f["analyte_key"]: f for f in _upload(c, anm, case_id).json()["fields"]}
+    urea = {(ch["check"], ch["status"]) for ch in labs["urea"]["checks"]}
+    assert ("second_engine_agreement", "pass") in urea and not labs["urea"]["disputed"] and labs["urea"]["can_confirm"]
+    creat = {(ch["check"], ch["status"]) for ch in labs["creatinine"]["checks"]}
+    assert ("second_engine_agreement", "fail") in creat and labs["creatinine"]["disputed"]  # 0.69 vs 0.96: still disputed

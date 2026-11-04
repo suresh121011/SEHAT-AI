@@ -105,6 +105,15 @@ async def encounter_summary_history(case_id: uuid.UUID, request: Request, princi
     return await encounter_summary.history(db, principal, str(case_id), _rid(request))
 
 
+@router.get("/cases/{case_id}/verification-queue")
+async def verification_queue(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers),
+                             db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    """P0-2 "Check these first": unchecked evidence in checking order. Read-only; never changes urgency."""
+    from app import verification_queue as vq
+
+    return await vq.queue(db, principal, str(case_id), _rid(request))
+
+
 @router.post("/cases/{case_id}/encounter-summary/{summary_id}/review")
 async def review_encounter_summary(case_id: uuid.UUID, summary_id: uuid.UUID, body: encounter_summary.SummaryReviewBody, request: Request,
                                    principal: Principal = Depends(_reviewers), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:

@@ -9,6 +9,7 @@ import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { Card, Notice, buttonClass, inputClass } from "@/components/ui";
 import { type DocType, DOC_TYPE_LABEL, DocumentUpload } from "@/components/DocumentUpload";
 import { EvidenceViewer } from "@/components/EvidenceViewer";
+import { CheckFirstPanel } from "@/components/review/CheckFirstPanel";
 import { MedGemmaFindings } from "@/components/MedGemmaFindings";
 import { MedicalImageUpload } from "@/components/MedicalImageUpload";
 import { ApiError, api } from "@/lib/api";
@@ -24,6 +25,7 @@ import {
   type MedicalImagesResp,
 } from "@/lib/medicalImages";
 import { retakeAdvice } from "@/lib/retake";
+import { keyAction, nextDocumentField, type Queue, type QueueItem } from "@/lib/verificationQueue";
 
 type Check = { check: string; status: string; reason: string };
 type Reading = { engine: string; text: string; score: number | null };
@@ -119,7 +121,7 @@ function FieldRow({ f, selected, onSelect }: { f: Field; selected: boolean; onSe
   );
 }
 
-function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Field; doc: Doc; caseId: string; reviewer: boolean; onDone: () => Promise<void>; setMessage: (m: string | null) => void }) {
+function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Field; doc: Doc; caseId: string; reviewer: boolean; onDone: (decidedFieldId: string | null) => Promise<void>; setMessage: (m: string | null) => void }) {
   const [value, setValue] = useState("");
   const [comparator, setComparator] = useState<string>(f.value?.comparator ?? "=");
   const [unit, setUnit] = useState<string>("");
@@ -130,17 +132,32 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
   async function decide(outcome: string, correction?: Record<string, unknown>) {
     setBusy(true);
     setMessage(null);
+    let ok = false;
     try {
       await api.post(`cases/${caseId}/documents/fields/${f.field_id}/review`, {
         outcome, correction, supersedes: f.review?.event_id ?? null, shown_png_sha256: f.page_png_sha256, shown_regions_sha256: f.regions_sha256,
       });
+      ok = true;
     } catch (err) {
       setMessage(explain(err));
     } finally {
-      await onDone();
+      await onDone(ok ? f.field_id : null); // a recorded decision moves on to the next row to check; an error stays here
       setBusy(false);
     }
   }
+  // Keys C / U / R (P0-2): the same three decisions as the buttons, with the same rules. Never Enter, never while typing.
+  const canConfirmNow = reviewer && attested && f.can_confirm && !busy;
+  useEffect(() => {
+    if (!reviewer) return;
+    const onKey = (e: KeyboardEvent) => {
+      const action = keyAction(e.key, (e.target as HTMLElement | null)?.tagName ?? "", canConfirmNow, e.metaKey || e.ctrlKey || e.altKey);
+      if (!action || busy) return;
+      e.preventDefault();
+      decide(action);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const correctValue = () => {
     const v = value.trim();
     const correction: Record<string, unknown> = {};
@@ -285,6 +302,7 @@ function ReviewPanel({ f, doc, caseId, reviewer, onDone, setMessage }: { f: Fiel
             </div>
           )}
           <p className="text-xs text-muted">Wrong test or drug name? Reject the row. Your decision is recorded with your role; the machine reading is kept unchanged.</p>
+          <p className="text-xs text-muted">Keys (when not typing in a box): <kbd>C</kbd> confirm · <kbd>U</kbd> not sure · <kbd>R</kbd> wrong / not on report. After each decision the next row to check opens.</p>
         </div>
       ) : (
         <p className="text-xs">The health worker who created this case reviews these values (a doctor view comes in a later phase).</p>
@@ -300,6 +318,7 @@ function DocumentsScreen() {
   const [caseView, setCaseView] = useState<CaseView | null>(null);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [reviewed, setReviewed] = useState<Reviewed | null>(null);
+  const [queue, setQueue] = useState<Queue | null>(null);
   const [selected, setSelected] = useState<{ doc: string; field: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -308,14 +327,18 @@ function DocumentsScreen() {
   const [lastImage, setLastImage] = useState<MedicalImageItem | null>(null);
   const reviewer = role === "anm" || role === "medical_officer";
 
-  const refresh = useCallback(async () => {
-    if (!caseId) return;
+  const refresh = useCallback(async (): Promise<Queue | null> => {
+    if (!caseId) return null;
+    let q: Queue | null = null;
     try {
       const cv = await api.get<CaseView>(`cases/${caseId}`);
       setCaseView(cv);
       if (cv.consent.triage === "granted") {
         setDocs((await api.get<{ documents: Doc[] }>(`cases/${caseId}/documents`)).documents.reverse());
         if (reviewer) setReviewed(await api.get<Reviewed>(`cases/${caseId}/documents/reviewed`));
+        // "Check these first" (P0-2). An older backend answers 404: then the page works as before, without the order.
+        if (reviewer) q = await api.get<Queue>(`cases/${caseId}/verification-queue`).catch(() => null);
+        setQueue(q);
         // Medical images: an older backend or a disabled feature answers 404/503; then there is simply nothing to list.
         const imgs = await api.get<MedicalImagesResp>(`cases/${caseId}/medical-images`).catch(() => null);
         setImages(imgs?.medical_images ? [...imgs.medical_images].reverse() : []);
@@ -323,11 +346,33 @@ function DocumentsScreen() {
         setDocs([]);
         setReviewed(null);
         setImages([]);
+        setQueue(null);
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 404 && err.code !== "FEATURE_DISABLED") setNotFound(true);
     }
+    return q;
   }, [caseId, reviewer]);
+
+  // After a recorded decision, open the next row to check (highest priority first); after an error, stay.
+  const afterDecision = useCallback(async (decidedFieldId: string | null) => {
+    const q = await refresh();
+    if (!decidedFieldId || !q) return;
+    const next = nextDocumentField(q.items, decidedFieldId);
+    if (next) {
+      setSelected(next);
+      document.getElementById(`field-${next.field}`)?.scrollIntoView({ block: "nearest" });
+    }
+  }, [refresh]);
+
+  function openQueueItem(i: QueueItem) {
+    if (i.kind === "document_field" && i.ref.document_id && i.ref.field_id) {
+      setSelected({ doc: i.ref.document_id, field: i.ref.field_id });
+      document.getElementById(`field-${i.ref.field_id}`)?.scrollIntoView({ block: "center" });
+    } else if (i.ref.document_id) {
+      document.getElementById(`attest-${i.ref.document_id}`)?.scrollIntoView({ block: "center" });
+    }
+  }
 
   useEffect(() => {
     api.get<{ role: string }>("auth/me").then((me) => setRole(me.role)).catch(() => setMessage("Could not check your session. Please log in again."));
@@ -500,6 +545,9 @@ function DocumentsScreen() {
       )}
       {triageOk && !canUpload && role === "patient" && <p className="text-sm">Please hand the report to the health worker to upload.</p>}
       {message && <p role="alert" className="text-sm text-error">{message}</p>}
+      {shownCategory === "text" && reviewer && triageOk && (
+        <CheckFirstPanel caseId={caseId} queue={queue} selectedFieldId={current?.f?.field_id ?? null} onOpen={openQueueItem} />
+      )}
 
       {shownCategory === "image" && triageOk && (
         <section aria-label="Medical images for this case" className="space-y-3">
@@ -579,7 +627,7 @@ function DocumentsScreen() {
             )}
             {d.status === "completed" && !isPatient && (
               <>
-                <fieldset className="space-y-2 rounded-[16px] border border-warning/40 bg-warning-bg/50 p-4 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
+                <fieldset id={`attest-${d.document_id}`} className="space-y-2 rounded-[16px] border border-warning/40 bg-warning-bg/50 p-4 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                   <legend className="px-1 font-bold text-warning">Is this report for the patient in front of you, for this visit?</legend>
                   <p className="text-sm">
                     Check the name and date on the paper. Dates read: collected {d.dates?.collected_date ?? "not found"}, reported {d.dates?.report_date ?? "not found"}.
@@ -607,7 +655,7 @@ function DocumentsScreen() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <ul className="space-y-2" aria-label="Values read from the document">
                     {d.fields.map((f) => (
-                      <li key={f.field_id}>
+                      <li key={f.field_id} id={`field-${f.field_id}`}>
                         <FieldRow f={f} selected={current?.f?.field_id === f.field_id} onSelect={() => setSelected({ doc: d.document_id, field: f.field_id })} />
                       </li>
                     ))}
@@ -623,7 +671,7 @@ function DocumentsScreen() {
                             label={(f.kind === "lab" ? f.name_raw : f.drug_raw) ?? "value"} />
                         ) : null;
                       })()}
-                      <ReviewPanel f={current.f} doc={d} caseId={caseId} reviewer={reviewer} onDone={refresh} setMessage={setMessage} />
+                      <ReviewPanel key={current.f.field_id} f={current.f} doc={d} caseId={caseId} reviewer={reviewer} onDone={afterDecision} setMessage={setMessage} />
                     </div>
                   )}
                 </div>
