@@ -219,20 +219,29 @@ export function machineAgreed(f: Fact): boolean {
   return f.trust === "unchecked" && ocrAgreement(f) === "engines_agree";
 }
 
-/** Whether this role may open the documents step (`/intake/documents`, lib/auth ROUTE_ACCESS). The medical officer's
- * dashboard cannot: document values are checked there by the health worker, so the summary says so instead of linking. */
+// Where each role checks document values: the same review components on both pages (components/review/DocumentChecks).
+const VERIFY_PAGES = ["/intake/documents", "/dashboard/verify"] as const;
+export type VerifyPage = (typeof VERIFY_PAGES)[number];
+
+/** The verification page this role may open (lib/auth ROUTE_ACCESS), or null: ANM → the documents step, medical
+ * officer → the dashboard verification page. Patients and supervisors get none (the backend refuses them anyway). */
+export function verificationBase(role: string | null): VerifyPage | null {
+  if (!role || role === "patient") return null; // a patient uploads but never checks values
+  return VERIFY_PAGES.find((p) => (allowedRoles(p) ?? []).includes(role as Role)) ?? null;
+}
+
 export function canOpenVerification(role: string | null): boolean {
-  return !!role && (allowedRoles("/intake/documents") ?? []).includes(role as Role);
+  return verificationBase(role) !== null;
 }
 
-/** Link into the existing documents workflow for this value's row, or null when it is not a document row. */
-export function verifyLink(caseId: string, f: Fact): string | null {
+/** Link into the verification workflow for this value's row, or null when it is not a document row. */
+export function verifyLink(caseId: string, f: Fact, base: VerifyPage = "/intake/documents"): string | null {
   const src = f.sources.find((s) => (s.type === "ocr" || s.type === "ocr_manual_correction") && typeof s.field_id === "string");
-  return src ? `/intake/documents?case=${encodeURIComponent(caseId)}&field=${encodeURIComponent(String(src.field_id))}` : null;
+  return src ? `${base}?case=${encodeURIComponent(caseId)}&field=${encodeURIComponent(String(src.field_id))}` : null;
 }
 
-export function documentLink(caseId: string, documentId: string): string {
-  return `/intake/documents?case=${encodeURIComponent(caseId)}&doc=${encodeURIComponent(documentId)}`;
+export function documentLink(caseId: string, documentId: string, base: VerifyPage = "/intake/documents"): string {
+  return `${base}?case=${encodeURIComponent(caseId)}&doc=${encodeURIComponent(documentId)}`;
 }
 
 // Reason codes come from the server's own code paths (encounter_summary.withheld_items and the sentence gate).

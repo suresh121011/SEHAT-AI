@@ -18,6 +18,9 @@ export const DEMO_ACCOUNTS: { username: string; role: Role; label: string }[] = 
 // First match wins: the governance page (aggregates, GET /audit/governance) is supervisor/admin only (docs/17).
 export const ROUTE_ACCESS: { prefix: string; roles: Role[] }[] = [
   { prefix: "/dashboard/governance", roles: ["supervisor", "admin"] },
+  // Checking document values from the doctor's side (same review components as /intake/documents). Not supervisors:
+  // the backend refuses them review access, so the page would only show errors.
+  { prefix: "/dashboard/verify", roles: ["medical_officer"] },
   { prefix: "/intake", roles: ["patient", "anm"] },
   { prefix: "/dashboard", roles: ["medical_officer", "supervisor"] },
 ];

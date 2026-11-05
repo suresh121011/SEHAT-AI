@@ -13,9 +13,9 @@ import { Eyebrow, SectionCard } from "@/components/review/Panel";
 import { Button, Notice, Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 import {
-  AGREEMENT_WORDS, READINESS_WORDS, TRUST_WORDS, acceptState, canOpenVerification, groupWithheld, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement,
+  AGREEMENT_WORDS, READINESS_WORDS, TRUST_WORDS, acceptState, groupWithheld, verificationBase, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement,
   readinessReasonWords, reviewWords, sortedAttention, sourceName, sourceWords, verifyLink, withheldReasonWords,
-  type EncounterSummary, type EvidenceStatus, type Fact, type Row, type SummaryView, type Trust, type UnmatchedDocument, type Withheld,
+  type EncounterSummary, type EvidenceStatus, type Fact, type Row, type SummaryView, type Trust, type UnmatchedDocument, type VerifyPage, type Withheld,
 } from "@/lib/encounterSummary";
 
 function explain(err: unknown): string {
@@ -53,15 +53,15 @@ function Sources({ facts }: { facts: Fact[] }) {
   );
 }
 
-// Whether the viewer's role can open the documents step; links are offered only then (lib/auth ROUTE_ACCESS).
-const VerifyAccess = createContext(false);
-const NO_LINK_NOTE = "Checked on the documents step by the health worker who created this case (not available from the doctor view yet).";
+// The verification page the viewer's role may open (ANM: documents step; medical officer: /dashboard/verify), or null.
+const VerifyAccess = createContext<VerifyPage | null>(null);
+const NO_LINK_NOTE = "Checked by the health worker or a medical officer on their verification page.";
 
 /** OCR agreement shown apart from the human check (TrustPill) and from the clinician's acceptance (summary status). */
 function MachineState({ f, caseId }: { f: Fact; caseId: string }) {
   const canVerify = useContext(VerifyAccess);
   const agreement = ocrAgreement(f);
-  const link = f.trust === "unchecked" && canVerify ? verifyLink(caseId, f) : null;
+  const link = f.trust === "unchecked" && canVerify ? verifyLink(caseId, f, canVerify) : null;
   if (!agreement && !link) return null;
   return (
     <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
@@ -213,7 +213,7 @@ function WithheldSection({ items, s, caseId }: { items: Withheld[]; s: Encounter
               {facts.length > 0 && (
                 <ul className="mt-1 space-y-0.5 text-xs">
                   {facts.map((f) => {
-                    const link = f.trust === "unchecked" && canVerify ? verifyLink(caseId, f) : null;
+                    const link = f.trust === "unchecked" && canVerify ? verifyLink(caseId, f, canVerify) : null;
                     return (
                       <li key={f.fact_id}>
                         <a href={`#fact-${f.fact_id}`} className="underline">{f.label}</a> <span className="font-mono">{f.display}</span>{" "}
@@ -263,11 +263,11 @@ function UnmatchedSection({ docs, caseId }: { docs: UnmatchedDocument[]; caseId:
             ))}
           </ul>
           {canVerify ? (
-            <Link href={documentLink(caseId, d.document_id)} className="text-xs text-primary underline">
-              Answer &quot;Is this the patient&apos;s report?&quot; on the documents step
+            <Link href={documentLink(caseId, d.document_id, canVerify)} className="text-xs text-primary underline">
+              Answer &quot;Is this the patient&apos;s report?&quot;
             </Link>
           ) : (
-            <p className="text-xs text-muted">The health worker who created this case answers &quot;Is this the patient&apos;s report?&quot; on the documents step.</p>
+            <p className="text-xs text-muted">The health worker or a medical officer answers &quot;Is this the patient&apos;s report?&quot; on their verification page.</p>
           )}
         </div>
       ))}
@@ -280,9 +280,9 @@ export function EncounterSummaryPanel({ caseId, canReview }: { caseId: string; c
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [ack, setAck] = useState(false);
-  const [canVerify, setCanVerify] = useState(false);
+  const [canVerify, setCanVerify] = useState<VerifyPage | null>(null);
   useEffect(() => {
-    api.get<{ role: string }>("auth/me").then((me) => setCanVerify(canOpenVerification(me.role)), () => setCanVerify(false));
+    api.get<{ role: string }>("auth/me").then((me) => setCanVerify(verificationBase(me.role)), () => setCanVerify(null));
   }, []);
 
   const load = useCallback(async () => {

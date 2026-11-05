@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  AGREEMENT_WORDS, READINESS_WORDS, acceptState, canOpenVerification, groupWithheld, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement, readinessReasonWords,
+  AGREEMENT_WORDS, READINESS_WORDS, acceptState, canOpenVerification, groupWithheld, verificationBase, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement, readinessReasonWords,
   reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, type EncounterSummary, type Fact, type SummaryView,
 } from "./encounterSummary.ts";
 
@@ -98,11 +98,15 @@ test("readiness never claims clinical completeness", () => {
   assert.match(readinessReasonWords(["x_y"])[0], /x y/);
 });
 
-test("only roles that can open the documents step get verification links (the medical officer's dashboard cannot)", () => {
-  assert.equal(canOpenVerification("anm"), true);
-  assert.equal(canOpenVerification("medical_officer"), false);
-  assert.equal(canOpenVerification("supervisor"), false);
-  assert.equal(canOpenVerification(null), false);
+test("each reviewing role gets its own verification page; patients and supervisors get none", () => {
+  assert.equal(verificationBase("anm"), "/intake/documents");
+  assert.equal(verificationBase("medical_officer"), "/dashboard/verify");
+  assert.equal(verificationBase("supervisor"), null);
+  assert.equal(verificationBase("patient"), null);
+  assert.equal(verificationBase(null), null);
+  assert.equal(canOpenVerification("medical_officer"), true);
+  assert.equal(verifyLink("c1", docFact(), "/dashboard/verify"), "/dashboard/verify?case=c1&field=r1");
+  assert.equal(documentLink("c1", "d9", "/dashboard/verify"), "/dashboard/verify?case=c1&doc=d9");
 });
 
 test("withheld values are grouped by reason and section; sentences and documents stay separate; nothing is dropped", () => {
@@ -116,4 +120,11 @@ test("withheld values are grouped by reason and section; sentences and documents
   const g = groupWithheld(items);
   assert.deepEqual(g.map((x) => [x.reason, x.fact_ids]), [["source_not_verified", ["a", "b"]], ["diagnostic_language", ["a"]], ["evidence_conflict", ["c", "d"]], ["document_not_matched", []]]);
   assert.deepEqual(items[0].fact_ids, ["a"]); // input not changed
+});
+
+test("route rule: only the medical officer opens /dashboard/verify; the intake documents step stays ANM/patient", async () => {
+  const { allowedRoles } = await import("./auth.ts");
+  assert.deepEqual(allowedRoles("/dashboard/verify"), ["medical_officer"]);
+  assert.ok(!allowedRoles("/intake/documents")?.includes("medical_officer"));
+  assert.deepEqual(allowedRoles("/dashboard"), ["medical_officer", "supervisor"]); // unchanged
 });

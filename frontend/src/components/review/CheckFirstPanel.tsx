@@ -12,11 +12,13 @@ import { PRIORITY_WORDS, type Priority, type Queue, type QueueItem, reasonWords,
 const ORDER: Priority[] = ["match_document", "could_change_urgency", "abnormal_lab", "routine"];
 const TONE: Record<string, string> = { error: "text-error", warning: "text-warning", info: "text-ink" };
 
-export function CheckFirstPanel({ caseId, queue, selectedFieldId, onOpen }: {
+export function CheckFirstPanel({ caseId, queue, selectedFieldId, onOpen, voiceLinks = true }: {
   caseId: string;
   queue: Queue | null;
   selectedFieldId: string | null;
   onOpen: (item: QueueItem) => void;
+  /** False where the voice step is not reachable (the medical officer's dashboard): spoken values are listed, not linked. */
+  voiceLinks?: boolean;
 }) {
   if (!queue) return null;
   if (queue.items.length === 0) {
@@ -52,11 +54,16 @@ export function CheckFirstPanel({ caseId, queue, selectedFieldId, onOpen }: {
               const cls = `block w-full rounded-lg border p-2 text-left ${i.ref.field_id && i.ref.field_id === selectedFieldId ? "border-primary ring-2 ring-primary" : "border-subtle hover:bg-surface-1"}`;
               return (
                 <li key={i.item_id}>
-                  {i.act_on === "voice" ? (
+                  {i.act_on === "voice" && voiceLinks ? (
                     <Link href={`/intake/voice?case=${caseId}`} className={cls}>
                       {body}
                       <span className="block text-xs text-primary underline">Read it back on the voice step</span>
                     </Link>
+                  ) : i.act_on === "voice" ? (
+                    <div className={cls}>
+                      {body}
+                      <span className="block text-xs text-muted">Read back to the patient by the health worker on the voice step</span>
+                    </div>
                   ) : (
                     <button type="button" onClick={() => onOpen(i)} className={cls} aria-pressed={!!i.ref.field_id && i.ref.field_id === selectedFieldId}>
                       {body}

@@ -1,6 +1,7 @@
-"""Real-app browser check for P0-1, P0-2 and H1-3: a real synthetic lab report through the real local OCR engines, the
-documents screen ("What to check, in order", C/U/R keys, auto-advance) and the medical officer's encounter summary
-(unmatched documents, machine agreement, withheld content, evidence status). Synthetic sample only; scratch database
+"""Real-app browser check for P0-1, P0-2, H1-3 and medical officer verification: a real synthetic lab report through the
+real local OCR engines, the ANM documents screen ("What to check, in order", C/U/R keys, auto-advance), the medical
+officer's encounter summary (unmatched documents, machine agreement, withheld content, evidence status) and the
+medical officer's /dashboard/verify page (same review components, decisions under their role, route rule). Synthetic sample only; scratch database
 only; never point it at real data or the shared demo database.
 
 Setup (from sehat-ai/; nothing is installed globally; S is any scratch directory):
@@ -110,10 +111,37 @@ def main() -> int:
               and all(f["trust"] != "unchecked" for n in s["narrative"] for f in (s["facts"][i] for i in n["fact_ids"]) if f["section"] == "labs"))
         check("9 withheld values are listed with a reason", page.get_by_text("Withheld pending verification").count() > 0 and bool(s["withheld"]))
         check("10 readiness is not 'ready' while values are unchecked", st["readiness"]["state"] == "incomplete", str(st["readiness"]))
-        check("11 medical officer gets no link into the ANM-only documents step",
-              page.get_by_role("link", name="Open in verification").count() == 0 and page.get_by_text("Checked on the documents step by the health worker").count() > 0)
+        links = [a.get_attribute("href") or "" for a in page.get_by_role("link", name="Open in verification").all()]
+        check("11 medical officer's verification links open the dashboard verification page, never the ANM-only intake step",
+              bool(links) and all(h.startswith("/dashboard/verify?") for h in links), str(links[:2]))
+
+        # Medical officer verification: the same review components, from the case workspace
+        page.get_by_role("link", name="Check document values").click()
+        page.get_by_role("heading", name="What to check, in order").wait_for(timeout=60_000)
+        page.screenshot(path=str(OUT / "real_app_3_mo_verify.png"), full_page=True)
+        mq = queue()
+        row = next(i for i in mq["items"] if i["kind"] == "document_field")
+        page.get_by_role("button", name=row["label"]).first.click()
+        page.wait_for_timeout(800)
+        page.locator("body").click(position={"x": 5, "y": 5})
+        page.keyboard.press("c" if row["can_confirm"] else "u")
+        page.wait_for_timeout(2000)
+        doc = page.request.get(api(f"cases/{cid}/documents")).json()["documents"][0]
+        decided = next(f for f in doc["fields"] if f["field_id"] == row["ref"]["field_id"])
+        check(f"12 medical officer's key {'C' if row['can_confirm'] else 'U'} recorded a decision under their role",
+              (decided["review"] or {}).get("actor_role") == "medical_officer", str(decided["review"]))
+        mnext = next((i for i in queue()["items"] if i["kind"] == "document_field" and i["ref"]["field_id"] != row["ref"]["field_id"]), None)
+        msel = page.locator('li[id^="field-"] button[aria-pressed="true"]').first.inner_text().splitlines()[0]
+        check("13 auto-advance works the same on the medical officer's page", mnext is not None and msel == mnext["label"], f"{msel} / {mnext and mnext['label']}")
+        check("14 the medical officer's page offers no upload and no delete",
+              page.get_by_role("button", name="Delete this document").count() == 0 and page.locator('input[type="file"]').count() == 0)
+        assert login("anm_demo", "anm")  # an ANM cannot open the medical officer's page (route rule): sent to its own home
+        page.goto(f"{FE}/dashboard/verify?case={cid}")
+        page.wait_for_load_state("networkidle")
+        check("15 an ANM is redirected away from /dashboard/verify", "/dashboard/verify" not in page.url, page.url)
+
         real_errors = [e for e in errors if "404" not in e]  # voice is disabled in this setup: its requests answer 404
-        check("12 no browser console errors (voice-disabled 404s excepted)", not real_errors, str(real_errors[:3]))
+        check("16 no browser console errors (voice-disabled 404s excepted)", not real_errors, str(real_errors[:3]))
         browser.close()
     failed = [n for n, ok in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} passed; screenshots in {OUT}")
