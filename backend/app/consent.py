@@ -27,15 +27,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app import audit
 from app.auth import Principal, Role
-from app.consent_notice import NOTICE_VERSION, Language, Purpose, get_notice
+from app.consent_notice import LINK_VISITS_LANGUAGES, NOTICE_VERSION, Language, Purpose, get_notice
 from app.database import transaction as _write
 from app.errors import ApiError, consent_required, not_found
 from app.rules.models import Scenario
 
 logger = logging.getLogger("sehat.consent")
 
-PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist", "voice_cloud")
-DEPENDENT_PURPOSES: tuple[Purpose, ...] = ("ai_assist", "voice_cloud")  # require triage
+PURPOSES: tuple[Purpose, ...] = ("triage", "ai_assist", "voice_cloud", "link_visits")
+DEPENDENT_PURPOSES: tuple[Purpose, ...] = ("ai_assist", "voice_cloud", "link_visits")  # require triage
 State = Literal["not_provided", "granted", "declined", "withdrawn"]
 AccessMode = Literal["consent", "write", "triage", "read"]
 
@@ -53,6 +53,7 @@ class ConsentDecision(_Body):
     decision: Literal["grant", "decline"]
     include_ai_assist: bool = Field(default=False, strict=True)
     include_voice_cloud: bool = Field(default=False, strict=True)
+    include_link_visits: bool = Field(default=False, strict=True)  # SEHAT patient code and visit linking (P1)
     language: Language
     notice_version: str = Field(max_length=32)
 
@@ -253,14 +254,18 @@ async def record_decision(conn: aiosqlite.Connection, principal: Principal, case
     notice = get_notice(body.language)
     if body.notice_version != notice.version:
         raise ApiError(409, "NOTICE_VERSION_STALE", "The consent notice has changed; please review the current version")
-    if body.decision == "decline" and (body.include_ai_assist or body.include_voice_cloud):
+    if body.decision == "decline" and (body.include_ai_assist or body.include_voice_cloud or body.include_link_visits):
         raise ApiError(400, "VALIDATION_ERROR", "Optional purposes cannot be granted when consent is declined")
+    if body.include_link_visits and body.language not in LINK_VISITS_LANGUAGES:
+        # The notice in this language does not describe visit linking yet (unreviewed translation), so it cannot be agreed to.
+        raise ApiError(400, "PURPOSE_NOT_AVAILABLE_IN_LANGUAGE", "Visit linking is not available in this language yet")
 
     grant = body.decision == "grant"
     actions: tuple[tuple[Purpose, str], ...] = (
         ("triage", "granted" if grant else "declined"),
         ("ai_assist", "granted" if grant and body.include_ai_assist else "declined"),
         ("voice_cloud", "granted" if grant and body.include_voice_cloud else "declined"),
+        ("link_visits", "granted" if grant and body.include_link_visits else "declined"),
     )
     async with _write(conn):
         await load_case(conn, principal, case_id, "consent")

@@ -64,6 +64,9 @@ AuditAction = Literal[
     "body_map_recorded",
     "encounter_summary_generated",
     "encounter_summary_reviewed",
+    "patient_registered",
+    "patient_linked",
+    "patient_unlinked",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -86,7 +89,7 @@ class BodyMapDetails(_Details):
     region_count: int = Field(ge=0)
 
 
-ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud"]
+ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud", "link_visits"]
 
 
 class ConsentChangeDetails(_Details):
@@ -297,6 +300,15 @@ class EncounterSummaryReviewDetails(_Details):
     event_id: str
     outcome: Literal["accepted", "needs_changes"]
     acknowledged_conflicts: bool
+
+
+class PatientLinkDetails(_Details):
+    """Ids and enums only. Never the patient code (a locator that would let anyone with the log find the patient)."""
+
+    patient_id: str
+    link_event_id: str
+    basis: Literal["new_code", "patient_code"] | None = None  # link: a fresh code, or a code the patient showed
+    reason_code: Literal["linked_in_error", "patient_request"] | None = None  # unlink only
 
 
 class AuditVerifiedDetails(_Details):

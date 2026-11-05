@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
+import { PatientCodeCard } from "@/components/PatientCodeCard";
 import { roleWords } from "@/components/Provenance";
 import { Button, Card, Notice, Spinner } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
@@ -13,14 +14,15 @@ import { useCase } from "@/lib/useCase";
 import { useMatchingVoice } from "@/lib/useMatchingVoice";
 
 type Language = "en" | "hi" | "or";
-type Purpose = "triage" | "ai_assist" | "voice_cloud";
+type Purpose = "triage" | "ai_assist" | "voice_cloud" | "link_visits";
 type Notice = {
   language: Language;
   version: string;
   review_status: "project_draft" | "draft_unreviewed_translation";
   title: string;
   paragraphs: string[];
-  purposes: Record<Purpose, string>;
+  // `link_visits` is described only where its wording exists (English for now); Hindi/Odia notices do not offer it.
+  purposes: Record<Exclude<Purpose, "link_visits">, string> & { link_visits?: string };
 };
 type HistoryRow = { seq: number; purpose: Purpose; action: string; method: string; actor_role: string; language: Language; notice_version: string; created_at: string };
 
@@ -31,7 +33,9 @@ const LANGUAGES: { code: Language; label: string; speech: string }[] = [
 ];
 
 const STATE_WORDS: Record<ConsentState, string> = { not_provided: "No decision yet", granted: "Agreed", declined: "Did not agree", withdrawn: "Withdrawn" };
-const PURPOSE_NAME: Record<Purpose, string> = { triage: "Triage (required)", ai_assist: "AI assistance (optional)", voice_cloud: "Online speech service (optional)" };
+const PURPOSE_NAME: Record<Purpose, string> = {
+  triage: "Triage (required)", ai_assist: "AI assistance (optional)", voice_cloud: "Online speech service (optional)", link_visits: "Link visits with a patient code (optional)",
+};
 const METHOD_WORDS: Record<string, string> = {
   patient_button: "patient pressed “I agree” on their account",
   staff_attested_verbal: "health worker attested the patient said yes",
@@ -44,6 +48,7 @@ function ConsentScreen() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [aiOptIn, setAiOptIn] = useState(false);
   const [voiceCloudOptIn, setVoiceCloudOptIn] = useState(false);
+  const [linkOptIn, setLinkOptIn] = useState(false);
   const [attested, setAttested] = useState(false);
   const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,6 +61,7 @@ function ConsentScreen() {
   const resetChoices = useCallback(() => {
     setAiOptIn(false);
     setVoiceCloudOptIn(false);
+    setLinkOptIn(false);
     setAttested(false);
   }, []);
   const loadNotice = useCallback(
@@ -110,7 +116,8 @@ function ConsentScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      await api.post(`cases/${caseId}/consent`, { decision, include_ai_assist: decision === "grant" && aiOptIn, include_voice_cloud: decision === "grant" && voiceCloudOptIn, language, notice_version: notice.version });
+      await api.post(`cases/${caseId}/consent`, { decision, include_ai_assist: decision === "grant" && aiOptIn, include_voice_cloud: decision === "grant" && voiceCloudOptIn,
+        include_link_visits: decision === "grant" && linkOptIn && !!notice.purposes.link_visits, language, notice_version: notice.version });
       await reload();
       await loadHistory();
       show("success", decision === "grant" ? "Consent recorded." : "Recorded that the patient did not agree. Nothing will be processed for this case.");
@@ -142,7 +149,7 @@ function ConsentScreen() {
   function readAloud() {
     if (!notice || !voice) return;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance([notice.title, ...notice.paragraphs, notice.purposes.triage, notice.purposes.ai_assist, notice.purposes.voice_cloud].join(". "));
+    const u = new SpeechSynthesisUtterance([notice.title, ...notice.paragraphs, notice.purposes.triage, notice.purposes.ai_assist, notice.purposes.voice_cloud, notice.purposes.link_visits ?? ""].filter(Boolean).join(". "));
     u.voice = voice;
     u.lang = voice.lang;
     window.speechSynthesis.speak(u);
@@ -153,7 +160,8 @@ function ConsentScreen() {
   const triage = caseView?.consent.triage ?? null;
   const aiState = caseView?.consent.ai_assist ?? "not_provided";
   const voiceState = caseView?.consent.voice_cloud ?? "not_provided";
-  const agreedPurposes = ["triage", aiOptIn && "AI assistance", voiceCloudOptIn && "the online speech service"].filter(Boolean).join(", ");
+  const linkState = caseView?.consent.link_visits ?? "not_provided";
+  const agreedPurposes = ["triage", aiOptIn && "AI assistance", voiceCloudOptIn && "the online speech service", linkOptIn && "linking visits with a patient code"].filter(Boolean).join(", ");
 
   return (
     <IntakeShell
@@ -221,8 +229,8 @@ function ConsentScreen() {
 
       <Card>
         <h2 className="text-xl font-bold">Current consent</h2>
-        <dl className="mt-2 grid gap-2 sm:grid-cols-3">
-          {(["triage", "ai_assist", "voice_cloud"] as Purpose[]).map((p) => {
+        <dl className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {(["triage", "ai_assist", "voice_cloud", "link_visits"] as Purpose[]).map((p) => {
             const st = caseView?.consent[p] ?? "not_provided";
             return (
               <div key={p} className="rounded-[12px] border border-white/60 bg-surface-2 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
@@ -264,6 +272,21 @@ function ConsentScreen() {
                 <span className="block text-sm text-muted">Without it, speech is only processed on this facility&apos;s server (if available), or symptoms can be typed.</span>
               </span>
             </label>
+            {notice.purposes.link_visits ? (
+              <label className="flex min-h-11 items-start gap-3 rounded-[12px] border border-white/60 bg-surface-1 p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
+                <input type="checkbox" className="mt-1 size-5" checked={linkOptIn} onChange={(e) => setLinkOptIn(e.target.checked)} />
+                <span>
+                  <strong>Optional: </strong>
+                  <span lang={notice.language}>{notice.purposes.link_visits}</span>
+                  <span className="block text-sm text-muted">Without it, this visit stays on its own: no patient code is given and earlier visits are not shown.</span>
+                </span>
+              </label>
+            ) : (
+              <p className="text-sm text-muted">
+                Linking visits with a patient code is offered only with the English notice for now: its wording in this language has not been written and
+                reviewed yet. This visit stays on its own.
+              </p>
+            )}
             {isAnm && (
               <label className="flex min-h-11 items-start gap-3 rounded-[12px] border border-secondary/40 bg-info-bg p-3 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.02),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
                 <input type="checkbox" className="mt-1 size-5" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
@@ -304,6 +327,11 @@ function ConsentScreen() {
                 Stop AI assistance
               </Button>
             )}
+            {linkState === "granted" && (
+              <Button variant="secondary" disabled={busy} onClick={() => setConfirmWithdraw("link_visits")}>
+                Stop showing this visit with other visits
+              </Button>
+            )}
             <Button variant="danger" disabled={busy} onClick={() => setConfirmWithdraw("triage")}>
               Withdraw all consent
             </Button>
@@ -311,7 +339,7 @@ function ConsentScreen() {
           {confirmWithdraw && (
             <div role="alertdialog" aria-labelledby="wd-title" aria-describedby="wd-text" className="mt-4 rounded-[12px] border border-error/50 bg-error-bg p-4 shadow-[inset_1px_1px_3px_rgba(220,38,38,0.1),inset_-1px_-1px_3px_rgba(255,255,255,0.7)]">
               <p id="wd-title" className="font-bold text-error">
-                Withdraw {confirmWithdraw === "triage" ? "all consent (triage, AI assistance and online speech)" : PURPOSE_NAME[confirmWithdraw].replace(" (optional)", "")}?
+                Withdraw {confirmWithdraw === "triage" ? "all consent (triage, AI assistance, online speech and visit linking)" : PURPOSE_NAME[confirmWithdraw].replace(" (optional)", "")}?
               </p>
               <p id="wd-text">Processing stops now. Information already recorded is kept; deleting it is not available in this prototype.</p>
               <div className="mt-3 flex flex-wrap gap-3">
@@ -328,6 +356,10 @@ function ConsentScreen() {
       )}
 
       {caseView && !canRecord && <Notice tone="info">Only the account that started this case can record or withdraw consent.</Notice>}
+
+      {isAnm && caseId && triage === "granted" && (
+        <PatientCodeCard caseId={caseId} canIssue={!!(caseView?.is_creator || caseView?.is_handler)} visitHref={(id) => `/intake/review?case=${encodeURIComponent(id)}`} />
+      )}
 
       {history && history.length > 0 && (
         <details className="rounded-[16px] border border-white/60 bg-card p-4 shadow-[4px_4px_10px_0px_rgba(0,0,0,0.03),-4px_-4px_10px_0px_rgba(255,255,255,0.8)]">

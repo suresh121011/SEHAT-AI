@@ -1,7 +1,8 @@
 """Real-app browser check for P0-1, P0-2, H1-3 and medical officer verification: a real synthetic lab report through the
 real local OCR engines, the ANM documents screen ("What to check, in order", C/U/R keys, auto-advance), the medical
 officer's encounter summary (unmatched documents, machine agreement, withheld content, evidence status) and the
-medical officer's /dashboard/verify page (same review components, decisions under their role, route rule). Synthetic sample only; scratch database
+medical officer's /dashboard/verify page (same review components, decisions under their role, route rule), and the
+P1 patient registry (a patient-held SEHAT code issued, mistyped, checked, confirmed, viewed and unlinked). Synthetic sample only; scratch database
 only; never point it at real data or the shared demo database.
 
 Setup (from sehat-ai/; nothing is installed globally; S is any scratch directory):
@@ -140,8 +141,50 @@ def main() -> int:
         page.wait_for_load_state("networkidle")
         check("15 an ANM is redirected away from /dashboard/verify", "/dashboard/verify" not in page.url, page.url)
 
+        # P1 patient registry: a patient-held code, typed and confirmed by the ANM; no name or ID number
+        def new_visit(link: bool) -> str:
+            v = page.request.post(api("cases"), data={"scenario": "opd", "facility_code": "PHC-KHURDA-01"}).json()["case_id"]
+            assert page.request.post(api(f"cases/{v}/consent"), data={"decision": "grant", "include_link_visits": link, "language": "en",
+                                                                     "notice_version": version}).ok
+            return v
+        hi = page.request.get(api("consent/notice?language=hi")).json()
+        check("16 the Hindi notice does not offer visit linking (no reviewed wording yet)", "link_visits" not in hi["purposes"])
+        v1 = new_visit(True)
+        page.goto(f"{FE}/intake/consent?case={v1}")
+        page.get_by_role("button", name="Give the patient a new code").click()
+        page.get_by_text("on a slip for the patient").wait_for(timeout=30_000)
+        code = page.locator("strong.font-mono").first.inner_text().strip()
+        check("17 a first visit gets a SEHAT patient code", code.startswith("SP-") and len(code) == 12, code)
+        v2 = new_visit(True)
+        page.goto(f"{FE}/intake/consent?case={v2}")
+        box = page.get_by_label("Patient code from the slip (8 characters after SP-)")
+        box.fill(code[3:-1] + ("0" if code[-1] != "0" else "1"))  # one mistyped character
+        expected_from = len(errors)
+        page.get_by_role("button", name="Check code").click()
+        page.get_by_text("one character is probably mistyped").wait_for(timeout=30_000)
+        del errors[expected_from:]  # the browser logs this deliberate 400 (PATIENT_CODE_INVALID) as a resource error
+        check("18 a mistyped code is caught before any lookup", True)
+        box.fill(code.lower())
+        page.get_by_role("button", name="Check code").click()
+        page.get_by_role("button", name="Yes, the slip matches — link this visit").click()
+        page.get_by_text("This visit is linked to patient code").wait_for(timeout=30_000)
+        page.screenshot(path=str(OUT / "real_app_4_patient_code.png"), full_page=True)
+        check("19 a return visit is linked by the code after the ANM confirms it", page.get_by_text(code).count() > 0)
+        assert page.request.post(api(f"cases/{v2}/triage?expected_run_id=none"), data=TRIAGE).ok
+        assert login("mo_demo", "medical_officer")
+        page.goto(f"{FE}/dashboard?case={v2}")
+        page.get_by_role("heading", name="SEHAT patient code").wait_for(timeout=60_000)
+        visits = page.get_by_text("Other linked visits you can see").count() > 0 and page.get_by_role("link", name=str(page.request.get(
+            api(f"cases/{v2}/patient")).json()["other_visits"][0]["visit_date"])).count() > 0
+        check("20 the medical officer sees the earlier visit, dates and facility only", visits)
+        page.get_by_role("button", name="This code is not this patient's — unlink").click()
+        page.get_by_role("button", name="Yes, unlink (linked in error)").click()
+        page.wait_for_timeout(1500)
+        state = page.request.get(api(f"cases/{v2}/patient")).json()
+        check("21 a wrong link is undone, and nothing is deleted", state["linked"] is False)
+
         real_errors = [e for e in errors if "404" not in e]  # voice is disabled in this setup: its requests answer 404
-        check("16 no browser console errors (voice-disabled 404s excepted)", not real_errors, str(real_errors[:3]))
+        check("22 no browser console errors (voice-disabled 404s excepted)", not real_errors, str(real_errors[:3]))
         browser.close()
     failed = [n for n, ok in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} passed; screenshots in {OUT}")
