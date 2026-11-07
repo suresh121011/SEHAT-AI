@@ -53,7 +53,7 @@ def test_codes_are_well_formed_and_any_single_typo_is_caught():
     for _ in range(200):
         code = reg.new_code()
         assert code.startswith("SP-") and len(code) == 12 and reg.normalize_code(code) == code
-        body = code.replace("SP-", "").replace("-", "")
+        body = code[3:].replace("-", "")  # not str.replace("SP-"): a code body may itself contain "SP-" at the group join
         for i in range(8):
             for ch in reg.ALPHABET:
                 if ch != body[i]:
@@ -63,7 +63,7 @@ def test_codes_are_well_formed_and_any_single_typo_is_caught():
 
 def test_code_entry_tolerates_case_spaces_and_confusable_letters():
     code = reg.new_code()
-    plain = code.replace("SP-", "").replace("-", "")
+    plain = code[3:].replace("-", "")
     assert reg.normalize_code(f" sp {plain[:4]} {plain[4:]} ".lower()) == code
     assert reg.normalize_code(plain) == code
     with_o = plain.replace("0", "O")
@@ -120,7 +120,7 @@ def test_no_name_or_identifier_is_stored_and_the_code_never_reaches_the_audit_lo
     cols = {r[1] for r in _db("PRAGMA table_info(patients)")}
     assert cols == {"patient_id", "patient_code", "facility_code", "created_by", "created_by_role", "created_at"}
     audit = json.dumps(_db("SELECT action, details_json FROM audit_log WHERE action LIKE 'patient_%'"))
-    assert code not in audit and code.replace("SP-", "") not in audit
+    assert code not in audit and code[3:] not in audit
     assert {a for (a,) in _db("SELECT action FROM audit_log WHERE action LIKE 'patient_%'")} == {"patient_registered", "patient_linked"}
 
 
