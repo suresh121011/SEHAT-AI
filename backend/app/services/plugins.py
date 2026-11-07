@@ -1,19 +1,21 @@
-"""Semantic Kernel plugins for SEHAT AI (Microsoft Semantic Kernel & Cognizant TriZetto AI Gateway alignment).
+"""Semantic Kernel plugins for SEHAT AI (Microsoft Semantic Kernel; Cognizant TriZetto AI Gateway alignment).
 
-Zero-conflict plugins exposed to Semantic Kernel agents:
-1. `TriageRulesPlugin`: Executes deterministic AIIMS, NEWS2, and qSOFA rules; enforces raise-only urgency.
-2. `ClinicalHandoffPlugin`: Formats grounded, source-linked handoff notes with mandatory disclaimers.
-3. PatientContextPlugin: Safely retrieves and stores case context and intake extractions with Presidio PII redaction.
-4. `SafetyGuardPlugin`: Validates generated text against non-diagnostic, non-prescriptive rules (TPG 5.4, ICMR 2023).
+`SehatPlugin` is the only plugin registered at runtime (`services/kernel.py`, a smoke test; decision D6). The others,
+contributed in 69071c4, are a TEST AND EVALUATION HARNESS only (remediation plan §4): typed wrappers over the
+deterministic rules engine and the output guard, exercised by tests/services/test_kernel.py and
+tests/privacy/test_remediation_guards.py. They are never registered on the application kernel, never driven by an
+agent at runtime, and never set urgency: the rules engine via POST /cases/{id}/triage stays the only authority.
+1. `TriageRulesPlugin`: runs the deterministic AIIMS / NEWS2 / qSOFA engine; raise-only merge of a suggestion.
+2. `ClinicalHandoffPlugin`: source-citation tag and the mandatory non-diagnostic disclaimer.
+3. `SafetyGuardPlugin`: the non-diagnostic / non-prescriptive output guard (TPG 5.4, ICMR 2023).
+Failures return a reason code only, never exception text (it can echo input), and never a default urgency.
 """
 
 import json
-from typing import Any
 
 from semantic_kernel.functions import kernel_function
 
 from app.ai import guard
-from app.privacy.pii import redact
 from app.rules import TriageInput, Urgency
 from app.rules.engine import evaluate_triage as run_triage_engine
 from app.rules.urgency import max_urgency
@@ -56,7 +58,7 @@ class TriageRulesPlugin:
                 }
             })
         except Exception as exc:
-            return json.dumps({"error": str(exc), "status": "evaluation_failed"})
+            return json.dumps({"status": "evaluation_failed", "reason": type(exc).__name__})  # never an urgency, never exception text
 
     @kernel_function(
         name="apply_raise_only_urgency",
@@ -77,7 +79,7 @@ class TriageRulesPlugin:
                 "suggested": sug.value if sug else None,
             })
         except Exception as exc:
-            return json.dumps({"error": str(exc), "status": "raise_only_failed"})
+            return json.dumps({"status": "raise_only_failed", "reason": type(exc).__name__})
 
 
 class ClinicalHandoffPlugin:
@@ -103,39 +105,6 @@ class ClinicalHandoffPlugin:
         )
         return f"{note_text.strip()}{disclaimer}"
 
-
-class PatientContextPlugin:
-    """In-memory case context and history plugin with strict case isolation and Presidio PII redaction."""
-
-    def __init__(self) -> None:
-        self._case_records: dict[str, list[dict[str, Any]]] = {}
-
-    @kernel_function(
-        name="store_case_observation",
-        description="Stores an intake observation (symptom, vital, voice extract) under a specific case_id after stripping Indian PII."
-    )
-    def store_case_observation(self, case_id: str, text: str, source: str) -> str:
-        try:
-            # Presidio Indian PII redaction gate (Aadhaar, ABHA, Phone, Name)
-            redacted = redact(text).text
-            record = {
-                "source": source,
-                "text": redacted,
-            }
-            if case_id not in self._case_records:
-                self._case_records[case_id] = []
-            self._case_records[case_id].append(record)
-            return json.dumps({"status": "stored", "case_id": case_id, "redacted_length": len(redacted)})
-        except Exception as exc:
-            return json.dumps({"error": str(exc), "status": "storage_failed"})
-
-    @kernel_function(
-        name="recall_case_observations",
-        description="Recalls stored observations for a case_id. Enforces zero cross-patient data bleed."
-    )
-    def recall_case_observations(self, case_id: str) -> str:
-        records = self._case_records.get(case_id, [])
-        return json.dumps({"case_id": case_id, "count": len(records), "records": records})
 
 
 class SafetyGuardPlugin:

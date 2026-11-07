@@ -15,7 +15,6 @@ from app.ai import encounter_summary, extract, guardrails, note, providers, redf
 from app.auth import Principal, Role, get_current_principal, require_roles
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.services.orchestrator import OrchestrateRequest, OrchestrateResponse, run_case_orchestration
 
 router = APIRouter(tags=["ai"])
 
@@ -119,15 +118,3 @@ async def verification_queue(case_id: uuid.UUID, request: Request, principal: Pr
 async def review_encounter_summary(case_id: uuid.UUID, summary_id: uuid.UUID, body: encounter_summary.SummaryReviewBody, request: Request,
                                    principal: Principal = Depends(_reviewers), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     return await encounter_summary.review_summary(db, principal, str(case_id), str(summary_id), body, _rid(request))
-@router.post("/cases/{case_id}/ai/orchestrate", status_code=200, response_model=OrchestrateResponse)
-async def orchestrate_case(
-    case_id: uuid.UUID,
-    body: OrchestrateRequest,
-    principal: Principal = Depends(_reviewers),
-    settings: Settings = Depends(get_settings),
-    db: aiosqlite.Connection = Depends(get_db),
-) -> OrchestrateResponse:
-    """Executes the complete Microsoft Semantic Kernel orchestration pipeline for a case."""
-    # Ensure reviewer access & triage consent
-    await extract.gate(db, principal, str(case_id), None)
-    return await run_case_orchestration(str(case_id), body, settings)

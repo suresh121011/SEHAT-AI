@@ -1,50 +1,32 @@
-"""Unit and integration tests for Microsoft Semantic Kernel and Clinical Plugins."""
+"""Semantic Kernel smoke test (services/kernel.py, decision D6) and the plugin TEST HARNESS (services/plugins.py).
+
+Contributed in 69071c4 / 21a9761 by niranjanswain067; adapted in the remediation (docs/integration/
+semantic-kernel-remediation-plan.md): the runtime kernel registers only `SehatPlugin` and no cloud chat service; the
+other plugins are exercised here as typed wrappers over the deterministic rules engine and the output guard."""
 
 import dataclasses
 import json
 import pytest
 
 from app.config import get_settings
-from app.services.kernel import build_kernel, llm_status, get_active_service_id, GEMINI_SERVICE_ID
+from app.services.kernel import build_kernel, llm_status
 from app.services.plugins import (
     ClinicalHandoffPlugin,
-    PatientContextPlugin,
     SafetyGuardPlugin,
     SehatPlugin,
     TriageRulesPlugin,
 )
 
 
-def test_build_kernel_unconfigured_loads_all_plugins():
+
+
+def test_runtime_kernel_is_a_smoke_test_with_only_the_sehat_plugin_and_no_cloud_service():
     base = get_settings()
-    settings = dataclasses.replace(
-        base,
-        azure_openai_api_key="",
-        azure_openai_endpoint="",
-        azure_openai_deployment_name="",
-        google_ai_api_key="",
-    )
+    settings = dataclasses.replace(base, azure_openai_api_key="", azure_openai_endpoint="", azure_openai_deployment_name="",
+                                   google_ai_api_key="test-key-not-real")
     kernel = build_kernel(settings)
-    assert llm_status(kernel) == "not_configured"
-    assert get_active_service_id(kernel) is None
-
-    expected_plugins = {"sehat", "triage_rules", "clinical_handoff", "patient_context", "safety_guard"}
-    assert expected_plugins.issubset(set(kernel.plugins.keys()))
-
-
-def test_build_kernel_with_gemini_key():
-    base = get_settings()
-    settings = dataclasses.replace(
-        base,
-        azure_openai_api_key="",
-        azure_openai_endpoint="",
-        azure_openai_deployment_name="",
-        google_ai_api_key="valid_dummy_gemini_api_key",
-    )
-    kernel = build_kernel(settings)
-    assert llm_status(kernel) == "configured"
-    assert get_active_service_id(kernel) == GEMINI_SERVICE_ID
-    assert kernel.get_service(GEMINI_SERVICE_ID) is not None
+    assert set(kernel.plugins.keys()) == {"sehat"}
+    assert llm_status(kernel) == "not_configured"  # a Google key alone registers nothing
 
 
 def test_triage_rules_plugin_evaluation():
@@ -89,32 +71,6 @@ def test_triage_rules_plugin_raise_only():
     assert lowered["downgrade_refused"] is True
 
 
-def test_patient_context_plugin_pii_redaction_and_isolation():
-    plugin = PatientContextPlugin()
-
-    case_1 = "case_patient_001"
-    case_2 = "case_patient_002"
-
-    raw_text_1 = "Patient Rajesh Kumar, Aadhaar 2345 6789 0123, phone 9876543210 complains of severe chest pain."
-    store_res = json.loads(plugin.store_case_observation(case_1, raw_text_1, "voice_intake"))
-    assert store_res["status"] == "stored"
-
-    raw_text_2 = "Patient Sunita Devi has fever for 3 days."
-    plugin.store_case_observation(case_2, raw_text_2, "ocr_rx")
-
-    # Recall case 1: must redact PII and have exactly 1 record
-    recalled_1 = json.loads(plugin.recall_case_observations(case_1))
-    assert recalled_1["count"] == 1
-    obs_1 = recalled_1["records"][0]["text"]
-    assert "2345 6789 0123" not in obs_1
-    assert "9876543210" not in obs_1
-    assert "[AADHAAR_REDACTED]" in obs_1 or "[PHONE_REDACTED]" in obs_1
-
-    # Recall case 2: cross-case isolation verified
-    recalled_2 = json.loads(plugin.recall_case_observations(case_2))
-    assert recalled_2["count"] == 1
-    assert "Sunita" not in recalled_2["records"][0]["text"] or "[PERSON_REDACTED]" in recalled_2["records"][0]["text"]
-
 
 def test_clinical_handoff_plugin_disclaimer_and_citation():
     plugin = ClinicalHandoffPlugin()
@@ -150,28 +106,3 @@ def test_safety_guard_plugin():
 
 
 
-@pytest.mark.asyncio
-async def test_full_orchestration_pipeline():
-    from app.services.orchestrator import run_case_orchestration, OrchestrateRequest
-
-    payload = OrchestrateRequest(
-        intake_text="Patient Rajesh, Aadhaar 2345 6789 0123, has acute chest discomfort and shortness of breath.",
-        vitals={
-            "spo2": 85,  # Critical hypoxia -> RED
-            "pulse": 115,
-            "sbp": 95,
-            "dbp": 60,
-            "temp_c": 37.2,
-            "resp_rate": 28,
-        },
-        scenario="opd",
-        age_years=52,
-    )
-
-    response = await run_case_orchestration("case_orch_test_01", payload)
-    assert response.case_id == "case_orch_test_01"
-    assert response.effective_urgency == "RED"
-    assert response.observations_stored == 1
-    assert "2345 6789 0123" not in response.handoff_note  # PII redacted
-    assert "Not a diagnosis" in response.handoff_note  # Mandated disclaimer
-    assert response.safety_status == "passed"

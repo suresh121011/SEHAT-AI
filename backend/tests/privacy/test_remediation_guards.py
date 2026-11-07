@@ -48,7 +48,10 @@ def test_no_frontend_url_carries_a_credential_or_bypasses_the_same_origin_proxy(
     for p, src in _sources(FRONTEND_SRC, (".ts", ".tsx")):
         if p.name.endswith(".test.ts"):
             continue
-        hits = [m.group(0) for m in bad.finditer(src)]
+        # The one allowed :8000 is the server-side proxy's default target (lib/auth.ts API_BASE_URL, read only by the
+        # Next.js route handlers under app/api/); the browser never connects to it directly.
+        lines = [ln for ln in src.splitlines() if not ln.lstrip().startswith("export const API_BASE_URL =")]
+        hits = [m.group(0) for m in bad.finditer("\n".join(lines))]
         assert not hits, (p, hits)
 
 
