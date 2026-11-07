@@ -5,6 +5,7 @@ through `transaction()` (BEGIN IMMEDIATE ... COMMIT/ROLLBACK). Migrations never 
 because it silently commits any pending transaction.
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,8 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import get_settings
+
+log = logging.getLogger("sehat.database")
 
 _NOW = "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
 
@@ -759,8 +762,48 @@ async def _user_version(conn: aiosqlite.Connection) -> int:
     return int(row[0]) if row is not None else 0
 
 
+_SUMMARY_STEP = 13  # main's step 13: encounter summary (ENCOUNTER_SUMMARY_STATEMENTS)
+
+
+async def _table_exists(conn: aiosqlite.Connection, name: str) -> bool:
+    async with conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)) as cur:
+        return await cur.fetchone() is not None
+
+
+async def _repair_skipped_summary_step(conn: aiosqlite.Connection, migrations: tuple[tuple[str, ...], ...]) -> bool:
+    """Forward repair for a database migrated by the unmerged contribution 21a9761 (remediation plan §3C). Its own
+    "step 13" (gemini_live_*) set user_version 13, so main's step 13 would be skipped by number and the summary tables
+    would never exist (later, step 14 still succeeds). Detected by schema, not by number: version >= 13 while
+    `encounter_summaries` is missing. Main's step 13 is then applied as-is: additive CREATE TABLE / INDEX / TRIGGER
+    statements only, so no existing row is changed or lost. Leftover gemini_live_* tables are kept, unused and unread.
+    Returns True when a repair ran; it is logged (counts and step only, never data)."""
+    if len(migrations) < _SUMMARY_STEP or migrations[_SUMMARY_STEP - 1] is not ENCOUNTER_SUMMARY_STATEMENTS:
+        return False
+    version = await _user_version(conn)
+    if version < _SUMMARY_STEP or await _table_exists(conn, "encounter_summaries"):
+        return False
+    try:
+        async with transaction(conn):
+            if await _table_exists(conn, "encounter_summaries"):  # re-check under the lock: another process repaired it
+                return False
+            for statement in ENCOUNTER_SUMMARY_STATEMENTS:
+                await conn.execute(statement)
+            async with conn.execute("PRAGMA foreign_key_check") as cur:
+                if await cur.fetchone() is not None:
+                    raise MigrationError(_SUMMARY_STEP)
+    except MigrationError:
+        raise
+    except Exception as exc:
+        raise MigrationError(_SUMMARY_STEP) from exc
+    log.warning("schema_repaired step=%d reason=summary_tables_missing user_version=%d leftover_gemini_tables=%s",
+                _SUMMARY_STEP, version, await _table_exists(conn, "gemini_live_sessions"))
+    return True
+
+
 async def run_migrations(conn: aiosqlite.Connection, migrations: tuple[tuple[str, ...], ...] = MIGRATIONS, fk_off_steps: frozenset[int] = FK_OFF_STEPS) -> int:
-    """Apply pending steps; each step (DDL + FK check + version bump) is one atomic transaction."""
+    """Apply pending steps; each step (DDL + FK check + version bump) is one atomic transaction. A database that
+    skipped main's step 13 under a colliding step number is repaired forward first (`_repair_skipped_summary_step`)."""
+    await _repair_skipped_summary_step(conn, migrations)
     for step, statements in enumerate(migrations, start=1):
         fk_off = step in fk_off_steps and await _user_version(conn) < step
         if fk_off:
