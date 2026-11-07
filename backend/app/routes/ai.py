@@ -14,6 +14,7 @@ from app.ai import extract, guardrails, note, providers, redflag_keywords, revie
 from app.auth import Principal, Role, get_current_principal, require_roles
 from app.config import Settings, get_settings
 from app.database import get_db
+from app.services.orchestrator import OrchestrateRequest, OrchestrateResponse, run_case_orchestration
 
 router = APIRouter(tags=["ai"])
 
@@ -81,3 +82,17 @@ async def draft_note(case_id: uuid.UUID, body: note.NoteRequest, request: Reques
 @router.get("/cases/{case_id}/ai/notes")
 async def list_notes(case_id: uuid.UUID, request: Request, principal: Principal = Depends(_reviewers), db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
     return await note.list_notes(db, principal, str(case_id), _rid(request))
+
+
+@router.post("/cases/{case_id}/ai/orchestrate", status_code=200, response_model=OrchestrateResponse)
+async def orchestrate_case(
+    case_id: uuid.UUID,
+    body: OrchestrateRequest,
+    principal: Principal = Depends(_reviewers),
+    settings: Settings = Depends(get_settings),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> OrchestrateResponse:
+    """Executes the complete Microsoft Semantic Kernel orchestration pipeline for a case."""
+    # Ensure reviewer access & triage consent
+    await extract.gate(db, principal, str(case_id), None)
+    return await run_case_orchestration(str(case_id), body, settings)

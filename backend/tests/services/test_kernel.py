@@ -147,3 +147,31 @@ def test_safety_guard_plugin():
     rx_check = json.loads(guard_plugin.check_clinical_text(rx_text))
     assert rx_check["is_safe"] is False
     assert rx_check["blocked_reason"] == "prescriptive_language"
+
+
+
+@pytest.mark.asyncio
+async def test_full_orchestration_pipeline():
+    from app.services.orchestrator import run_case_orchestration, OrchestrateRequest
+
+    payload = OrchestrateRequest(
+        intake_text="Patient Rajesh, Aadhaar 2345 6789 0123, has acute chest discomfort and shortness of breath.",
+        vitals={
+            "spo2": 85,  # Critical hypoxia -> RED
+            "pulse": 115,
+            "sbp": 95,
+            "dbp": 60,
+            "temp_c": 37.2,
+            "resp_rate": 28,
+        },
+        scenario="opd",
+        age_years=52,
+    )
+
+    response = await run_case_orchestration("case_orch_test_01", payload)
+    assert response.case_id == "case_orch_test_01"
+    assert response.effective_urgency == "RED"
+    assert response.observations_stored == 1
+    assert "2345 6789 0123" not in response.handoff_note  # PII redacted
+    assert "Not a diagnosis" in response.handoff_note  # Mandated disclaimer
+    assert response.safety_status == "passed"
