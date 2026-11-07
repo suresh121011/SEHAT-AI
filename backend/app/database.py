@@ -697,40 +697,9 @@ PATIENT_REGISTRY_STATEMENTS: tuple[str, ...] = (
     *_append_only("patient_link_events"),
 )
 
-# ── Step 15 (merged from the contributor's step 13, which collided with main's step 13): Gemini Live Duplex voice follow-up (docs/20). Additive tables.
-GEMINI_LIVE_STATEMENTS: tuple[str, ...] = (
-    """CREATE TABLE gemini_live_sessions (
-    session_id      TEXT PRIMARY KEY,
-    case_id         TEXT NOT NULL REFERENCES cases(case_id),
-    language        TEXT NOT NULL CHECK (language IN ('hi', 'or')),
-    actor_id        TEXT NOT NULL,
-    actor_role      TEXT NOT NULL,
-    consent_seq     INTEGER NOT NULL REFERENCES consent_events(seq),
-    status          TEXT NOT NULL CHECK (status IN ('active', 'completed', 'interrupted', 'failed')),
-    finish_reason   TEXT,
-    created_at      TEXT NOT NULL,
-    completed_at    TEXT
-)""",
-    """CREATE TABLE gemini_live_fields (
-    field_id        TEXT PRIMARY KEY,
-    session_id      TEXT NOT NULL REFERENCES gemini_live_sessions(session_id),
-    case_id         TEXT NOT NULL REFERENCES cases(case_id),
-    field_name      TEXT NOT NULL,
-    value           TEXT NOT NULL,
-    unit            TEXT,
-    patient_phrase  TEXT,
-    source          TEXT NOT NULL DEFAULT 'gemini_live_duplex',
-    status          TEXT NOT NULL CHECK (status IN ('pending_review', 'accepted', 'corrected', 'rejected')),
-    created_at      TEXT NOT NULL
-)""",
-    "CREATE INDEX idx_gemini_live_case ON gemini_live_sessions(case_id)",
-    "CREATE INDEX idx_gemini_live_fields_case ON gemini_live_fields(case_id)",
-)
-
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
-                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS,
-                                           GEMINI_LIVE_STATEMENTS)
+                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
@@ -739,7 +708,7 @@ FK_OFF_STEPS = frozenset({3, 11, 14})
 
 TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
-VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events", "gemini_live_sessions", "gemini_live_fields")
+VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
 AI_TABLES = ("ai_extraction_runs", "ai_fields", "ai_field_review_events", "ai_note_drafts")
 ENCOUNTER_SUMMARY_TABLES = ("encounter_summaries", "encounter_summary_review_events")
 OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")

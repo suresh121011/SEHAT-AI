@@ -105,9 +105,6 @@ def _decode(token: str) -> Principal:
     return Principal(user_id=claims["sub"], username=username, role=role, facilities=facility_scope(username))
 
 
-decode_token = _decode
-
-
 _bearer = HTTPBearer(auto_error=False)
 
 
