@@ -48,6 +48,7 @@ written terms from Sarvam and then revise F5–F7 (new notice version).
 | L-homograph | hi, or | `extract.py` `_HOMOGRAPH_NUMBER_WORDS`, `_LONE_ONE_WORDS`, `_COUNT_WORDS` | number words that also mean "times" or "a" | ବାର (12 / times), ଏକ / एक (one / a), बार, ଥର | Other number words with an everyday second meaning? |
 | L-mod | hi, or | `extract.py` `_NUMBER_MODIFIERS` | साढ़े, सवा, ସାଢ଼େ … (never computed, always blocked) | half, quarter | Complete? |
 | C-hi-10, C-or-10 | hi, or | `consent_notice.py` `paragraphs` (document paragraph, Phase 5) | consent screen | en paragraph on documents (F11) | Plain for a low-literacy listener? Is "पर्चा" / "ପ୍ରେସକ୍ରିପସନ୍" the word patients use? Is "कंप्यूटर द्वारा पढ़ा गया पाठ" understood? |
+| C-link | hi, or | `consent_notice.py` paragraph and `purposes` (`link_visits`, P1 patient registry) | consent screen and checkbox | en paragraph "Optional: linking your visits…" and purpose "Also give me a SEHAT patient code and link my visits…" | **Not yet written.** `link_visits` is offered in English only (`LINK_VISITS_LANGUAGES`); a hi/or request with it returns `PURPOSE_NOT_AVAILABLE_IN_LANGUAGE`. Provide wording, then add the language to `LINK_VISITS_LANGUAGES`. Is "patient code" / "slip" understood? |
 | UI-banner | en | consent and voice pages | "Draft translation — not reviewed by a native speaker…" | — | Keep until sign-off. |
 
 ## C. Sign-off log

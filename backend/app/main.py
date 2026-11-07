@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
-from app.routes import ai, audit, auth, cases, health, ocr, review, triage, voice
+from app.routes import ai, audit, auth, cases, health, ocr, patients, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -121,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(voice.router, prefix=API_PREFIX)
     app.include_router(ocr.router, prefix=API_PREFIX)
     app.include_router(ai.router, prefix=API_PREFIX)
+    app.include_router(patients.router, prefix=API_PREFIX)  # P1 patient registry
     return app
 
 

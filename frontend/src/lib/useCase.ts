@@ -21,7 +21,7 @@ export type CaseView = {
   /** Latest triage run on this case (null before the first run). Sent back as `expected_run_id` on re-triage.
    * Optional because an older server may not send it; absent is treated as "no run known". */
   latest_triage_run_id?: string | null;
-  consent: { triage: ConsentState; ai_assist: ConsentState; voice_cloud: ConsentState };
+  consent: { triage: ConsentState; ai_assist: ConsentState; voice_cloud: ConsentState; link_visits?: ConsentState };
 };
 
 // Shared loading of the case (?case=) and the signed-in role, used by every intake step.

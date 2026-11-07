@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
-from app.ocr.lexicon import HEADER_WORDS, analyte_key, norm_key
+from app.ocr.lexicon import HEADER_WORDS, analyte_key, norm_key, trailing_flag_split
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,9 @@ class TableRow:
 
     @property
     def analyte_key(self) -> str | None:
-        return analyte_key(self.cells.get("name", ""))
+        name = self.cells.get("name", "")
+        split = trailing_flag_split(name)  # "SERUM UREA L": the flag printed in the name cell (no flag column)
+        return analyte_key(split[0] if split else name)
 
 
 class _Table(HTMLParser):

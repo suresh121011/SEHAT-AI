@@ -80,6 +80,9 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | POST / GET | `/cases/{case_id}/ai/notes` | Source-linked note draft (rules urgency first, raise-only) / list | anm (creator), medical_officer |
 | POST | `/triage/counterfactuals` | Stateless counterfactuals for a `TriageInput` | anm, medical_officer |
 | GET | `/cases/{case_id}/triage/runs/{run_id}/counterfactuals` | Counterfactuals from a recorded run's stored input | anm (creator), medical_officer |
+| POST / GET | `/cases/{case_id}/encounter-summary` | Case-level, source-linked encounter summary from every recorded source (deterministic, no model call; never changes urgency) / latest with `is_stale`. See [docs/19](19_Encounter_Summary.md) §4 | anm (creator), medical_officer |
+| GET | `/cases/{case_id}/encounter-summary/history` | Every stored summary snapshot | anm (creator), medical_officer |
+| POST | `/cases/{case_id}/encounter-summary/{summary_id}/review` | `{outcome: accepted\|needs_changes, acknowledged_conflicts, supersedes}`; no free text; writes nothing to triage | anm (creator), medical_officer |
 
 ### 2.4 Triage
 

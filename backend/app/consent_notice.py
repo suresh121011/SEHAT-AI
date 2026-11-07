@@ -21,15 +21,20 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-NOTICE_VERSION = "2026-10-01.2"  # .2: documents (Phase 5 OCR) — page images and read text kept, read locally; 2026-09-30.2: voice + cloud speech (Phase 4); .3: read-back text + training in the checkbox; 2026-10-01.1: Sarvam retention default, processing outside India
+NOTICE_VERSION = "2026-11-05.1"  # 2026-11-05.1: optional visit linking with a SEHAT patient code (P1; English only); 2026-10-01.2: documents (Phase 5 OCR) — page images and read text kept, read locally; 2026-09-30.2: voice + cloud speech (Phase 4); .3: read-back text + training in the checkbox; 2026-10-01.1: Sarvam retention default, processing outside India
 
 # Notice versions whose text discloses document upload (Phase 5). A document may be uploaded only if the
 # case's latest triage grant was given under one of these (app/ocr/service.py). A set, so a later unrelated
 # notice change does not lock out cases already consented to documents.
-DOCUMENT_NOTICE_VERSIONS = frozenset({"2026-10-01.2"})
+DOCUMENT_NOTICE_VERSIONS = frozenset({"2026-10-01.2", "2026-11-05.1"})
 
 Language = Literal["en", "hi", "or"]
-Purpose = Literal["triage", "ai_assist", "voice_cloud"]
+Purpose = Literal["triage", "ai_assist", "voice_cloud", "link_visits"]
+
+# `link_visits` (P1 patient registry, docs/implementation/p1-patient-registry.md) is offered only in languages whose
+# notice states it. Hindi and Odia have no wording for it yet: a drafted translation of a new consent purpose must be
+# reviewed first (docs/13), so in those languages the option is not offered and the server refuses it.
+LINK_VISITS_LANGUAGES = frozenset({"en"})
 
 
 class Notice(BaseModel):
@@ -55,6 +60,7 @@ _NOTICES: dict[str, Notice] = {
             "If you describe your symptoms by speaking, the written text of what was said is kept with this visit's record. SEHAT AI does not store the voice recording itself.",
             "If you share a lab report, prescription or discharge summary, a picture of each page and the text read from it by computer are kept with this visit's record. The document is read on this system and is not sent to any outside company. The pages may show your name and other details; a health worker checks every value read from them.",
             "Optional online speech processing: if you allow it, your voice is sent over the internet to Sarvam AI, a private company, to turn it into text, and the values heard (for example your temperature) may be sent to Sarvam to be read back aloud. Sarvam's privacy policy (29 July 2026) says it keeps such content for a period the account holder sets (by default 30 days after it was last used), may use it to train its models unless the account has opted out, and may process data outside India. This software does not check whether this system's account has changed those settings. You can say no to this part; you can still speak (if on-device speech processing is available) or type instead.",
+            "Optional: linking your visits. If you agree, you are given a SEHAT patient code: a short code on a slip, not your name or an ID number. If you show the code at a later visit, a health worker can link that visit to this one, so that the health workers and doctors treating you can see the records of your linked visits. Only staff who are allowed to see a visit can see it. You can say no to this part, and you can withdraw later; then this visit is no longer shown with your other visits.",
             "Your choices are recorded with the date and time.",
             "You can withdraw at any time by telling the health worker. Withdrawing stops further processing; information already recorded is kept for now.",
             "You can say no. The health worker can still assess you without this system.",
@@ -63,6 +69,7 @@ _NOTICES: dict[str, Notice] = {
             "triage": "Use my health information for triage and share it with the health worker and doctor treating me.",
             "ai_assist": "Also allow AI assistance to draft a summary (names and numbers removed first; English text only in this prototype).",
             "voice_cloud": "Also allow my voice, and the values read back to me, to be sent over the internet to Sarvam AI, a private company. Sarvam may keep them (by default for 30 days after last use), may use them to train its models unless the account has opted out, and may process them outside India.",
+            "link_visits": "Also give me a SEHAT patient code and link my visits, so the staff treating me can see the records of my linked visits (no name or ID number is collected).",
         },
     ),
     "hi": Notice(

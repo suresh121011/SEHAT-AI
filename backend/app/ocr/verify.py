@@ -95,10 +95,14 @@ def _cell_for(cells: list[Cell], bbox: BBox) -> Cell | None:
 
 
 def _cell_value_text(cell_text: str, candidate: LabCandidate) -> str:
-    """A table cell may hold "85,000 L"; compare only the value part."""
+    """A table cell may hold "85,000 L", or "L 17" when the report has no flag column (Surya, 2026-11-04); compare only
+    the value part. Only the flag already read for this row is removed, so a flag the first reading missed stays visible
+    as a disagreement."""
     toks = cell_text.split()
     if len(toks) > 1 and candidate.flag_raw and toks[-1] == candidate.flag_raw:
         toks = toks[:-1]
+    elif len(toks) > 1 and candidate.flag_raw and toks[0] == candidate.flag_raw:
+        toks = toks[1:]
     return " ".join(toks)
 
 
@@ -194,7 +198,7 @@ def verify_lab(
                 r = same[0]
                 v.readings.append(Reading(r.engine, r.cells.get("value", ""), r.bbox, r.score))
                 diffs = []
-                if not _same_value(r.cells.get("value", ""), c.value.raw):
+                if not _same_value(_cell_value_text(r.cells.get("value", ""), c), c.value.raw):
                     diffs.append("value")
                 if norm_key(r.cells.get("unit", "")) != norm_key(c.unit.raw):
                     diffs.append("unit")

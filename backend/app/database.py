@@ -601,19 +601,116 @@ HANDOVER_STATEMENTS: tuple[str, ...] = (
     *_append_only("body_map_events"),
 )
 
+# ── Step 13: clinical encounter summary (docs/19). A case-level, source-linked summary assembled deterministically from
+# every stored source (no model call). Each generation is an append-only snapshot keyed by the hash of the source
+# inventory it read, so a later change anywhere in the case marks it stale. Review events (accepted / needs_changes)
+# are bound to one summary, name the event they supersede, and never touch triage_runs or review_events.
+# Rollback: older code ignores both tables.
+ENCOUNTER_SUMMARY_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE encounter_summaries (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    summary_id        TEXT NOT NULL UNIQUE,
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    triage_run_id     TEXT REFERENCES triage_runs(run_id),
+    recorded_urgency  TEXT CHECK (recorded_urgency IN ('RED', 'YELLOW', 'GREEN')),  -- the rules engine's, copied
+    inventory_sha256  TEXT NOT NULL,
+    schema_version    TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('complete', 'partial')),
+    summary_json      TEXT NOT NULL,
+    consent_seq       INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id          TEXT NOT NULL,
+    actor_role        TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_encounter_summaries_case ON encounter_summaries(case_id, seq)",
+    """CREATE TABLE encounter_summary_review_events (
+    seq                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id               TEXT NOT NULL UNIQUE,
+    summary_id             TEXT NOT NULL REFERENCES encounter_summaries(summary_id),
+    case_id                TEXT NOT NULL REFERENCES cases(case_id),
+    outcome                TEXT NOT NULL CHECK (outcome IN ('accepted', 'needs_changes')),
+    acknowledged_conflicts INTEGER NOT NULL CHECK (acknowledged_conflicts IN (0, 1)),
+    supersedes             TEXT,
+    actor_id               TEXT NOT NULL,
+    actor_role             TEXT NOT NULL,
+    created_at             TEXT NOT NULL
+)""",
+    "CREATE INDEX idx_encounter_summary_reviews ON encounter_summary_review_events(summary_id, seq)",
+    *_append_only("encounter_summaries"),
+    *_append_only("encounter_summary_review_events"),
+)
+
+# ── Step 14: patient registry (P1, docs/implementation/p1-patient-registry.md). (a) consent_events gains the `link_visits`
+# purpose: the CHECK constraint is widened by the same rebuild as step 3 (foreign keys off for the step, every row
+# copied with its seq, index and append-only triggers recreated, foreign_key_check before COMMIT). (b) `patients`: one
+# row per patient, identified ONLY by a random patient code the patient holds (no name, no ID number). (c)
+# `patient_link_events`: append-only link/unlink of a case (visit) to a patient; the current link of a case is its
+# latest event. Nothing is merged or rewritten; a wrong link is undone by an unlink event. Rollback: older code ignores
+# both tables and never grants `link_visits`.
+PATIENT_REGISTRY_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE consent_events_v14 (
+    seq                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id              TEXT NOT NULL UNIQUE,
+    case_id               TEXT NOT NULL REFERENCES cases(case_id),
+    purpose               TEXT NOT NULL CHECK (purpose IN ('triage', 'ai_assist', 'voice_cloud', 'link_visits')),
+    action                TEXT NOT NULL CHECK (action IN ('granted', 'declined', 'withdrawn')),
+    notice_version        TEXT NOT NULL,
+    language              TEXT NOT NULL,
+    notice_review_status  TEXT NOT NULL,
+    method                TEXT NOT NULL,
+    actor_id              TEXT NOT NULL,
+    actor_role            TEXT NOT NULL,
+    created_at            TEXT NOT NULL
+)""",
+    "INSERT INTO consent_events_v14 (seq, event_id, case_id, purpose, action, notice_version, language, notice_review_status, method, actor_id, actor_role, created_at) "
+    "SELECT seq, event_id, case_id, purpose, action, notice_version, language, notice_review_status, method, actor_id, actor_role, created_at FROM consent_events ORDER BY seq",
+    "DROP TABLE consent_events",
+    "ALTER TABLE consent_events_v14 RENAME TO consent_events",
+    "CREATE INDEX idx_consent_events_case ON consent_events(case_id, purpose, seq)",
+    *_append_only("consent_events"),
+    """CREATE TABLE patients (
+    patient_id       TEXT PRIMARY KEY,
+    patient_code     TEXT NOT NULL UNIQUE,
+    facility_code    TEXT NOT NULL,
+    created_by       TEXT NOT NULL,
+    created_by_role  TEXT NOT NULL,
+    created_at       TEXT NOT NULL
+)""",
+    """CREATE TABLE patient_link_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    patient_id   TEXT NOT NULL REFERENCES patients(patient_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    action       TEXT NOT NULL CHECK (action IN ('link', 'unlink')),
+    basis        TEXT CHECK (basis IS NULL OR basis IN ('new_code', 'patient_code')),
+    reason_code  TEXT CHECK (reason_code IS NULL OR reason_code IN ('linked_in_error', 'patient_request')),
+    consent_seq  INTEGER REFERENCES consent_events(seq),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    CHECK ((action = 'link' AND basis IS NOT NULL AND consent_seq IS NOT NULL AND reason_code IS NULL)
+        OR (action = 'unlink' AND reason_code IS NOT NULL AND basis IS NULL))
+)""",
+    "CREATE INDEX idx_patient_link_case ON patient_link_events(case_id, seq)",
+    "CREATE INDEX idx_patient_link_patient ON patient_link_events(patient_id, seq)",
+    *_append_only("patients"),
+    *_append_only("patient_link_events"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
-                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS)
+                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
 # COMMIT, so a step that leaves a dangling reference still rolls back.
-FK_OFF_STEPS = frozenset({3, 11})
+FK_OFF_STEPS = frozenset({3, 11, 14})
 
 TABLES = ("cases", "consent", "triage_notes", "audit_events", "referrals")
 PRIVACY_TABLES = ("consent_events", "triage_runs", "audit_log")
 VOICE_TABLES = ("voice_transcriptions", "voice_candidates", "voice_readback_events")
 AI_TABLES = ("ai_extraction_runs", "ai_fields", "ai_field_review_events", "ai_note_drafts")
+ENCOUNTER_SUMMARY_TABLES = ("encounter_summaries", "encounter_summary_review_events")
 OCR_TABLES = ("ocr_documents", "ocr_pages", "ocr_fields", "ocr_attestation_events", "ocr_review_events", "ocr_purge_events")
 MEDICAL_IMAGE_TABLES = ("medical_images", "medical_image_acknowledgements", "medical_image_purge_events")
 

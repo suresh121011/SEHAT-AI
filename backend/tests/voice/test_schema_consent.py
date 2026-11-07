@@ -107,7 +107,7 @@ def test_voice_cloud_is_opt_in_and_omission_declines(client, anm):
     assert _state(client, anm, cid)["voice_cloud"] == "declined"
     cid2 = new_case(client, anm)
     grant_consent(client, anm, cid2, voice_cloud=True)
-    assert _state(client, anm, cid2) == {"triage": "granted", "ai_assist": "declined", "voice_cloud": "granted"}
+    assert _state(client, anm, cid2) == {"triage": "granted", "ai_assist": "declined", "voice_cloud": "granted", "link_visits": "declined"}
 
 
 def test_decline_with_voice_cloud_is_rejected(client, anm):
@@ -121,7 +121,7 @@ def test_decline_with_voice_cloud_is_rejected(client, anm):
 def test_withdrawing_voice_cloud_keeps_triage(client, anm):
     cid = new_case(client, anm)
     grant_consent(client, anm, cid, voice_cloud=True)
-    assert withdraw(client, anm, cid, "voice_cloud").json()["consent"] == {"triage": "granted", "ai_assist": "declined", "voice_cloud": "withdrawn"}
+    assert withdraw(client, anm, cid, "voice_cloud").json()["consent"] == {"triage": "granted", "ai_assist": "declined", "voice_cloud": "withdrawn", "link_visits": "declined"}
     assert triage(client, anm, cid).status_code == 200
 
 
@@ -129,7 +129,7 @@ def test_withdrawing_triage_cascades_to_voice_cloud_and_ai_assist(client, anm):
     cid = new_case(client, anm)
     grant_consent(client, anm, cid, ai=True, voice_cloud=True)
     resp = withdraw(client, anm, cid, "triage")
-    assert resp.json()["consent"] == {"triage": "withdrawn", "ai_assist": "withdrawn", "voice_cloud": "withdrawn"}
+    assert resp.json()["consent"] == {"triage": "withdrawn", "ai_assist": "withdrawn", "voice_cloud": "withdrawn", "link_visits": "declined"}
     hist = client.get(f"/api/v1/cases/{cid}/consent", headers=auth(anm)).json()["history"]
     assert [(h["purpose"], h["method"]) for h in hist[-3:]] == [
         ("triage", "staff_attested_verbal"),

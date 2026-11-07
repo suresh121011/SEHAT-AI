@@ -8,8 +8,10 @@ import { useState } from "react";
 import { Icon } from "@/components/Icon";
 import { ProvenanceBadge, StatusPill, URGENCY_MEANING, UrgencyBadge } from "@/components/review/Badges";
 import { AcknowledgeButton, CorrectVitalsDialog, OverrideDialog, SignOffDialog, type ActionDone } from "@/components/review/ReviewActions";
+import { EncounterSummaryPanel } from "@/components/review/EncounterSummaryPanel";
+import { PatientCodeCard } from "@/components/PatientCodeCard";
 import { Eyebrow, SectionCard } from "@/components/review/Panel";
-import { Button, Notice } from "@/components/ui";
+import { Button, ButtonLink, Notice } from "@/components/ui";
 import { SCENARIO_WORDS, correctionLine, escalationView, fieldWords, formatClock, priorityExplanation, provenanceNote, roleLabel, type CaseReview, type FieldProvenance, type ReviewEvent } from "@/lib/review";
 
 type Dialog = "sign_off" | "override" | "correct" | null;
@@ -208,6 +210,17 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
           )}
         </SectionCard>
       )}
+
+      {review.clinical_content_available && review.can_review && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-subtle p-2 text-sm">
+          <span>Machine-read document values are checked against the page image before the summary uses them.</span>
+          <ButtonLink variant="secondary" href={`/dashboard/verify?case=${encodeURIComponent(c.case_id)}`}>Check document values</ButtonLink>
+        </div>
+      )}
+
+      {review.clinical_content_available && review.can_review && <PatientCodeCard caseId={c.case_id} canIssue={false} visitHref={(id) => `/dashboard?case=${encodeURIComponent(id)}`} />}
+
+      {review.clinical_content_available && review.can_review && <EncounterSummaryPanel caseId={c.case_id} canReview={review.can_review} />}
 
       {review.clinical_content_available && <RecordedInput input={latest.input ?? null} provenance={latest.field_provenance} />}
 

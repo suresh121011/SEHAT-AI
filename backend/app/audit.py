@@ -62,6 +62,11 @@ AuditAction = Literal[
     "medgemma_image_deleted",
     "case_handed_over",
     "body_map_recorded",
+    "encounter_summary_generated",
+    "encounter_summary_reviewed",
+    "patient_registered",
+    "patient_linked",
+    "patient_unlinked",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -84,7 +89,7 @@ class BodyMapDetails(_Details):
     region_count: int = Field(ge=0)
 
 
-ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud"]
+ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud", "link_visits"]
 
 
 class ConsentChangeDetails(_Details):
@@ -273,6 +278,37 @@ class AiNoteDetails(_Details):
     downgrade_refused: bool
     claims: int = Field(ge=0)
     blocked_claims: int = Field(ge=0)
+
+
+class EncounterSummaryDetails(_Details):
+    """Counts and enums only: never a value, a quote or a name."""
+
+    summary_id: str
+    triage_run_id: str | None
+    recorded_urgency: Literal["RED", "YELLOW", "GREEN"] | None  # the rules engine's, unchanged by the summary
+    status: Literal["complete", "partial"]
+    reused: bool  # same source inventory as an existing summary: nothing new was stored
+    facts: int = Field(ge=0)
+    conflicts: int = Field(ge=0)
+    pending_review: int = Field(ge=0)
+    blocked_sentences: int = Field(ge=0)
+    unavailable_sources: int = Field(ge=0)
+
+
+class EncounterSummaryReviewDetails(_Details):
+    summary_id: str
+    event_id: str
+    outcome: Literal["accepted", "needs_changes"]
+    acknowledged_conflicts: bool
+
+
+class PatientLinkDetails(_Details):
+    """Ids and enums only. Never the patient code (a locator that would let anyone with the log find the patient)."""
+
+    patient_id: str
+    link_event_id: str
+    basis: Literal["new_code", "patient_code"] | None = None  # link: a fresh code, or a code the patient showed
+    reason_code: Literal["linked_in_error", "patient_request"] | None = None  # unlink only
 
 
 class AuditVerifiedDetails(_Details):

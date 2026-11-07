@@ -236,3 +236,24 @@ def test_ordinary_number_words_and_at_are_not_blocked(text):
 @pytest.mark.xfail(strict=True, reason="Known false negative: date of birth written in Roman numerals. Documents a weakness; NOT a pass.")
 def test_known_miss_roman_numeral_dob():
     assert "MCMXC" not in redact("born on XII/III/MCMXC").text
+
+
+# ── Clinical terms mislabelled as names or places (docs/19 §2) ───────────────────────────────────
+
+
+def test_clinical_terms_mislabelled_by_ner_are_kept_and_identifiers_still_redacted():
+    from app.privacy.pii import redact
+
+    for text in ("Fever for three days with cough.", "Fever, headache and vomiting since 2 days. No chest pain."):
+        assert redact(text).text == text  # spaCy tagged "Fever" as LOCATION: the symptom used to vanish
+    out = redact("Patient Ramesh Kumar has fever, call 9876543210. Lives in Bhubaneswar.").text
+    assert "Ramesh" not in out and "9876543210" not in out and "Bhubaneswar" not in out and "fever" in out
+
+
+def test_clinical_exemption_is_whole_span_and_name_types_only():
+    from app.privacy.pii import _Span, drop_clinical_terms
+
+    text = "Fever Singh 9876543210"
+    spans = [_Span(0, 5, "LOCATION", 0.85), _Span(0, 11, "PERSON", 0.85), _Span(12, 22, "IN_MOBILE", 0.6), _Span(0, 5, "DOB", 0.6)]
+    kept = drop_clinical_terms(text, spans)
+    assert [(s.start, s.end, s.entity) for s in kept] == [(0, 11, "PERSON"), (12, 22, "IN_MOBILE"), (0, 5, "DOB")]

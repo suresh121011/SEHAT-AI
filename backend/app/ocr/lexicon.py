@@ -118,5 +118,15 @@ def analyte_key(printed_name: str) -> str | None:
     return _ALIAS_INDEX.get(norm_key(printed_name))
 
 
+def trailing_flag_split(printed_name: str) -> tuple[str, str] | None:
+    """("SERUM UREA L") -> ("SERUM UREA", "L") when a printed flag sits at the end of the test name, as on reports with no
+    flag column. Only when the whole name is not a known test and the name without the last word is: anything else
+    (an unknown test, or a name that is known as printed) is left as printed, so no flag is ever invented."""
+    head, sep, last = printed_name.rstrip().rpartition(" ")
+    if not sep or last.lower() not in FLAG_TOKENS or analyte_key(printed_name) or not analyte_key(head):
+        return None
+    return head.rstrip(), last
+
+
 def unit_key(printed_unit: str) -> str | None:
     return _UNIT_INDEX.get(normalize_unit(printed_unit))

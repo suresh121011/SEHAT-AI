@@ -12,7 +12,7 @@ import re
 import statistics
 from dataclasses import dataclass, field
 
-from app.ocr.lexicon import DATE_LABELS, HEADER_WORDS, analyte_key, norm_key, unit_key
+from app.ocr.lexicon import DATE_LABELS, HEADER_WORDS, analyte_key, norm_key, trailing_flag_split, unit_key
 from app.ocr.parse import ParsedRange, ParsedUnit, ParsedValue, parse_flag, parse_range, parse_unit, parse_value
 from app.ocr.types import BBox, Line, PageOCR, Word, bbox_union, center
 
@@ -157,9 +157,35 @@ def _split_value_flag(val_toks: list[_Tok], flag_toks: list[_Tok]) -> tuple[list
     return val_toks, flag_toks
 
 
+def _split_name_flag(name_toks: list[_Tok], flag_toks: list[_Tok]) -> tuple[list[_Tok], list[_Tok]]:
+    """With no flag column, a printed flag left of the value lands in the name column ("SERUM UREA" "L"). The flag word,
+    with its own region, moves to the flag field only when that turns an unknown name into a known test
+    (lexicon.trailing_flag_split); otherwise the row is left as printed and no flag is invented."""
+    if flag_toks or len(name_toks) < 2 or not trailing_flag_split(_join(name_toks)) or len(name_toks[-1].text.split()) != 1:
+        return name_toks, flag_toks
+    return name_toks[:-1], [name_toks[-1]]
+
+
+_WORD = re.compile(r"[^\W\d_]{3,}")
+
+
+def _prose_row(key: str | None, value: ParsedValue) -> bool:
+    """An explanation paragraph, list item or footer wrapped across the columns ("Creatinine is a nitrogenous waste
+    product formed" | "in muscle from creatine phosphate."): an unknown test whose value cell is words, not a result.
+    A known test, a number, a qualitative result or a short code ("G1", "1O.8") is never treated as prose."""
+    if key is not None or value.kind in ("numeric", "qualitative") or value.comparator:
+        return False
+    toks = value.raw.split()
+    return len(toks) >= 2 and any(_WORD.search(t) for t in toks)
+
+
 def _candidate(page: PageOCR, row_index: int, cols: dict[str, list[_Tok]], flags: list[str]) -> LabCandidate | None:
-    name_raw = _join(cols["name"]).rstrip(" :")  # "Haemoglobin:" → "Haemoglobin" (the key lookup ignores it anyway)
     val_toks, flag_toks = _split_value_flag(cols["value"], cols["flag"])
+    name_toks, name_flag = _split_name_flag(cols["name"], flag_toks)
+    if name_flag is not flag_toks:
+        flags = [*flags, "flag_in_name_column"]
+    flag_toks = name_flag
+    name_raw = _join(name_toks).rstrip(" :")  # "Haemoglobin:" → "Haemoglobin" (the key lookup ignores it anyway)
     value_raw = _join(val_toks)
     key = analyte_key(name_raw)
     if not value_raw and key is None:
@@ -167,11 +193,13 @@ def _candidate(page: PageOCR, row_index: int, cols: dict[str, list[_Tok]], flags
     if not name_raw:
         return None
     value = parse_value(value_raw)
+    if _prose_row(key, value):
+        return None  # explanation text, not a result row; the page image keeps it for the reader
     unit = parse_unit(_join(cols["unit"]))
     rng = parse_range(_join(cols["range"]))
     flag_raw = _join(flag_toks)
     regions: list[Region] = []
-    for role, toks in (("name", cols["name"]), ("value", val_toks), ("unit", cols["unit"]), ("range", cols["range"]), ("flag", flag_toks)):
+    for role, toks in (("name", name_toks), ("value", val_toks), ("unit", cols["unit"]), ("range", cols["range"]), ("flag", flag_toks)):
         regions += _region(role, page.page_index, toks)
     cand_flags = list(flags) + list(value.flags) + list(rng.flags)
     cand_flags += list(unit.flags)  # unit_missing when the unit column is empty, unit_unknown otherwise

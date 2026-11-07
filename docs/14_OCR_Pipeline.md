@@ -203,6 +203,13 @@ matched, printed ≠ sourced range, line-level geometry. Missing checks never ra
 3. Confirm is refused (409 `CORRECTION_REQUIRED`) for disputed or unreadable rows, or if any printed part
    of the row has no valid box. A correction of such a row must include the result; a row whose test name
    cannot be shown cannot be corrected at all (reject it); parts not corrected must have been visible.
+   **Prescription lines (2026-10-11):** the field view says which part the two engines disagree on
+   (`disputed_parts`: `drug_name` and/or `strength`). A strength they read differently is shown as
+   "strength unclear — check the paper", never as a dose (`strength_status: readings_differ`): on a real
+   handwritten prescription Chandra read "Acyclovir 800mg" as "500mg" and the screen used to show 500 mg. When only
+   the strength differs, the reviewer types the values from the paper (strength required; dose pattern, frequency
+   from `OD BD TDS QID "5 times a day" HS SOS STAT PRN`, duration in days/weeks/months); a disputed drug name still
+   cannot be corrected, only rejected. The encounter summary (docs/19) shows the same warning.
 4. Each decision stores the page-image hash and region hash the reviewer was shown; a mismatch, or a stale
    `supersedes`, is `409 STALE_DECISION`. The machine reading is never overwritten (append-only).
 5. Range comparison is shown on reviewed values and, as the architecture's "flag out-of-range values",
