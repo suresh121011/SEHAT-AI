@@ -67,6 +67,9 @@ AuditAction = Literal[
     "patient_registered",
     "patient_linked",
     "patient_unlinked",
+    "gemini_live_session_started",
+    "gemini_live_field_extracted",
+    "gemini_live_session_completed",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -87,6 +90,17 @@ class CaseHandoverDetails(_Details):
 
 class BodyMapDetails(_Details):
     region_count: int = Field(ge=0)
+
+
+class GeminiLiveSessionDetails(_Details):
+    session_id: str
+    language: Literal["hi", "or"]
+
+
+class GeminiLiveFieldDetails(_Details):
+    session_id: str
+    field_id: str
+    field_name: str
 
 
 ConsentPurpose = Literal["triage", "ai_assist", "voice_cloud", "link_visits"]
