@@ -1,0 +1,75 @@
+# Basic CI (remediation decision D8). Runs on every pull request to main and every push to main. No secrets are used:
+# the app runs with SEHAT_DOTENV=0 (process environment only), every provider off, and synthetic test data only.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SEHAT_DOTENV: "0"
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install (core, dev, OCR runtime; the heavy optional speech/LLM models are not installed)
+        run: pip install -r requirements.txt -r requirements-dev.txt -r requirements-ocr.txt
+      - name: Migration checks (upgrade path, step-13 repair, append-only)
+        run: python -m pytest -q -p no:cacheprovider tests/privacy/test_migration*.py tests/voice/test_schema_consent.py
+      - name: Full backend suite (includes privacy, consent and remediation guard tests)
+        run: python -m pytest -q -p no:cacheprovider
+
+  frontend:
+    name: frontend tests, types, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint .
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
