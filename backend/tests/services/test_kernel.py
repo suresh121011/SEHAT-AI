@@ -103,3 +103,28 @@ def test_safety_guard_plugin():
     rx_check = json.loads(guard_plugin.check_clinical_text(rx_text))
     assert rx_check["is_safe"] is False
     assert rx_check["blocked_reason"] == "prescriptive_language"
+
+
+# ── final remediation plan K1 / S-1 ───────────────────────────────────────────────────────────────────────────
+
+def _azure(base, cloud: bool):
+    return dataclasses.replace(base, azure_openai_api_key="sk-sentinel-not-real-0001", azure_openai_endpoint="https://example.invalid/",
+                               azure_openai_deployment_name="d", ai_cloud_enabled=cloud)
+
+
+def test_kernel_registers_no_cloud_service_while_ai_cloud_is_disabled():
+    """K1: Azure credentials alone must not register a cloud chat service; AI_CLOUD_ENABLED is the switch."""
+    kernel = build_kernel(_azure(get_settings(), cloud=False))
+    assert llm_status(kernel) == "not_configured"
+
+
+def test_kernel_registers_azure_only_when_ai_cloud_is_enabled_and_configured():
+    kernel = build_kernel(_azure(get_settings(), cloud=True))
+    assert llm_status(kernel) == "configured"
+
+
+def test_settings_repr_never_shows_secrets():
+    """S-1: a logged or printed Settings object must not carry the JWT secret or the Azure key."""
+    s = dataclasses.replace(_azure(get_settings(), cloud=True), jwt_secret_key="jwt-sentinel-not-real-0002")
+    text = repr(s) + str(s)
+    assert "sk-sentinel-not-real-0001" not in text and "jwt-sentinel-not-real-0002" not in text

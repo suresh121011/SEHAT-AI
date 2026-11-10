@@ -95,7 +95,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allowed_origins,
-        allow_credentials=True,
+        allow_credentials=False,  # S-4: bearer tokens only; the browser uses the same-origin Next.js proxy
         allow_methods=["*"],
         allow_headers=["*"],
     )

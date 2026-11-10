@@ -172,3 +172,20 @@ Residual raised by the council: **the semantics of the negation and temporal fix
 - **Frontend wording** added for the two new reason codes.
 - **Verified:** backend 1446 passed / 14 allowlisted skips; frontend summary tests 14/14.
 - **Clinical review of the wording is still required.**
+
+**Step 3 (M-1, M-2, M-3)**
+- `run_migrations` refuses a database whose `user_version` is newer than the code, before any change (`SchemaMismatchError`).
+- After migrating, `validate_schema` compares every table (columns), index and trigger against a fingerprint of the same migrations replayed in memory. Extra leftover objects are allowed.
+- Two tests that pinned the old "older build accepts a newer DB" behaviour now expect the refusal: `test_migration_reconcile`, `test_red_lifecycle`.
+- **M-4 (audit record for the repair) is deferred:** `audit.record` needs a principal, and there is none at startup. The repair stays logged (step and counts only).
+- **Effect on existing local databases:** one whose schema has drifted now refuses to start, with rebuild instructions. That is intended and fails closed, and the data is synthetic.
+
+**Step 5 (K1, S-1, S-2, S-4)**
+- The kernel registers Azure only when `AI_CLOUD_ENABLED` is set and Azure is configured.
+- `jwt_secret_key` and `azure_openai_api_key` are excluded from `repr`.
+- Startup now refuses:
+  - a JWT algorithm other than HS256/384/512;
+  - a JWT secret under 32 bytes (the value is never echoed);
+  - `*` in `CORS_ALLOWED_ORIGINS`.
+- CORS `allow_credentials=False`.
+- Verified: backend 1469 passed / 14 allowlisted skips.

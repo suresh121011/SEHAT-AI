@@ -18,7 +18,8 @@ AZURE_SERVICE_ID = "azure-openai-chat"
 def build_kernel(settings: Settings | None = None) -> Kernel:
     settings = settings or get_settings()
     kernel = Kernel()
-    if settings.azure_openai_configured:
+    # AI_CLOUD_ENABLED is the switch for every cloud AI call; credentials alone never register a cloud service (K1).
+    if settings.ai_cloud_enabled and settings.azure_openai_configured:
         kernel.add_service(
             AzureChatCompletion(
                 service_id=AZURE_SERVICE_ID,
@@ -43,7 +44,7 @@ def llm_status(kernel: Kernel) -> str:
 async def _smoke_test() -> None:
     kernel = build_kernel()
     if llm_status(kernel) != "configured":
-        print("Azure OpenAI is not configured. Set AZURE_OPENAI_* in sehat-ai/.env.")
+        print("Azure OpenAI is not enabled. Set AI_CLOUD_ENABLED=1 and AZURE_OPENAI_* in sehat-ai/.env.")
         return
     result = await kernel.invoke_prompt("Reply with exactly: SEHAT kernel online")
     print(result)
