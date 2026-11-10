@@ -175,6 +175,13 @@ def get_settings() -> Settings:
     if "*" in cors:
         raise RuntimeError("CORS_ALLOWED_ORIGINS must list exact origins, not *")
 
+    # F2 / owner decision D-A: facility isolation fails closed. Running every account across every facility must be
+    # an explicit choice (ALLOW_UNSCOPED_DEMO=true), never the silent default.
+    account_facilities = _account_facilities(_env("ACCOUNT_FACILITIES"))
+    if account_facilities is None and not _flag("ALLOW_UNSCOPED_DEMO"):
+        raise RuntimeError("facility isolation is off: set ACCOUNT_FACILITIES (see .env.example), or ALLOW_UNSCOPED_DEMO=true "
+                           "to run an unscoped single-facility demo knowingly")
+
     db_path = _path(_env("DATABASE_PATH", "./sehat.db"))
 
     return Settings(
@@ -211,7 +218,7 @@ def get_settings() -> Settings:
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
         **_medgemma_settings(_flag("OCR_ENABLED")),
-        account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
+        account_facilities=account_facilities,
     )
 
 

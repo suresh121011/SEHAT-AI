@@ -44,3 +44,24 @@ def test_cors_never_allows_credentials(client):
     """The browser talks to the Next.js same-origin proxy; the backend uses bearer tokens, never cookies."""
     r = client.options("/api/v1/health", headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"})
     assert r.headers.get("access-control-allow-credentials") != "true"
+
+
+# ── F2 / owner decision D-A: facility isolation fails closed ─────────────────────────────────────────────────
+
+def test_startup_refuses_when_facility_isolation_is_off_and_not_explicitly_allowed(monkeypatch):
+    monkeypatch.delenv("ACCOUNT_FACILITIES", raising=False)
+    monkeypatch.delenv("ALLOW_UNSCOPED_DEMO", raising=False)
+    with pytest.raises(RuntimeError, match="ACCOUNT_FACILITIES"):
+        _load(monkeypatch)
+
+
+def test_an_explicit_unscoped_demo_opt_out_starts_with_isolation_off(monkeypatch):
+    monkeypatch.delenv("ACCOUNT_FACILITIES", raising=False)
+    s = _load(monkeypatch, ALLOW_UNSCOPED_DEMO="true")
+    assert s.account_facilities is None
+
+
+def test_a_facility_mapping_starts_without_the_opt_out(monkeypatch):
+    monkeypatch.delenv("ALLOW_UNSCOPED_DEMO", raising=False)
+    s = _load(monkeypatch, ACCOUNT_FACILITIES="anm_demo=PHC-KHURDA-01;mo_demo=PHC-KHURDA-01;supervisor_demo=*;patient_demo=PHC-KHURDA-01")
+    assert s.account_facilities is not None

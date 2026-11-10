@@ -9,7 +9,7 @@ Setup (from sehat-ai/; nothing is installed globally; S is any scratch directory
 
     S=/tmp/sehat-ui && mkdir -p $S/docs
     # backend (from backend/): scratch database and document folder, fake AI, real OCR engines from .env
-    ENVIRONMENT=development DATABASE_PATH=$S/sehat-ui.db OCR_DOCUMENT_DIR=$S/docs AI_PROVIDER=fake MEDGEMMA_ENABLED=0 \\
+    ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=$S/sehat-ui.db OCR_DOCUMENT_DIR=$S/docs AI_PROVIDER=fake MEDGEMMA_ENABLED=0 \\
       VOICE_ENABLED=0 GUARDRAILS_ENABLED=0 TRANSLATION_ENABLED=0 AI_CLOUD_ENABLED=0 \\
       ../.venv/bin/python -m uvicorn app.main:app --port 8000
     # frontend (from frontend/):   npx next dev -p 3000      (dev, not `next start`: the session cookie must not be Secure)

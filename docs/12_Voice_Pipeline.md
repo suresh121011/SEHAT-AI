@@ -334,7 +334,7 @@ Run on `http://localhost:3000` (demo accounts, synthetic speech only).
 **Enable for a test run** without editing `.env` (process environment wins over `.env`). From `backend/`:
 
 ```
-ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-voice.db AI_PROVIDER=fake VOICE_ENABLED=1 VOICE_LOCAL_ASR_ENABLED=1 VOICE_CLOUD_STT_ENABLED=0 VOICE_TTS_ENABLED=0 ../.venv/bin/python -m uvicorn app.main:app --port 8100
+ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-voice.db AI_PROVIDER=fake VOICE_ENABLED=1 VOICE_LOCAL_ASR_ENABLED=1 VOICE_CLOUD_STT_ENABLED=0 VOICE_TTS_ENABLED=0 ../.venv/bin/python -m uvicorn app.main:app --port 8100
 ```
 
 Then start the frontend with `NEXT_PUBLIC_API_URL=http://localhost:8100/api/v1 npx next dev -p 3100`, from a separate checkout if another dev server already uses `frontend/.next`. Cloud voice needs `VOICE_CLOUD_STT_ENABLED=1` (and `VOICE_TTS_ENABLED=1` for spoken read-back), a Sarvam key in `SARVAM_API_KEY`, and the case's `voice_cloud` consent.

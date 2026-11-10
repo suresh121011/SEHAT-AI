@@ -2,7 +2,7 @@
 uses the shared demo accounts; never point it at real data. NOT a browser test.
 
     # from backend/, with a scratch database (add AI_FAKE_MODE=demo_disagreement to also see a disputed value):
-    ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-e2e-ai.db AI_PROVIDER=fake \
+    ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-e2e-ai.db AI_PROVIDER=fake \
       ../.venv/bin/python -m uvicorn app.main:app --port 8000
     # then:  ../.venv/bin/python scripts/e2e_ai_check.py [http://localhost:8000]
 """

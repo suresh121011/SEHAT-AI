@@ -383,7 +383,7 @@ pages → rejected with "text too small". The 13 px threshold rests on few pages
 **Setup.** Backend from `backend/`:
 
 ```
-ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-ocr.db AI_PROVIDER=fake OCR_ENABLED=1 OCR_SURYA_ENABLED=1 OCR_CHANDRA_ENABLED=1 OCR_RETENTION_DAYS=none ../.venv/bin/python -m uvicorn app.main:app --port 8100
+ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-ocr.db AI_PROVIDER=fake OCR_ENABLED=1 OCR_SURYA_ENABLED=1 OCR_CHANDRA_ENABLED=1 OCR_RETENTION_DAYS=none ../.venv/bin/python -m uvicorn app.main:app --port 8100
 ```
 
 The frontend is `next dev` on 3100 proxying to it. Browser runs used Playwright with the system Chrome, from a scratch environment.
