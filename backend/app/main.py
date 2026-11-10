@@ -15,7 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
-from app.routes import ai, audit, auth, cases, health, ocr, patients, review, triage, voice
+from app import security_events
+from app.routes import ai, audit, auth, cases, health, ocr, patient_identity, patients, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -103,7 +104,14 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def request_id(request: Request, call_next):
         request.state.request_id = _safe_request_id(request.headers.get("X-Request-ID"))
+        events = security_events.start()
         response = await call_next(request)
+        # Denials noted during the request are written now, after its transaction ended (A5). A failure here must
+        # not change the response the client already earned; it is logged without detail.
+        try:
+            await security_events.flush(events, request.state.request_id)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("sehat.security").warning("security_event_write_failed count=%d", len(events))
         response.headers["X-Request-ID"] = request.state.request_id
         return response
 
@@ -122,6 +130,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr.router, prefix=API_PREFIX)
     app.include_router(ai.router, prefix=API_PREFIX)
     app.include_router(patients.router, prefix=API_PREFIX)  # P1 patient registry
+    app.include_router(patient_identity.router, prefix=API_PREFIX)  # patient login ↔ patient record binding (hardening A3)
     return app
 
 

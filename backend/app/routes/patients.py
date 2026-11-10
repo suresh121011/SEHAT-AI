@@ -8,6 +8,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, Request
 
 from app import patient_registry as reg
+from app import ratelimit
 from app.auth import Principal, get_current_principal
 from app.database import get_db
 
@@ -33,12 +34,14 @@ async def new_patient(case_id: uuid.UUID, request: Request, principal: Principal
 @router.post("/cases/{case_id}/patient/lookup")
 async def lookup_patient(case_id: uuid.UUID, body: reg.CodeBody, request: Request, principal: Principal = Depends(get_current_principal),
                          db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    await ratelimit.check_code_entry(db, request, principal)  # before the code is looked up (A4)
     return await reg.lookup(db, principal, str(case_id), body, _rid(request))
 
 
 @router.post("/cases/{case_id}/patient/link")
 async def link_patient(case_id: uuid.UUID, body: reg.LinkBody, request: Request, principal: Principal = Depends(get_current_principal),
                        db: aiosqlite.Connection = Depends(get_db)) -> dict[str, Any]:
+    await ratelimit.check_code_entry(db, request, principal)  # before the code is looked up (A4)
     return await reg.link_existing(db, principal, str(case_id), body, _rid(request))
 
 

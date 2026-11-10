@@ -116,7 +116,7 @@ def test_a_database_from_the_contribution_is_repaired_forward_with_every_row_kep
     path = _contributor_db(tmp_path, then_main_step_14)
     before = _snapshot(path)
     with caplog.at_level(logging.WARNING, logger="sehat.database"):
-        assert _migrate(path) == SCHEMA_VERSION == 14
+        assert _migrate(path) == SCHEMA_VERSION == 17
     assert SUMMARY_TABLES | REGISTRY_TABLES <= _tables(path)
     after = _snapshot(path)
     assert after["cases"] == before["cases"] and after["gemini"] == before["gemini"]  # nothing lost, leftovers untouched
@@ -138,9 +138,9 @@ def test_a_database_from_the_contribution_is_repaired_forward_with_every_row_kep
 
 def test_repair_is_idempotent(tmp_path):
     path = _contributor_db(tmp_path)
-    assert _migrate(path) == 14
+    assert _migrate(path) == SCHEMA_VERSION
     snap = _snapshot(path)
-    assert _migrate(path) == 14 and _snapshot(path) == snap
+    assert _migrate(path) == SCHEMA_VERSION and _snapshot(path) == snap
 
 
 def test_ordinary_databases_are_never_repaired(tmp_path, caplog):
@@ -148,8 +148,8 @@ def test_ordinary_databases_are_never_repaired(tmp_path, caplog):
     assert _migrate(main13, MIGRATIONS[:13]) == 13
     _seed(main13)
     with caplog.at_level(logging.WARNING, logger="sehat.database"):
-        assert _migrate(fresh) == 14
-        assert _migrate(main13) == 14
+        assert _migrate(fresh) == SCHEMA_VERSION
+        assert _migrate(main13) == SCHEMA_VERSION
     assert not [r for r in caplog.records if "schema_repaired" in r.getMessage()]
     assert SUMMARY_TABLES | REGISTRY_TABLES <= _tables(fresh) and "gemini_live_sessions" not in _tables(fresh)
 

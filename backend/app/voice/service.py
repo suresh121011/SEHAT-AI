@@ -111,7 +111,7 @@ async def _load_for_view(conn, principal: Principal, case_id: str):
     """Transcripts are clinical content: visible to the case creator or a medical officer (not to
     supervisors, who audit metadata only)."""
     try:
-        return await consent.load_case(conn, principal, case_id, "write")
+        return await consent.load_case(conn, principal, case_id, "write", probe=True)
     except ApiError:
         return await consent.load_case(conn, principal, case_id, "triage")
 

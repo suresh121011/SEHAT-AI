@@ -103,7 +103,7 @@ async def _visits(conn, principal: Principal, patient_id: str) -> list[dict]:
     out = []
     for cid in case_ids:
         try:
-            row = await consent.load_case(conn, principal, cid, "read")
+            row = await consent.load_case(conn, principal, cid, "read", probe=True)
         except ApiError:
             continue
         if not (await consent.snapshot(conn, cid)).is_effective("link_visits"):

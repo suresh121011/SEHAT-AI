@@ -25,7 +25,7 @@ from typing import Literal
 import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import audit
+from app import audit, security_events
 from app.auth import Principal, Role
 from app.consent_notice import LINK_VISITS_LANGUAGES, NOTICE_VERSION, Language, Purpose, get_notice
 from app.database import transaction as _write
@@ -77,11 +77,17 @@ def _method_for(principal: Principal) -> str:
 # ── Case access ──────────────────────────────────────────────────────────
 
 
-async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: str, mode: AccessMode) -> aiosqlite.Row:
-    """Return the case if `principal` may access it in `mode`; otherwise the same 404 as a missing case."""
+async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: str, mode: AccessMode, *, probe: bool = False) -> aiosqlite.Row:
+    """Return the case if `principal` may access it in `mode`; otherwise the same 404 as a missing case. A refusal for
+    an existing case is noted as an `access_denied` security event (A5), unless `probe=True`: a caller that is only
+    testing access and will try another mode or skip the case (that is not a denial)."""
     async with conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)) as cur:
         row = await cur.fetchone()
-    if row is None or not principal.may_access_facility(row["facility_code"]):
+    if row is None:
+        raise not_found()
+    if not principal.may_access_facility(row["facility_code"]):
+        if not probe:
+            security_events.note_denial(principal, case_id, "facility_scope", mode)  # written after the request (A5)
         raise not_found()  # outside the account's facility scope looks exactly like a missing case (docs/17 §8)
     creator = row["created_by"] is not None and row["created_by"] == principal.user_id
     # The ANM who took over a patient-started case (`hand_over`) works on it as its creating ANM would, except consent:
@@ -93,9 +99,28 @@ async def load_case(conn: aiosqlite.Connection, principal: Principal, case_id: s
         "triage": ((creator or handler) and principal.role == Role.ANM) or principal.role == Role.MEDICAL_OFFICER,
         "read": creator or handler or principal.role in (Role.MEDICAL_OFFICER, Role.SUPERVISOR),
     }[mode]
+    if not allowed and mode == "read" and principal.role == Role.PATIENT and principal.auth_mode == "oidc":
+        allowed = await _bound_patient_may_read(conn, principal.user_id, case_id)
     if not allowed:
+        if not probe:
+            security_events.note_denial(principal, case_id, "not_permitted", mode)
         raise not_found()
     return row
+
+
+async def _bound_patient_may_read(conn: aiosqlite.Connection, user_id: str, case_id: str) -> bool:
+    """A real (OIDC) patient reads a visit only when (1) their login is currently bound to a patient by an explicit
+    binding (app.patient_identity), (2) this visit is currently linked to that same patient, and (3) the visit's
+    `link_visits` consent is in effect. Anything else is the same 404 as a missing case."""
+    async with conn.execute("SELECT action, patient_id FROM patient_identity_events WHERE user_id = ? ORDER BY seq DESC LIMIT 1", (user_id,)) as cur:
+        ident = await cur.fetchone()
+    if ident is None or ident["action"] != "bind":
+        return False
+    async with conn.execute("SELECT action, patient_id FROM patient_link_events WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
+        link = await cur.fetchone()
+    if link is None or link["action"] != "link" or link["patient_id"] != ident["patient_id"]:
+        return False
+    return (await snapshot(conn, case_id)).is_effective("link_visits")
 
 
 async def create_case(conn: aiosqlite.Connection, principal: Principal, body: CaseCreate, request_id: str | None) -> dict:

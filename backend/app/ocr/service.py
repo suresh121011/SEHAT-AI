@@ -828,7 +828,7 @@ async def _require_read(conn, principal, case_id: str, request_id) -> None:
     """Document content is visible to the case creator or a medical officer (not supervisors), and only
     while triage consent is in effect."""
     try:
-        await consent.load_case(conn, principal, case_id, "write")
+        await consent.load_case(conn, principal, case_id, "write", probe=True)
     except ApiError:
         await consent.load_case(conn, principal, case_id, "triage")
     snap = await consent.snapshot(conn, case_id)

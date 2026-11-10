@@ -129,6 +129,7 @@ def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]
         ("POST", f"/cases/{cid}/patient/lookup", {"patient_code": "SP-ABCD-EFGH"}),
         ("POST", f"/cases/{cid}/patient/link", {"patient_code": "SP-ABCD-EFGH", "confirm": True}),
         ("POST", f"/cases/{cid}/patient/unlink", {"reason_code": "linked_in_error", "confirm": True}),
+        ("POST", f"/cases/{cid}/patient/binding-code", None),
     ]
 
 
@@ -310,15 +311,17 @@ def test_scope_cannot_be_widened_by_headers_query_body_or_token_claims(iso):
     r = iso.patch(f"{API}/triage/{b}/sign-off", json={"triage_run_id": run_b, "confirm": True, "facility_code": B}, headers=auth(mo))
     assert r.status_code in (400, 404)  # extra body fields are rejected; never a sign-off
     assert rows("SELECT COUNT(*) FROM review_events")[0][0] == 0
-    # A correctly signed token carrying extra scope claims is ignored: scope comes from server config only.
+    # Sessions are opaque server records (post-remediation hardening A2): a token carries no claims to widen. Even a
+    # JWT correctly signed with the server secret and claiming "*" or another account is refused outright.
     s = get_settings()
-    claims = jwt.decode(mo, s.jwt_secret_key, algorithms=[s.jwt_algorithm])
-    widened = jwt.encode({**claims, "facilities": ["*"], "facility_code": B, "facility_scope": None}, s.jwt_secret_key, algorithm=s.jwt_algorithm)
-    assert iso.get(f"{API}/triage/{b}", headers=auth(widened)).status_code == 404
-    assert iso.get(f"{API}/auth/me", headers=auth(widened)).json()["facility_scope"] == [A]
-    # A username swapped onto another subject (to borrow the supervisor's "*") is refused outright.
-    swapped = jwt.encode({**claims, "username": "supervisor_demo"}, s.jwt_secret_key, algorithm=s.jwt_algorithm)
-    assert iso.get(f"{API}/auth/me", headers=auth(swapped)).status_code == 401
+    me = iso.get(f"{API}/auth/me", headers=auth(mo)).json()
+    assert me["facility_scope"] == [A]
+    forged = {"sub": me["user_id"], "role": "medical_officer", "exp": 9999999999, "facilities": ["*"], "facility_code": B, "facility_scope": None}
+    for claims in (forged, {**forged, "username": "supervisor_demo"}):
+        signed = jwt.encode(claims, s.jwt_secret_key, algorithm=s.jwt_algorithm)
+        assert iso.get(f"{API}/triage/{b}", headers=auth(signed)).status_code == 401
+        assert iso.get(f"{API}/auth/me", headers=auth(signed)).status_code == 401
+    assert iso.get(f"{API}/auth/me", headers=auth(mo)).json()["facility_scope"] == [A]
 
 
 def test_auth_me_reports_scope(iso, monkeypatch):
