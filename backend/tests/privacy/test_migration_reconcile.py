@@ -14,7 +14,7 @@ import sqlite3
 import aiosqlite
 import pytest
 
-from app.database import ENCOUNTER_SUMMARY_STATEMENTS, MIGRATIONS, PATIENT_REGISTRY_STATEMENTS, SCHEMA_VERSION, run_migrations
+from app.database import ENCOUNTER_SUMMARY_STATEMENTS, MIGRATIONS, PATIENT_REGISTRY_STATEMENTS, SCHEMA_VERSION, SchemaMismatchError, run_migrations
 
 # The contribution's step-13 DDL, copied from 21a9761 backend/app/database.py (GEMINI_LIVE_STATEMENTS).
 CONTRIBUTOR_STEP_13 = (
@@ -156,8 +156,9 @@ def test_ordinary_databases_are_never_repaired(tmp_path, caplog):
 
 def test_partial_migration_lists_never_trigger_the_repair(tmp_path):
     path = _contributor_db(tmp_path)
-    assert _migrate(path, MIGRATIONS[:12]) == 13  # an older code line: leaves the database alone
-    assert not (_tables(path) & SUMMARY_TABLES)
+    with pytest.raises(SchemaMismatchError, match="newer"):  # an older code line refuses it (M-3) and changes nothing
+        _migrate(path, MIGRATIONS[:12])
+    assert not (_tables(path) & SUMMARY_TABLES) and _version(path) == 13
 
 
 def test_the_repair_applies_exactly_main_step_13(tmp_path):

@@ -6,6 +6,7 @@ because it silently commits any pending transaction.
 """
 
 import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -724,6 +725,15 @@ class MigrationError(RuntimeError):
         self.step = step
 
 
+class SchemaMismatchError(RuntimeError):
+    """The database does not match what this code's migrations define (M-1/M-2/M-3). Startup fails closed; the message
+    names schema objects only, never data or file paths."""
+
+    def __init__(self, problem: str):
+        super().__init__(f"database schema mismatch: {problem}. Nothing was changed. This is a development database: "
+                         "rebuild it (delete the file and restart) or migrate it with matching code.")
+
+
 async def _connect(path: Path, timeout: float = 5.0) -> aiosqlite.Connection:
     # isolation_level must be passed to connect(): setting it afterwards fails across threads.
     conn = await aiosqlite.connect(path, isolation_level=None, timeout=timeout)
@@ -800,9 +810,79 @@ async def _repair_skipped_summary_step(conn: aiosqlite.Connection, migrations: t
     return True
 
 
+_SCHEMA_CACHE: dict[int, dict] = {}
+
+
+def _fingerprint_sync(db: sqlite3.Connection) -> dict:
+    """Tables with their columns (name, declared type, not-null, primary-key position), plus index and trigger names
+    with the table they belong to. Internal sqlite_* objects are ignored."""
+    out: dict = {"table": {}, "index": {}, "trigger": {}}
+    rows = db.execute("SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') AND name NOT LIKE 'sqlite_%'").fetchall()
+    for typ, name, tbl in rows:
+        if typ == "table":
+            cols = db.execute(f'PRAGMA table_info("{name}")').fetchall()
+            out["table"][name] = sorted((c[1], (c[2] or "").upper(), int(c[3]), int(c[5])) for c in cols)
+        else:
+            out[typ][name] = tbl
+    return out
+
+
+def _expected_schema(migrations: tuple[tuple[str, ...], ...]) -> dict:
+    """What these migrations define: replayed once on an empty in-memory database (no data, so no FK concerns)."""
+    key = id(migrations)
+    if key not in _SCHEMA_CACHE:
+        db = sqlite3.connect(":memory:")
+        try:
+            db.execute("PRAGMA foreign_keys = OFF")
+            for statements in migrations:
+                for statement in statements:
+                    db.execute(statement)
+            _SCHEMA_CACHE[key] = _fingerprint_sync(db)
+        finally:
+            db.close()
+    return _SCHEMA_CACHE[key]
+
+
+async def _actual_schema(conn: aiosqlite.Connection) -> dict:
+    out: dict = {"table": {}, "index": {}, "trigger": {}}
+    async with conn.execute("SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') AND name NOT LIKE 'sqlite_%'") as cur:
+        rows = [tuple(r) for r in await cur.fetchall()]
+    for typ, name, tbl in rows:
+        if typ == "table":
+            async with conn.execute(f'PRAGMA table_info("{name}")') as cur:
+                cols = await cur.fetchall()
+            out["table"][name] = sorted((c[1], (c[2] or "").upper(), int(c[3]), int(c[5])) for c in cols)
+        else:
+            out[typ][name] = tbl
+    return out
+
+
+async def validate_schema(conn: aiosqlite.Connection, migrations: tuple[tuple[str, ...], ...] = MIGRATIONS) -> None:
+    """Every table (with identical columns), index and trigger the migrations define must exist (M-1/M-2). Extra
+    objects are allowed: leftovers such as the contribution's unused gemini_live_* tables are kept, never read."""
+    expected, actual = _expected_schema(migrations), await _actual_schema(conn)
+    problems = []
+    for name, cols in expected["table"].items():
+        if name not in actual["table"]:
+            problems.append(f"table {name} is missing")
+        elif actual["table"][name] != cols:
+            problems.append(f"table {name} has different columns")
+    for typ in ("index", "trigger"):
+        for name, tbl in expected[typ].items():
+            if actual[typ].get(name) != tbl:
+                problems.append(f"{typ} {name} on {tbl} is missing")
+    if problems:
+        raise SchemaMismatchError("; ".join(sorted(problems)[:10]))
+
+
 async def run_migrations(conn: aiosqlite.Connection, migrations: tuple[tuple[str, ...], ...] = MIGRATIONS, fk_off_steps: frozenset[int] = FK_OFF_STEPS) -> int:
-    """Apply pending steps; each step (DDL + FK check + version bump) is one atomic transaction. A database that
-    skipped main's step 13 under a colliding step number is repaired forward first (`_repair_skipped_summary_step`)."""
+    """Apply pending steps; each step (DDL + FK check + version bump) is one atomic transaction. A database from newer
+    code is refused before anything is changed (M-3). A database that skipped main's step 13 under a colliding step
+    number is repaired forward first (`_repair_skipped_summary_step`). Afterwards the schema itself is validated
+    against what the migrations define, so `user_version` alone is never trusted (M-1/M-2)."""
+    version = await _user_version(conn)
+    if version > len(migrations):
+        raise SchemaMismatchError(f"user_version {version} is newer than this code's {len(migrations)}")
     await _repair_skipped_summary_step(conn, migrations)
     for step, statements in enumerate(migrations, start=1):
         fk_off = step in fk_off_steps and await _user_version(conn) < step
@@ -825,6 +905,7 @@ async def run_migrations(conn: aiosqlite.Connection, migrations: tuple[tuple[str
         finally:
             if fk_off:
                 await conn.execute("PRAGMA foreign_keys = ON")
+    await validate_schema(conn, migrations)
     return await _user_version(conn)
 
 
