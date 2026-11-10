@@ -175,4 +175,3 @@ async def record(conn: aiosqlite.Connection, principal: Principal, case_id: str,
     if denial is not None:
         raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
     return out  # type: ignore[return-value]
-
