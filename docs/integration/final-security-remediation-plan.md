@@ -109,6 +109,12 @@ Nothing is merged by the implementer. `main` requires CI to pass on the latest c
 
 These decisions gate step 7 and the PR; steps 1–6 can go ahead without them.
 
+**Owner decisions, 2026-11-10:**
+- **D-A = fail closed.**
+- **D-B = metadata only for supervisors.**
+- **Reviewer = another teammate** (name to be confirmed before the PR).
+- **Implementation approved** for steps 1–6, with step 7 now unblocked. No PR until Niranjan is informed.
+
 - **D-A:** facility isolation when `ACCOUNT_FACILITIES` is unset. Proposal: a startup warning in development, unchanged in tests.
 - **D-B:** what supervisors may see. Proposal: clinical triage fields only for the MO or creator, and metadata for supervisors, as docs/11 says.
 - **D-C:** the remediation PR, once Niranjan has been informed (earlier D4) **and the reviewer from step 0 is named**.
@@ -127,3 +133,28 @@ Five advisors (Contrarian, First Principles, Expansionist, Outsider and Executor
 - A rollback note.
 
 Residual raised by the council: **the semantics of the negation and temporal fixes need review by a clinician or domain expert.** Engineering tests cannot provide clinical validation, and none is claimed.
+
+## 7. Implementation log
+
+**Step 1 (CI-1, CI-2, CI-3, urgency invariant)**
+- **Fix chosen:** CI now installs Silero VAD (`backend/requirements-vad.txt`: silero-vad, onnxruntime and CPU-only torch). The consent, summary and queue suites therefore run against the **real** VAD, as they were written to, so no fake VAD was added.
+  - The CPU torch wheel is installed on its own with `--index-url`, so no other package resolves from the PyTorch index.
+- **`backend/scripts/ci_skip_gate.py`** runs as a step in the required "backend tests" job. It reads pytest's JUnit XML and fails on any of:
+  - a skip whose reason is not allowlisted. Allowlisted: optional guardrails, opt-in live tests, and the documented PII misses.
+  - a skipped or missing required safety module;
+  - fewer than `MIN_EXECUTED` tests run.
+- **Meta-tests:** `tests/ci/test_skip_gate.py` reproduces the CI-1 module-level `importorskip` and checks that the gate fails on it.
+- **Invariant:** `tests/privacy/test_urgency_authority.py` pins, across the whole app:
+  - the allowlisted callers of the rules engine;
+  - `case_triage.py` as the only writer of `triage_runs`;
+  - that the recorded urgency is the engine result;
+  - that the AI, voice, OCR, services and privacy packages never import the run writer or the review queue.
+- **Actions pinned to commit SHAs.**
+- **Verified in a fresh Python 3.11 environment with exactly the CI install:**
+  - 1393 passed, 15 skipped (all allowlisted), 5 xfailed. The skip gate passes.
+  - The restored suites now run: voice API 47, encounter summary 31 (+10 transparency), verification queue 12.
+  - **The workflow only runs on pull requests**, so the GitHub run happens when the PR opens.
+
+**Step 2a (V1)**
+- `frontend/src/lib/deviceVoice.ts` selects only `localService` voices for the selected language; a cloud browser voice is never used.
+- Used by `useMatchingVoice`, which covers both read-back and the consent read-aloud. Tests in `deviceVoice.test.ts`.
