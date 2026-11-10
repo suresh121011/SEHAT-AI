@@ -5,6 +5,7 @@ headers, query or body. Tests re-map by changing the environment and clearing th
 request computes the principal again.
 """
 
+import json
 import sqlite3
 import uuid
 
@@ -281,7 +282,10 @@ def test_anm_cannot_create_a_case_in_another_facility(iso, monkeypatch):
         r = iso.post(f"{API}/cases", json={"scenario": "opd", "facility_code": B}, headers=auth(tok))
         assert _err(r) == (403, "FORBIDDEN", "facility not permitted for this account")
     assert rows("SELECT COUNT(*) FROM cases")[0][0] == n_cases
-    assert rows("SELECT COUNT(*) FROM audit_log")[0][0] == n_audit
+    # Each refusal is one `access_denied` event (mode "create"): no case, and never the facility code that was tried.
+    denied = rows("SELECT action, outcome, case_id, details_json FROM audit_log WHERE seq > ?", n_audit)
+    assert [(a, o, c) for a, o, c, _ in denied] == [("access_denied", "denied", None)] * 2
+    assert all(json.loads(d) == {"reason": "facility_scope", "mode": "create"} for *_, d in denied) and B not in str(denied)
     assert iso.post(f"{API}/cases", json={"scenario": "opd", "facility_code": A}, headers=auth(anm)).status_code == 201
 
 

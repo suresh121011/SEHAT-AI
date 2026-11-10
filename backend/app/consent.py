@@ -125,9 +125,12 @@ async def _bound_patient_may_read(conn: aiosqlite.Connection, user_id: str, case
 
 async def create_case(conn: aiosqlite.Connection, principal: Principal, body: CaseCreate, request_id: str | None) -> dict:
     if not principal.may_access_facility(body.facility_code):
-        # Nothing is written. No audit event: the audit schema has no access-denial action, and unauthorized case
-        # access is likewise not audited (module docstring). The facility code is not logged.
+        # No case is written. The refusal is one `access_denied` audit event (post-remediation hardening A5), with
+        # neither a case nor the facility code that was tried; the code is not logged either.
         logger.info("case_create_denied reason=facility_not_permitted")
+        async with _write(conn):
+            await audit.record(conn, principal=principal, action="access_denied", outcome="denied", request_id=request_id,
+                               details=audit.AccessDeniedDetails(reason="facility_scope", mode="create"))
         raise ApiError(403, "FORBIDDEN", "facility not permitted for this account")
     case_id = str(uuid.uuid4())
     patient_token = f"PT-{secrets.token_hex(6).upper()}"  # random, opaque, pseudonymous (not anonymous)

@@ -30,3 +30,27 @@ export function facilityNotice(me: AuthMe | null): FacilityNotice {
   if (scope.length === 0) return { kind: "scoped", text: "Patient lists are limited to: no facility (set per demo account by the server)." };
   return { kind: "scoped", text: `Patient lists are limited to: ${scope.join(", ")} (set per demo account by the server).` };
 }
+
+// Facility choice on the "start a case" form, from the server's own scope for this account (GET /auth/me). The server
+// still decides (a code outside the scope is refused with 403); this only offers what it would accept.
+export type FacilityChoice =
+  | { kind: "fixed"; code: string } // exactly one facility: pre-filled, nothing to choose
+  | { kind: "choose"; codes: string[] } // several: pick one of them
+  | { kind: "free" } // no list from the server (isolation off, "*", or an older server): type the code
+  | { kind: "none" }; // isolation on and no facility at all: cases cannot be started
+
+export function facilityChoice(me: AuthMe | null): FacilityChoice {
+  if (!me || me.facility_isolation !== "enforced" || me.facility_scope === null || me.facility_scope === undefined) return { kind: "free" };
+  const scope = [...new Set(me.facility_scope.map((s) => s.trim().toUpperCase()).filter(Boolean))].sort();
+  if (scope.includes("*")) return { kind: "free" };
+  if (scope.length === 0) return { kind: "none" };
+  return scope.length === 1 ? { kind: "fixed", code: scope[0] } : { kind: "choose", codes: scope };
+}
+
+/** Plain words for a refused facility (403 from POST /cases): which codes this account may use, if the server said. */
+export function facilityRefusal(choice: FacilityChoice): string {
+  if (choice.kind === "fixed") return `This account can start cases only in ${choice.code}.`;
+  if (choice.kind === "choose") return `This account can start cases only in: ${choice.codes.join(", ")}.`;
+  if (choice.kind === "none") return "This account is not assigned to any facility, so it cannot start cases. Ask your administrator.";
+  return "This account is not allowed to start cases in that facility. Check the facility code.";
+}

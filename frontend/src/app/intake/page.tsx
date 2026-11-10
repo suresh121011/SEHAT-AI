@@ -7,6 +7,7 @@ import { Icon, type IconName } from "@/components/Icon";
 import { IntakeShell } from "@/components/IntakeShell";
 import { Button, Field, Notice, inputClass } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
+import { type AuthMe, type FacilityChoice, facilityChoice, facilityRefusal } from "@/lib/facilityScope";
 import { hrefFor } from "@/lib/steps";
 import { SCENARIOS, type Scenario } from "@/lib/triageForm";
 
@@ -30,6 +31,7 @@ export default function IntakeHome() {
   const [role, setRole] = useState<string | null>(null);
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [facility, setFacility] = useState("");
+  const [choice, setChoice] = useState<FacilityChoice>({ kind: "free" });
   const [errors, setErrors] = useState<{ facility?: string; scenario?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,8 +41,14 @@ export default function IntakeHome() {
 
   useEffect(() => {
     api
-      .get<{ role: string }>("auth/me")
-      .then((me) => setRole(me.role))
+      .get<AuthMe>("auth/me")
+      .then((me) => {
+        setRole(me.role);
+        // Offer only the facilities the server will accept for this account (it still checks).
+        const c = facilityChoice(me);
+        setChoice(c);
+        if (c.kind === "fixed") setFacility(c.code);
+      })
       .catch(() => setServerError("Could not check your session. Please sign in again."));
   }, []);
 
@@ -58,7 +66,14 @@ export default function IntakeHome() {
       const created = await api.post<{ case_id: string }>("cases", { scenario, facility_code: code });
       router.push(`/intake/consent?case=${created.case_id}`);
     } catch (err) {
-      setServerError(err instanceof ApiError ? `Could not start the case: ${err.message}${err.requestId ? ` (reference ${err.requestId})` : ""}` : "Could not reach the server. Nothing was created; try again.");
+      const ref = err instanceof ApiError && err.requestId ? ` (reference ${err.requestId})` : "";
+      setServerError(
+        err instanceof ApiError && err.status === 403 && err.code === "FORBIDDEN"
+          ? `Could not start the case. ${facilityRefusal(choice)} Nothing was created.${ref}`
+          : err instanceof ApiError
+            ? `Could not start the case: ${err.message}${ref}`
+            : "Could not reach the server. Nothing was created; try again.",
+      );
       setBusy(false);
     }
   }
@@ -99,22 +114,52 @@ export default function IntakeHome() {
           </Notice>
         )}
 
-        <Field
-          id="facility"
-          label="Facility code"
-          hint="Type the code of your health facility. This prototype has no facility directory, so the code is not checked against a list."
-          error={errors.facility}
-        >
-          <input
+        {choice.kind === "none" ? (
+          <Notice tone="warning" title="No facility for this account">
+            <p>{facilityRefusal(choice)}</p>
+          </Notice>
+        ) : (
+          <Field
             id="facility"
-            className={`${inputClass} max-w-sm font-mono uppercase`}
-            value={facility}
-            onChange={(e) => setFacility(e.target.value.toUpperCase())}
-            placeholder="PHC-KHURDA-01"
-            autoComplete="off"
-            aria-describedby={["facility-hint", errors.facility ? "facility-error" : ""].filter(Boolean).join(" ")}
-          />
-        </Field>
+            label="Facility code"
+            hint={
+              choice.kind === "fixed"
+                ? "Your account works in this facility (set by the server)."
+                : choice.kind === "choose"
+                  ? "Choose one of the facilities your account works in (set by the server)."
+                  : "Type the code of your health facility. The server checks it against the facilities this account may use."
+            }
+            error={errors.facility}
+          >
+            {choice.kind === "choose" ? (
+              <select
+                id="facility"
+                className={`${inputClass} max-w-sm font-mono`}
+                value={facility}
+                onChange={(e) => setFacility(e.target.value)}
+                aria-describedby={["facility-hint", errors.facility ? "facility-error" : ""].filter(Boolean).join(" ")}
+              >
+                <option value="">Choose a facility</option>
+                {choice.codes.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="facility"
+                className={`${inputClass} max-w-sm font-mono uppercase`}
+                value={facility}
+                onChange={(e) => setFacility(e.target.value.toUpperCase())}
+                readOnly={choice.kind === "fixed"}
+                placeholder="PHC-KHURDA-01"
+                autoComplete="off"
+                aria-describedby={["facility-hint", errors.facility ? "facility-error" : ""].filter(Boolean).join(" ")}
+              />
+            )}
+          </Field>
+        )}
 
         <fieldset aria-describedby={errors.scenario ? "scenario-error" : undefined} className={errors.scenario ? "border-l-4 border-error pl-3" : ""}>
           <legend className="text-lg font-bold">What kind of visit is this?</legend>
@@ -154,7 +199,7 @@ export default function IntakeHome() {
           </Notice>
         )}
 
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy || choice.kind === "none"}>
           {busy ? "Starting…" : "Start case"} <Icon name="arrowRight" />
         </Button>
       </form>
