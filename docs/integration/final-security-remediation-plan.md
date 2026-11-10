@@ -189,3 +189,15 @@ Residual raised by the council: **the semantics of the negation and temporal fix
   - `*` in `CORS_ALLOWED_ORIGINS`.
 - CORS `allow_credentials=False`.
 - Verified: backend 1469 passed / 14 allowlisted skips.
+
+**Step 6 (V2, F7, V4)**
+- `voice.precheck_upload` checks case access and consent read-only **before the audio body is read**, so a refused upload is never received. The T1 and T2 checks are unchanged.
+- The browser re-reads consent just before upload, and the error message is now accurate.
+- Transcript list and get now share one snapshot with the triage-consent check (F7).
+- New tests:
+  - withdrawn or missing consent plus an oversized body gives 403, not 413;
+  - another user's case gives 404 before the body is read;
+  - a same-key retry after withdrawal gives 403 with no provider call;
+  - no transcript text appears in the logs.
+- The V4 test for withdrawal during the **local** engine needs the local model, so it is not covered; only the cloud mid-flight test exists.
+- Verified: backend 1476 passed / 14 allowlisted skips; frontend 122/122, tsc and eslint clean.

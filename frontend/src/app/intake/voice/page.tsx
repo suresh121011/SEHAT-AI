@@ -393,7 +393,7 @@ function VoiceScreen() {
     const reason = (err.details?.reason as string | undefined) ?? "";
     switch (err.code) {
       case "CONSENT_REQUIRED":
-        return "Consent for this is not in effect. Nothing was sent.";
+        return "Consent for this is not in effect. The recording was refused and nothing was sent to a speech service.";
       case "CONSENT_WITHDRAWN":
         return "Consent changed while processing. The result was discarded.";
       case "CLOUD_STT_UNAVAILABLE":
@@ -425,6 +425,15 @@ function VoiceScreen() {
     setMessage(null);
     setPending({ wav, key });
     try {
+      // Re-check consent right before the audio leaves the browser (V2): it may have been withdrawn on another
+      // screen since this page loaded. The server checks again before reading the audio, and again after VAD.
+      const cv = await api.get<CaseView>(`cases/${caseId}`);
+      setCaseView(cv);
+      if (cv.consent.triage !== "granted" || (selected === "cloud" && cv.consent.voice_cloud !== "granted")) {
+        setPending(null);
+        setMessage("Consent for this is not in effect. The recording was not sent.");
+        return;
+      }
       uploadAbort.current = new AbortController();
       await api.postAudio(`cases/${caseId}/voice/transcriptions?language=${language}&engine=${selected}&idempotency_key=${key}`, wav, uploadAbort.current.signal);
       setPending(null);

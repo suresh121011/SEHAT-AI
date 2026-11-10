@@ -30,6 +30,7 @@ ALLOWED_SKIP_REASONS: tuple[str, ...] = (
 REQUIRED_MODULES: tuple[str, ...] = (
     "tests.voice.test_api",
     "tests.voice.test_schema_consent",
+    "tests.voice.test_consent_precheck",
     "tests.ai.test_encounter_summary",
     "tests.ai.test_encounter_summary_semantics",
     "tests.review.test_verification_queue",
