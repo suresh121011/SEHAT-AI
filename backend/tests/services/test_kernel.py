@@ -103,6 +103,3 @@ def test_safety_guard_plugin():
     rx_check = json.loads(guard_plugin.check_clinical_text(rx_text))
     assert rx_check["is_safe"] is False
     assert rx_check["blocked_reason"] == "prescriptive_language"
-
-
-

@@ -31,7 +31,7 @@ class SehatPlugin:
 
 class TriageRulesPlugin:
     """Deterministic clinical triage plugin.
-    
+
     Invariants:
     - AIIMS, NEWS2, and qSOFA rules are purely deterministic.
     - Urgency cannot be lowered by LLMs; enforce_raise_only protects patient safety.
