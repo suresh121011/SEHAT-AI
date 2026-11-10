@@ -389,6 +389,7 @@ def test_only_two_request_fields_carry_free_text():
                 walk(content["schema"], f"{method.upper()} {p}", set())
     assert sorted(set(long_text)) == ["PATCH /api/v1/triage/{case_id}/override.reason_text", "POST /api/v1/cases/{case_id}/ai/extractions.intake_text",
                                       "POST /api/v1/cases/{case_id}/ai/fields/{field_id}/review.corrected.value",
+                                      "POST /api/v1/cases/{case_id}/interview/answers.text",  # interview answer (≤500, identifier check)
                                       "POST /api/v1/triage/{case_id}/corrections.reason_text"]
 
 

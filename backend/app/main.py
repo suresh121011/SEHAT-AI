@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
 from app import security_events
-from app.routes import ai, audit, auth, cases, health, ocr, patient_identity, patients, review, triage, voice
+from app.routes import ai, audit, auth, cases, health, interview, ocr, patient_identity, patients, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -131,6 +131,7 @@ def create_app() -> FastAPI:
     app.include_router(ai.router, prefix=API_PREFIX)
     app.include_router(patients.router, prefix=API_PREFIX)  # P1 patient registry
     app.include_router(patient_identity.router, prefix=API_PREFIX)  # patient login ↔ patient record binding (hardening A3)
+    app.include_router(interview.router, prefix=API_PREFIX)  # scripted voice interviewer (docs/plans/scripted-voice-interviewer.md)
     return app
 
 

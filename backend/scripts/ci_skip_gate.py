@@ -49,6 +49,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.privacy.test_patient_identity",
     "tests.privacy.test_rate_limit",
     "tests.privacy.test_authz",
+    "tests.interview.test_interview",
 )
 
 MIN_EXECUTED = 1520  # CI-equivalent ran 1527 on 2026-11-10 after the hardening phase (was 1390); raise it as tests are added, never lower it silently

@@ -77,6 +77,7 @@ AuditAction = Literal[
     "rate_limited",
     "access_denied",
     "patient_record_viewed",
+    "interview_answer_recorded",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -376,6 +377,16 @@ class PatientRecordViewedDetails(_Details):
     """A patient viewed their own record list (self-access). Counts only."""
 
     visit_count: int = Field(ge=0)
+
+
+class InterviewAnswerDetails(_Details):
+    """One confirmed interview answer. Keys and enums only: never the answer, the quote or any free text."""
+
+    question_key: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
+    kind: Literal["choice", "text"]
+    source: Literal["typed", "transcript"]
+    speaker: Literal["patient", "caregiver", "anm"]
+    is_unknown: bool
 
 
 class AuditVerifiedDetails(_Details):

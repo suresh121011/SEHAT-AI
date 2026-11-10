@@ -21,7 +21,7 @@ ENGINE_CALLERS = {
 # Modules allowed to import the run writer: intake triage and a reviewer correction, both through the same rules.
 RUN_WRITER_IMPORTERS = {"routes/cases.py", "review_queue.py"}
 # Packages that must never reach the run writer or the review queue.
-NO_TRIAGE_PACKAGES = ("ai", "voice", "ocr", "services", "privacy")
+NO_TRIAGE_PACKAGES = ("ai", "voice", "ocr", "services", "privacy", "interview")
 
 _WRITE_SQL = re.compile(r"\b(INSERT\s+(OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+triage_runs\b", re.IGNORECASE)
 
