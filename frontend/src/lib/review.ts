@@ -140,6 +140,8 @@ export type CaseReview = {
   case: { case_id: string; patient_token: string; scenario: string; facility_code: string; status: string; created_at: string };
   consent: ConsentStates;
   clinical_content_available: boolean;
+  /** Why clinical content is hidden: consent not in effect, or the viewer's role sees metadata only (supervisor). */
+  clinical_hidden_reason?: "consent" | "role" | null;
   can_review: boolean;
   override_reasons: ReasonOption[];
   escalation_window_seconds: number;

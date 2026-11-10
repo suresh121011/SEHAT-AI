@@ -487,13 +487,18 @@ async def case_review(conn: aiosqlite.Connection, principal: Principal, case_id:
             async with conn.execute("SELECT input_json FROM triage_runs WHERE run_id = ?", (runs[0]["run_id"],)) as cur:
                 input_json = (await cur.fetchone())["input_json"]
     consent_triage = snap.effective("triage")
-    clinical_allowed = consent_triage == "granted"
+    # F4 / owner decision D-B (docs/11): supervisors oversee metadata only — urgency, rule ids, escalation and audit
+    # metadata — never the recorded clinical input, result detail, free-text reasons or image findings.
+    metadata_only = principal.role == Role.SUPERVISOR
+    clinical_allowed = consent_triage == "granted" and not metadata_only
+    hidden_reason = None if clinical_allowed else ("role" if metadata_only and consent_triage == "granted" else "consent")
     base = {
         "generated_at": _iso(now),
         "case": {"case_id": case["case_id"], "patient_token": case["patient_token"], "scenario": case["scenario"], "facility_code": case["facility_code"],
                  "status": case["status"], "created_at": case["created_at"]},
         "consent": consent.state_view(snap),
         "clinical_content_available": clinical_allowed,
+        "clinical_hidden_reason": hidden_reason,
         "can_review": principal.role == Role.MEDICAL_OFFICER,
         "override_reasons": [{"code": k, "label": v, "requires_text": k == "other"} for k, v in OVERRIDE_REASONS.items()],
         "correction_reasons": [{"code": k, "label": v, "requires_text": k == "other"} for k, v in CORRECTION_REASONS.items()],

@@ -67,6 +67,7 @@ AuditAction = Literal[
     "patient_registered",
     "patient_linked",
     "patient_unlinked",
+    "patient_lookup",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -309,6 +310,12 @@ class PatientLinkDetails(_Details):
     link_event_id: str
     basis: Literal["new_code", "patient_code"] | None = None  # link: a fresh code, or a code the patient showed
     reason_code: Literal["linked_in_error", "patient_request"] | None = None  # unlink only
+
+
+class PatientLookupDetails(_Details):
+    """The outcome of a patient-code lookup (F6). Never the code, the patient id or anything that locates a patient."""
+
+    result: Literal["found", "not_found", "code_invalid"]
 
 
 class AuditVerifiedDetails(_Details):

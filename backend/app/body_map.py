@@ -20,7 +20,7 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app import audit, consent
-from app.auth import Principal
+from app.auth import Principal, Role
 from app.database import transaction
 
 Region = Literal[
@@ -76,4 +76,8 @@ async def record(conn: aiosqlite.Connection, principal: Principal, case_id: str,
 
 async def read(conn: aiosqlite.Connection, principal: Principal, case_id: str) -> dict:
     await consent.load_case(conn, principal, case_id, "read")
-    return _view(await _latest(conn, case_id))
+    view = _view(await _latest(conn, case_id))
+    # F4 / owner decision D-B: a supervisor sees that a body map was recorded (by whom, when), not the regions.
+    if principal.role == Role.SUPERVISOR:
+        return {**view, "regions": None, "metadata_only": True}
+    return {**view, "metadata_only": False}

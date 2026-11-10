@@ -56,7 +56,7 @@ function ReviewScreen() {
   const [docs, setDocs] = useState<DocReviewed | null>(null);
   const [sourceNotes, setSourceNotes] = useState<string[]>([]);
   const [notes, setNotes] = useState<LocalNotes>({ bodyMap: [], followUps: {} });
-  const [bodyMap, setBodyMap] = useState<{ regions: string[]; recorded_by_role: string | null } | null>(null);
+  const [bodyMap, setBodyMap] = useState<{ regions: string[] | null; recorded_by_role: string | null } | null>(null);
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("edit");
@@ -94,7 +94,7 @@ function ReviewScreen() {
       });
     } else why.push("AI assistance was not agreed, so no AI-extracted values are used.");
     const d = await api.get<DocReviewed>(`cases/${caseId}/documents/reviewed`).catch(() => null);
-    const bm = await api.get<{ regions: string[]; recorded_by_role: string | null }>(`cases/${caseId}/body-map`).catch(() => {
+    const bm = await api.get<{ regions: string[] | null; recorded_by_role: string | null }>(`cases/${caseId}/body-map`).catch(() => {
       why.push("The saved body map could not be loaded.");
       return null;
     });
@@ -473,7 +473,7 @@ function ReviewScreen() {
         <h2 className="text-xl font-bold">Red-flag screen</h2>
         <p className="text-muted">Ask about each sign and tick only those present. Nothing here is ticked for you; AI or document mentions are only reminders.</p>
         {answerHints("red_flag_screen_completed")}
-        {bodyMap && bodyMap.regions.length > 0 && (
+        {bodyMap?.regions && bodyMap.regions.length > 0 && (
           <p className="mt-2 text-sm">
             <SourceTag kind="patient_reported" detail={`Body map saved by the ${roleWords(bodyMap.recorded_by_role)}`} /> Pointed to:{" "}
             <strong>{bodyMap.regions.map(labelOf).join(", ")}</strong>

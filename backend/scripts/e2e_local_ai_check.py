@@ -2,7 +2,7 @@
 
     # terminal 1 (from backend/): ../.venv/bin/python scripts/start_local_llm.py
     # terminal 2:
-    ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-e2e-local.db AI_PROVIDER=local GUARDRAILS_ENABLED=1 AI_TIMEOUT_S=60 \\
+    ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-e2e-local.db AI_PROVIDER=local GUARDRAILS_ENABLED=1 AI_TIMEOUT_S=60 \\
         MEDGEMMA_ENABLED=0 ../.venv/bin/uvicorn app.main:app --port 8101
     # terminal 3:
     ../.venv/bin/python scripts/e2e_local_ai_check.py http://localhost:8101

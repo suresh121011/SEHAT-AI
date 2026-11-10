@@ -26,7 +26,7 @@ function BodyMapScreen() {
     if (!caseId || !triageGranted) return;
     api
       .get<BodyMapView>(`cases/${caseId}/body-map`)
-      .then((v) => setSelected(sanitize(v.regions)))
+      .then((v) => setSelected(sanitize(v.regions ?? [])))  // null for a metadata-only (supervisor) view
       .catch((err) => {
         setSaveError(explainError(err, "Could not load the saved body map. Check the connection and reload."));
         setSelected([]);

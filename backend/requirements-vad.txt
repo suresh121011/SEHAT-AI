@@ -1,0 +1,6 @@
+# Silero VAD only (CI-1): the minimum to run the voice consent, encounter-summary and verification-queue suites with the
+# real VAD, without the speech-recognition models. Pins match requirements-voice.txt. CI installs the CPU-only torch
+# wheel first, from the PyTorch index alone (`--index-url`), so no other package is resolved from that index.
+silero-vad==6.2.3
+onnxruntime==1.20.1
+torch==2.14.0

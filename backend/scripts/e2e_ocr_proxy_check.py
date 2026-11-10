@@ -3,7 +3,7 @@ FastAPI -> the real local OCR engines. NOT a browser: rendering, on-screen highl
 are not covered. Synthetic fixtures only; uses the shared demo accounts; never point it at real data.
 
     # backend (from backend/), with a scratch database:
-    ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-e2e.db OCR_ENABLED=1 OCR_SURYA_ENABLED=1 \
+    ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-e2e.db OCR_ENABLED=1 OCR_SURYA_ENABLED=1 \
       OCR_CHANDRA_ENABLED=1 OCR_RETENTION_DAYS=none OCR_DOCUMENT_DIR=/tmp/sehat-e2e-docs \
       ../.venv/bin/python -m uvicorn app.main:app --port 8000
     # frontend (from frontend/):  npx next dev -p 3100

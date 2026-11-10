@@ -249,6 +249,8 @@ const WITHHELD_REASONS: Record<string, string> = {
   source_not_verified: "Source not verified by a person",
   document_not_matched: "Document not matched to this patient",
   evidence_conflict: "Evidence conflict — sources disagree",
+  negation_or_time_uncertain: "Not established whether this was present, denied or in the past — decide it on the AI review step",
+  polarity_mismatch: "Validation failed: the sentence contradicted whether a symptom was present or denied",
   uncited_or_unknown_fact: "Validation failed: the sentence did not cite a recorded fact",
   number_not_in_cited_facts: "Validation failed: a number did not match its source",
   unchecked_document_value_in_prose: "Validation failed: it used a document value nobody has checked",

@@ -3,7 +3,7 @@ FastAPI. NOT a browser test: it does not render pages or run client JavaScript (
 countdown need the manual/browser walkthrough in docs/17 §9). Synthetic values only; shared demo accounts; never
 point it at real data. Seeds RED, YELLOW and GREEN cases, so use a scratch database.
 
-    # backend (from backend/):  ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-review.db AI_PROVIDER=fake ../.venv/bin/python -m uvicorn app.main:app --port 8000
+    # backend (from backend/):  ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-review.db AI_PROVIDER=fake ../.venv/bin/python -m uvicorn app.main:app --port 8000
     # frontend (from frontend/): npx next dev -p 3000
     # then (from backend/):      ../.venv/bin/python scripts/e2e_review_ui_check.py [http://localhost:3000]
 """

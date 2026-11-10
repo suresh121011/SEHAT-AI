@@ -119,6 +119,22 @@ async def _load_for_view(conn, principal: Principal, case_id: str):
 # ── transcription ────────────────────────────────────────────────────────────────────────────────
 
 
+async def precheck_upload(conn: aiosqlite.Connection, principal: Principal, case_id: str, engine: EngineName, request_id: str | None = None) -> None:
+    """Read-only access and consent check BEFORE the audio body is read (V2): a refused upload is never received. The
+    authoritative checks still run again in `transcribe` (T1, under the write lock) and after VAD (T2)."""
+    purposes = ("triage", "voice_cloud") if engine == "cloud" else ("triage",)
+    denial: consent.ConsentNotEffective | None = None
+    async with read_transaction(conn):
+        await consent.load_case(conn, principal, case_id, "write")
+        try:
+            for p in purposes:
+                await consent.require(conn, case_id, p)
+        except consent.ConsentNotEffective as exc:
+            denial = exc
+    if denial is not None:
+        raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
+
+
 async def transcribe(
     conn: aiosqlite.Connection,
     principal: Principal,
@@ -347,29 +363,40 @@ async def transcription_view(conn, transcription_id: str) -> dict:
     }
 
 
-async def _require_triage_for_read(conn, principal, case_id: str, request_id: str | None) -> None:
+async def _triage_denial(conn, principal, case_id: str) -> consent.ConsentNotEffective | None:
     """Transcripts are shown only while triage consent is in effect (withdrawal stops further use;
     the stored rows are kept, as the notice says, until retention/deletion is implemented)."""
     await _load_for_view(conn, principal, case_id)
     snap = await consent.snapshot(conn, case_id)
-    if not snap.is_effective("triage"):
-        state = snap.effective("triage")
-        raise await consent.audit_denied(conn, principal, case_id, consent.ConsentNotEffective("triage", "not_provided" if state == "granted" else state), request_id)
+    if snap.is_effective("triage"):
+        return None
+    state = snap.effective("triage")
+    return consent.ConsentNotEffective("triage", "not_provided" if state == "granted" else state)
 
 
 async def get_transcription(conn, principal, case_id: str, transcription_id: str, request_id: str | None = None) -> dict:
-    await _require_triage_for_read(conn, principal, case_id, request_id)
-    view = await transcription_view(conn, transcription_id)
+    # The consent check and the read share one snapshot (F7): a withdrawal cannot land between them.
+    async with read_transaction(conn):
+        denial = await _triage_denial(conn, principal, case_id)
+        view = None if denial else await transcription_view(conn, transcription_id)
+    if denial is not None:
+        raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
     if view["case_id"] != case_id:
         raise not_found()
     return view
 
 
 async def list_transcriptions(conn, principal, case_id: str, request_id: str | None = None) -> list[dict]:
-    await _require_triage_for_read(conn, principal, case_id, request_id)
-    async with conn.execute("SELECT transcription_id FROM voice_transcriptions WHERE case_id = ? ORDER BY created_at", (case_id,)) as cur:
-        ids = [r["transcription_id"] for r in await cur.fetchall()]
-    return [await transcription_view(conn, i) for i in ids]
+    async with read_transaction(conn):
+        denial = await _triage_denial(conn, principal, case_id)
+        views = []
+        if denial is None:
+            async with conn.execute("SELECT transcription_id FROM voice_transcriptions WHERE case_id = ? ORDER BY created_at", (case_id,)) as cur:
+                ids = [r["transcription_id"] for r in await cur.fetchall()]
+            views = [await transcription_view(conn, i) for i in ids]
+    if denial is not None:
+        raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
+    return views
 
 
 # ── read-back decisions ──────────────────────────────────────────────────────────────────────────

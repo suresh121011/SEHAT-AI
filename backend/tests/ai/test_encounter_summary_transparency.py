@@ -184,4 +184,4 @@ def test_nothing_pending_is_not_reported_as_ready_when_there_is_no_evidence(ocr_
 
 
 def test_schema_version_changes_the_inventory_so_old_snapshots_go_stale():
-    assert es.SUMMARY_SCHEMA_VERSION.endswith(".2")
+    assert es.SUMMARY_SCHEMA_VERSION.endswith(".3")  # .3 (S1-S4): summaries built with the old wording go stale

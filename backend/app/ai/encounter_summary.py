@@ -40,7 +40,7 @@ from app.errors import ApiError, not_found
 from app.rules import TriageInput, TriageResult
 from app.rules.required_fields import missing as required_missing
 
-SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-04.2"  # .2: unmatched_documents, withheld, evidence_status (H1-3)
+SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-10.3"  # .3: uncertain negation withheld, polarity gate, neutral attribution (S1-S4)
 DISCLAIMER = ("AI-assisted draft assembled from recorded sources, pending review by a qualified clinician. Not a diagnosis. "
               "Urgency is the rules engine's. Research prototype, not a clinically validated device.")
 log = logging.getLogger(__name__)
@@ -68,6 +68,16 @@ TRUST_LEGEND = {
     "entered": "Typed or marked directly by a health worker (or the patient, for the body map); not machine-read.",
     "unchecked": "Read by a machine (speech, OCR or AI) and not yet checked by a person. Do not rely on it until checked.",
 }
+
+# Grounding/keyword flags meaning "the polarity or time of this mention is not established" (grounding._negation,
+# redflag_keywords). While no person has decided the field, such a fact stays in the tables and out of the prose: written
+# as "reported" it could state a denied symptom as present; written as "denied" it could hide a present one (S1).
+UNCERTAIN_FLAGS = ("negation_conflict", "negation_unsupported", "past_history_cue", "temporal_reference")
+
+
+def uncertain(f: "Fact") -> bool:
+    return any(x in UNCERTAIN_FLAGS for x in f.flags)
+
 
 Section = Literal["presenting_problem", "timeline", "symptoms", "vitals", "labs", "medications", "body_map", "red_flags", "context"]
 
@@ -286,6 +296,7 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
         if not decided and not (rv is not None and rv["outcome"] == "unsure"):
             out["pending"].append({"kind": "ai_field", "ref": f["field_id"], "label": f["field"], "state": "not_yet_checked",
                                    "action": "Check this AI-extracted value against what the patient said."})
+        hold = [] if decided else [x for x in f["flags"] if x in UNCERTAIN_FLAGS]  # a person's decision settles it
         sources = [{"type": "ai_field", "field_id": f["field_id"], "extraction_id": r["run_id"], "origin": f["origin"],
                     "evidence": [{"segment_id": e.get("segment_id"), "quote": e.get("quote"), "source": e.get("source")} for e in f["evidence"]]}]
         key = f["field"].split("#")[0]
@@ -328,15 +339,15 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
                 b.add("labs" if name != "pain_severity" else "context", name, label, f"{_num(v['value'])}{unit}", v, prov, sources,
                       merge_key=[v["value"], v.get("unit")])
         elif kind == "symptom":
-            b.add("symptoms", f"symptom:{v['name'].lower()}:{'denied' if v['negated'] else 'present'}", v["name"], v["name"], v, prov, sources,
+            b.add("symptoms", f"symptom:{v['name'].lower()}:{'denied' if v['negated'] else 'present'}", v["name"], v["name"], v, prov, sources, hold,
                   merge_key=[v["name"].lower(), v["negated"]])
         elif kind == "medication":
             extra = " ".join(p for p in (v.get("dose"), v.get("frequency")) if p)
-            b.add("medications", f"reported:{v['name'].lower()}", "Reported by patient", f"{v['name']}{' ' + extra if extra else ''}", v, prov, sources,
+            b.add("medications", f"reported:{v['name'].lower()}", "Reported by patient", f"{v['name']}{' ' + extra if extra else ''}", v, prov, sources, hold,
                   merge_key=[v["name"].lower(), v.get("dose"), v.get("frequency")])
         elif kind == "red_flag":
             flag = key.split(":", 1)[1].replace("_", " ")
-            b.add("red_flags", f"red_flag:{flag}:{'denied' if v['negated'] else 'mentioned'}", flag, flag, v, prov, sources, merge_key=[flag, v["negated"]])
+            b.add("red_flags", f"red_flag:{flag}:{'denied' if v['negated'] else 'mentioned'}", flag, flag, v, prov, sources, hold, merge_key=[flag, v["negated"]])
     # A duration is tied to one symptom only when exactly one reported (not denied) symptom comes from the same sentence.
     for fid, run_id, seg_ids in durations:
         same = [f for f in b.facts.values() if f.section == "symptoms" and f.key.endswith(":present")
@@ -720,7 +731,7 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     out: list[dict] = []
 
     def ok(fid: str) -> bool:
-        return PROVENANCE[facts[fid].provenance]["narrative"]
+        return PROVENANCE[facts[fid].provenance]["narrative"] and not uncertain(facts[fid])
 
     pp = [fid for fid in s["presenting_problem"] if ok(fid)]
     if pp:
@@ -750,9 +761,9 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     present = [fid for fid in s["symptoms"]["present"] if ok(fid)]
     denied = [fid for fid in s["symptoms"]["denied"] if ok(fid)]
     if present:
-        out.append({"section": "symptoms", "fact_ids": present, "text": "Patient reports: " + ", ".join(_tagged(facts[f], facts[f].display) for f in present) + "."})
+        out.append({"section": "symptoms", "fact_ids": present, "text": "Reported at intake: " + ", ".join(_tagged(facts[f], facts[f].display) for f in present) + "."})
     if denied:
-        out.append({"section": "symptoms", "fact_ids": denied, "text": "Patient denies: " + ", ".join(_tagged(facts[f], facts[f].display) for f in denied) + "."})
+        out.append({"section": "symptoms", "fact_ids": denied, "text": "Denied at intake: " + ", ".join(_tagged(facts[f], facts[f].display) for f in denied) + "."})
     vit = [r for r in s["vitals"] if not r.conflict and r.display]
     if vit:
         parts, ids = [], []
@@ -806,6 +817,29 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     return out
 
 
+_REPORTED, _DENIED = "reported at intake", "denied at intake"
+
+
+def _polarity_mismatch(text: str, cited: list[Fact]) -> bool:
+    """A "reported" sentence citing a denied fact, or a "denied" sentence citing a present one (S3)."""
+    t = text.lower()
+    if t.startswith(_REPORTED):
+        return any(f.key.endswith(":denied") for f in cited)
+    if t.startswith(_DENIED):
+        return any(f.key.endswith((":present", ":mentioned", ":ticked")) for f in cited)
+    return False
+
+
+def _missing_tag(text: str, cited: list[Fact]) -> bool:
+    """Each cited unchecked fact needs its own tag: one tag in a list of three unchecked values is not enough (S3)."""
+    need: dict[str, int] = {}
+    for f in cited:
+        tag = PROVENANCE[f.provenance]["tag"].strip()
+        if tag:
+            need[tag] = need.get(tag, 0) + 1
+    return any(text.count(tag) < n for tag, n in need.items())
+
+
 def gate(sentences: list[dict], facts: dict[str, Fact]) -> tuple[list[Sentence], list[Blocked]]:
     """Every check runs on every sentence; a failing sentence is never repaired, only listed as blocked."""
     passed, blocked = [], []
@@ -823,7 +857,11 @@ def gate(sentences: list[dict], facts: dict[str, Fact]) -> tuple[list[Sentence],
                 reason = "number_not_in_cited_facts"
             elif any(not PROVENANCE[f.provenance]["narrative"] for f in cited):
                 reason = "unchecked_document_value_in_prose"
-            elif shows_values and any(PROVENANCE[f.provenance]["tag"] and PROVENANCE[f.provenance]["tag"].strip() not in s["text"] for f in cited):
+            elif _polarity_mismatch(s["text"], cited):
+                reason = "polarity_mismatch"
+            elif shows_values and any(uncertain(f) for f in cited):
+                reason = "negation_or_time_uncertain"
+            elif shows_values and _missing_tag(s["text"], cited):
                 reason = "missing_unchecked_tag"
             else:
                 reason = guard.check(s["text"])
@@ -873,6 +911,9 @@ def withheld_items(s: dict, facts: dict[str, Fact], blocked: list[Blocked], unma
     for fid in s["medications"]:
         if not PROVENANCE[facts[fid].provenance]["narrative"]:
             out.append({"kind": "fact", "section": "medications", "reason": "source_not_verified", "fact_ids": [fid]})
+    for f in facts.values():
+        if uncertain(f) and PROVENANCE[f.provenance]["narrative"]:
+            out.append({"kind": "fact", "section": f.section, "reason": "negation_or_time_uncertain", "fact_ids": [f.fact_id]})
     for c in s["conflicts"]:
         if c["key"] == "duration":
             out.append({"kind": "fact", "section": "timeline", "reason": "evidence_conflict", "fact_ids": c["fact_ids"]})

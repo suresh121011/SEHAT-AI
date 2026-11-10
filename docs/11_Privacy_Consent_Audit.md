@@ -22,7 +22,7 @@
 | Notice | Versioned and served by the backend in **en** (`project_draft`) and **hi/or** (`draft_unreviewed_translation`). The version and review status are stored with each consent event. | `app/consent_notice.py` |
 | PII redaction | Presidio analyzer, `en_core_web_sm`, and heuristic India recognizers. It fails closed. **This is risk reduction, not anonymization.** | `app/privacy/pii.py` |
 | LLM boundary | One gateway. Adapters accept only `RedactedText`. Consent is re-checked before output is returned. **There is no live LLM in Phase 3.** | `app/privacy/gateway.py`, `adapters.py` |
-| Audit log | Application-level, append-only, hash-chained, **tamper-evident (not immutable)**. Only supervisors can read it. | `app/audit.py`, `GET /audit/{case_id}`, `POST /audit/verify` |
+| Audit log | Application-level, append-only, hash-chained, **tamper-evident (not immutable)**. Supervisors read it; a medical officer's case review shows that case's rows without `actor_id` or details. | `app/audit.py`, `GET /audit/{case_id}`, `POST /audit/verify` |
 | Error hygiene | Outermost `SafeErrorMiddleware`, fixed validation messages, request IDs accepted only as UUIDs, `hide_input_in_errors`. | `app/errors.py`, `app/main.py` |
 | Migrations | `PRAGMA user_version` steps, each atomic, additive only (legacy tables kept). | `app/database.py` |
 | Frontend | Start-case page and consent page: language selector, draft banner, read-aloud that only uses a voice matching the selected language, patient and ANM variants, purpose-specific withdrawal. | `frontend/src/app/intake/` |
@@ -82,6 +82,10 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
 - **Record or withdraw consent:** the account that created the case.
 - **Case triage:** the ANM who created the case, or any medical officer.
 - **Read:** the creator, the ANM who took over a patient-started case (§3a), a medical officer or a supervisor.
+- **Supervisors see metadata only** (owner decision D-B, 2026-11-10):
+  - **They see:** the urgency, rule ids, escalation state, consent states and audit metadata.
+  - **They do not see:** the recorded triage input, the engine's result detail, field provenance, free-text review reasons, image findings or body-map regions. The case review returns `clinical_hidden_reason: "role"`, and the body map returns `regions: null, metadata_only: true`.
+- **Facility isolation fails closed** (owner decision D-A, 2026-11-10). The backend refuses to start without `ACCOUNT_FACILITIES`, unless `ALLOW_UNSCOPED_DEMO=true` is set explicitly.
 - **Everyone else, and unknown case IDs,** get an identical 404, and no audit row is written for them.
 - **Limitation:** demo accounts are shared (every `patient_demo` user has the same `user_id`), so these rules demonstrate the authorization *code*, not separation between real people.
 
@@ -141,7 +145,10 @@ Plain ASCII clinical text is passed through byte-for-byte: this is tested with "
 - **Row contents:** `seq`, `event_id`, `timestamp`, `actor_id`, `actor_role`, `action`, `case_id`, `outcome`, `request_id`, typed `details` and a SHA-256 chain (`previous_hash` + canonical row → `current_hash`; genesis `"0"*64`).
 - **Atomic with the change:** events are written inside the same transaction as the change they describe. If the audit write fails, the change rolls back.
 - **Personal data:** details avoid direct identifiers and raw clinical content by design (counts, rule IDs, enums). But `actor_id`, `case_id`, `request_id` and timestamps **make events linkable to accounts and cases and may still be personal data**.
-- **Access:** only supervisors can read, and reads omit `actor_id`. There is no update or delete endpoint.
+- **Access:**
+  - Supervisors read the audit log (`GET /audit/{case_id}`, `POST /audit/verify`).
+  - A medical officer's case review also lists that case's audit rows: `seq`, `timestamp`, `actor_role`, `action` and `outcome` only.
+  - Reads omit `actor_id`. There is no update or delete endpoint.
 - **Retention:** 1 year is the target policy (doc 04). It is **not enforced in Phase 3**, because the append-only triggers block deletion. An archival migration is future work.
 - **Append-only:** SQLite triggers reject UPDATE and DELETE on `audit_log`, `consent_events` and `triage_runs`.
 - **What verification catches:** `POST /audit/verify` detects edited rows, deleted middle rows, broken links and altered hashes. It writes one `audit_verified` event, which the next verification covers.

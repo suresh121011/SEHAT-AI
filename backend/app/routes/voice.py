@@ -104,6 +104,7 @@ async def create_transcription(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict[str, Any]:
     service.check_engine(settings, engine, language)  # fail fast before reading audio
+    await service.precheck_upload(db, principal, str(case_id), engine, _rid(request))  # access + consent before the body (V2)
     body = await _read_capped(request, max_bytes(settings.voice_max_seconds))
     clip = validate_wav(body, settings.voice_max_seconds)
     del body

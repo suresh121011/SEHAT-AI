@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import Role, create_access_token
 from app.config import get_settings
+from app.consent_notice import NOTICE_VERSION
 from tests.privacy.helpers import auth, grant, token_for, triage
 
 API = "/api/v1"
@@ -99,6 +100,84 @@ def case_requests(cid: str, run_id: str, triage_body: dict) -> list[tuple[str, s
         ("POST", f"/cases/{cid}/encounter-summary", None),
         ("GET", f"/cases/{cid}/patient", None),
     ]
+
+
+def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]]:
+    """F3 (final remediation plan): every other case-scoped route; `oid` is an object id that belongs to no case."""
+    return [
+        ("GET", f"/cases/{cid}/body-map", None),
+        ("PUT", f"/cases/{cid}/body-map", {"regions": []}),
+        ("POST", f"/cases/{cid}/consent", {"decision": "grant", "include_ai_assist": False, "include_voice_cloud": False, "language": "en", "notice_version": NOTICE_VERSION}),
+        ("POST", f"/cases/{cid}/consent/withdraw", {"purpose": "triage"}),
+        ("GET", f"/cases/{cid}/voice/transcriptions/{oid}", None),
+        ("POST", f"/cases/{cid}/voice/candidates/{oid}/readback", {"outcome": "confirmed"}),
+        ("POST", f"/cases/{cid}/voice/candidates/{oid}/tts", None),
+        ("GET", f"/cases/{cid}/medical-images", None),
+        ("GET", f"/cases/{cid}/medical-images/{oid}/image", None),
+        ("POST", f"/cases/{cid}/medical-images/{oid}/acknowledge", {}),
+        ("DELETE", f"/cases/{cid}/medical-images/{oid}", None),
+        ("GET", f"/cases/{cid}/documents/{oid}", None),
+        ("GET", f"/cases/{cid}/documents/{oid}/pages/0/image", None),
+        ("POST", f"/cases/{cid}/documents/{oid}/attestation", {"answer": "matches"}),
+        ("POST", f"/cases/{cid}/documents/fields/{oid}/review", {"outcome": "confirmed", "shown_png_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "shown_regions_sha256": "0000000000000000000000000000000000000000000000000000000000000000"}),
+        ("DELETE", f"/cases/{cid}/documents/{oid}", None),
+        ("GET", f"/cases/{cid}/ai/extractions/{oid}", None),
+        ("POST", f"/cases/{cid}/ai/notes", {"extraction_id": oid}),
+        ("GET", f"/cases/{cid}/encounter-summary/history", None),
+        ("POST", f"/cases/{cid}/encounter-summary/{oid}/review", {"outcome": "accepted"}),
+        ("POST", f"/cases/{cid}/patient/new", None),
+        ("POST", f"/cases/{cid}/patient/lookup", {"patient_code": "SP-ABCD-EFGH"}),
+        ("POST", f"/cases/{cid}/patient/link", {"patient_code": "SP-ABCD-EFGH", "confirm": True}),
+        ("POST", f"/cases/{cid}/patient/unlink", {"reason_code": "linked_in_error", "confirm": True}),
+    ]
+
+
+# Case-scoped routes deliberately not in `case_requests`, and why. Every other case route must be listed above.
+NOT_FACILITY_PROBED = {
+    ("GET", "/audit/{case_id}"): "supervisor-only; the medical officer probe gets 403 by role before any case lookup",
+    ("POST", "/cases/{case_id}/voice/transcriptions"): "audio upload; covered by tests/voice/test_consent_precheck.py",
+}
+
+
+def test_every_case_scoped_route_is_probed_for_facility_isolation(iso):
+    """F3: a new case route cannot ship without the cross-facility / missing-case 404 check."""
+    import re
+
+    from tests.privacy.test_remediation_guards import _routes
+
+    cid = str(uuid.uuid4())
+    listed = {(m, re.sub(r"/[0-9a-f-]{36}", "/{id}", p).replace("/0/image", "/{id}/image"))
+              for m, p, _ in case_requests(cid, str(uuid.uuid4()), {}) + extra_case_requests(cid, str(uuid.uuid4()))}
+    missing = []
+    for r in _routes(iso.app.routes):
+        path = getattr(r, "path", "")
+        if "{case_id}" not in path:
+            continue
+        rel = path.removeprefix("/api/v1")
+        for m in getattr(r, "methods", None) or ():
+            if (m, rel) in NOT_FACILITY_PROBED:
+                continue
+            if (m, re.sub(r"\{[a-z_]+\}", "{id}", rel)) not in listed:
+                missing.append(f"{m} {rel}")
+    assert missing == [], missing
+
+
+def test_other_routes_answer_another_facilitys_case_exactly_like_a_missing_one(iso):
+    """F3: no existence oracle and no access. A refusal that comes before any case lookup (403 by role, 503 for a
+    switched-off feature) is identical for both, so it reveals nothing."""
+    anm, mo = token_for(iso, "anm"), token_for(iso, "mo")
+    cid_b, _ = seed(iso, anm, B, RED)
+    tables = ("review_events", "triage_runs", "consent_events", "body_map_events", "patient_link_events", "encounter_summary_review_events")
+    before = [rows(f"SELECT COUNT(*) FROM {t}")[0][0] for t in tables]
+    oid = str(uuid.uuid4())
+    for (method, path, b), (_, mpath, mb) in zip(extra_case_requests(cid_b, oid), extra_case_requests(str(uuid.uuid4()), oid)):
+        got, want = _err(call(iso, mo, method, path, b)), _err(call(iso, mo, method, mpath, mb))
+        assert got == want and got[0] in (403, 404, 503), (method, path, got, want)
+        if got[0] == 403:  # a staff-only route the MO may not call: probe it as an ANM outside facility B
+            out = token_for(iso, "anm_other")  # not in ACCOUNT_FACILITIES: no facility at all
+            got, want = _err(call(iso, out, method, path, b)), _err(call(iso, out, method, mpath, mb))
+            assert got == want == (404, "NOT_FOUND", "Resource not found"), (method, path, got, want)
+    assert [rows(f"SELECT COUNT(*) FROM {t}")[0][0] for t in tables] == before
 
 
 def call(client, tok, method, path, body, headers=None):

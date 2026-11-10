@@ -8,11 +8,14 @@ from fastapi.testclient import TestClient
 _LIVE = any(k.startswith(("SEHAT_LIVE_", "RUN_LIVE_")) and os.environ[k] == "1" for k in os.environ)
 _SETTINGS_PREFIXES = ("AI_", "AZURE_OPENAI_", "GOOGLE_AI_", "GUARDRAILS_", "JWT_", "LOCAL_LLM_", "MEDGEMMA_", "OCR_", "SARVAM_",
                       "TRANSLATION_", "VOICE_")
-_SETTINGS_NAMES = ("ACCOUNT_FACILITIES", "CORS_ALLOWED_ORIGINS", "DATABASE_PATH", "ENVIRONMENT", "LOG_LEVEL")
+_SETTINGS_NAMES = ("ACCOUNT_FACILITIES", "ALLOW_UNSCOPED_DEMO", "CORS_ALLOWED_ORIGINS", "DATABASE_PATH", "ENVIRONMENT", "LOG_LEVEL")
 if not _LIVE:
     os.environ["SEHAT_DOTENV"] = "0"
     for _k in [k for k in os.environ if k.startswith(_SETTINGS_PREFIXES) or k in _SETTINGS_NAMES]:
         del os.environ[_k]
+# Most tests exercise one facility with isolation off, so they opt out explicitly (F2 fails closed otherwise). Tests of
+# isolation set ACCOUNT_FACILITIES; tests of the refusal delete this variable.
+os.environ["ALLOW_UNSCOPED_DEMO"] = "true"
 
 
 @pytest.fixture

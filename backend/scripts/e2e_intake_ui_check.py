@@ -3,7 +3,7 @@ NOT a browser test: it does not render pages or run client JavaScript (layout, f
 manual walkthrough). Synthetic text only; shared demo accounts; never point it at real data.
 
     # backend (from backend/), scratch database, fake AI provider:
-    ENVIRONMENT=development DATABASE_PATH=/tmp/sehat-ui.db AI_PROVIDER=fake ../.venv/bin/python -m uvicorn app.main:app --port 8000
+    ENVIRONMENT=development ALLOW_UNSCOPED_DEMO=true DATABASE_PATH=/tmp/sehat-ui.db AI_PROVIDER=fake ../.venv/bin/python -m uvicorn app.main:app --port 8000
     # frontend (from frontend/):  npx next dev -p 3000
     #   (Not `next start`: in production the session cookie is Secure, which browsers accept on http://localhost
     #    but this HTTP client does not send over plain http.)

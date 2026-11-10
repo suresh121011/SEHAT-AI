@@ -53,7 +53,8 @@ All are under `/api/v1/cases/{case_id}/patient` (`routes/patients.py`, logic in 
 
 - **Scope:** a code issued in a facility outside the account's `ACCOUNT_FACILITIES` scope gets the **same 404 as an unknown code**, so a code reveals nothing about other facilities.
 - **Other visits** are listed with date, facility and scenario only. A visit is listed only if the viewer passes `load_case` read access for it **and** that visit's own `link_visits` consent is still granted. Opening one goes through that visit's normal screens, consent and access checks.
-- **Audit:** `patient_registered`, `patient_linked` and `patient_unlinked`, using the typed `PatientLinkDetails` (patient id, link event id, basis or reason enum). **The code itself is never written to the audit log.** A refusal for missing consent is recorded with `audit_denied`.
+- **Audit:** `patient_registered`, `patient_linked` and `patient_unlinked`, using the typed `PatientLinkDetails` (patient id, link event id, basis or reason enum).
+- **Lookups are audited** (2026-11-10, final remediation F6): every `lookup` writes `patient_lookup` with `PatientLookupDetails(result=found|not_found|code_invalid)`. The outcome is `success` or `failure`. No code and no patient id are recorded. Lookups are **not rate-limited** yet (residual). **The code itself is never written to the audit log.** A refusal for missing consent is recorded with `audit_denied`.
 - **Triage is untouched:** no registry action writes a triage row, and nothing from another visit feeds the rules engine or the urgency.
 
 ## 6. User interface

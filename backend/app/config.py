@@ -65,10 +65,10 @@ class Settings:
     log_level: str
     database_path: Path
     cors_allowed_origins: list[str]
-    jwt_secret_key: str
+    jwt_secret_key: str = field(repr=False)  # never printed (S-1)
     jwt_algorithm: str
     jwt_expire_minutes: int
-    azure_openai_api_key: str
+    azure_openai_api_key: str = field(repr=False)  # never printed (S-1)
     azure_openai_endpoint: str
     azure_openai_deployment_name: str
     azure_openai_api_version: str
@@ -166,15 +166,31 @@ def get_settings() -> Settings:
         jwt_secret = secrets.token_urlsafe(48)
         logger.warning("JWT_SECRET_KEY not set; using an ephemeral development secret")
 
+    if len(jwt_secret.encode()) < 32:  # S-2: HS256 needs at least a 256-bit key; never echo the value
+        raise RuntimeError("JWT_SECRET_KEY must be at least 32 bytes (run backend/scripts/rotate_jwt_secret.py)")
+    jwt_algorithm = _env("JWT_ALGORITHM", "HS256")
+    if jwt_algorithm not in ("HS256", "HS384", "HS512"):
+        raise RuntimeError("JWT_ALGORITHM must be HS256, HS384 or HS512")
+    cors = [o.strip() for o in _env("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+    if "*" in cors:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS must list exact origins, not *")
+
+    # F2 / owner decision D-A: facility isolation fails closed. Running every account across every facility must be
+    # an explicit choice (ALLOW_UNSCOPED_DEMO=true), never the silent default.
+    account_facilities = _account_facilities(_env("ACCOUNT_FACILITIES"))
+    if account_facilities is None and not _flag("ALLOW_UNSCOPED_DEMO"):
+        raise RuntimeError("facility isolation is off: set ACCOUNT_FACILITIES (see .env.example), or ALLOW_UNSCOPED_DEMO=true "
+                           "to run an unscoped single-facility demo knowingly")
+
     db_path = _path(_env("DATABASE_PATH", "./sehat.db"))
 
     return Settings(
         environment=environment,
         log_level=_env("LOG_LEVEL", "INFO"),
         database_path=db_path,
-        cors_allowed_origins=[o.strip() for o in _env("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()],
+        cors_allowed_origins=cors,
         jwt_secret_key=jwt_secret,
-        jwt_algorithm=_env("JWT_ALGORITHM", "HS256"),
+        jwt_algorithm=jwt_algorithm,
         jwt_expire_minutes=int(_env("JWT_EXPIRE_MINUTES", "1440")),
         azure_openai_api_key=_env("AZURE_OPENAI_API_KEY"),
         azure_openai_endpoint=_env("AZURE_OPENAI_ENDPOINT"),
@@ -202,7 +218,7 @@ def get_settings() -> Settings:
         ocr_retention_days=_retention_days(_flag("OCR_ENABLED"), _env("OCR_RETENTION_DAYS")),
         **_ai_settings(),
         **_medgemma_settings(_flag("OCR_ENABLED")),
-        account_facilities=_account_facilities(_env("ACCOUNT_FACILITIES")),
+        account_facilities=account_facilities,
     )
 
 
