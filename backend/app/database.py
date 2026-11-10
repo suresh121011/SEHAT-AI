@@ -802,11 +802,42 @@ RATE_LIMIT_STATEMENTS: tuple[str, ...] = (
 )""",
 )
 
+# ── Step 18: scripted voice interviewer answers (docs/plans/scripted-voice-interviewer.md) ─────────────────────────
+# Append-only: the latest event per (case, question) counts. A choice from the fixed options or short text, typed or
+# taken from a transcript of THIS case (with the character span), with the speaker the health worker chose and the
+# triage-consent sequence in effect. Nothing here is ever an urgency, a vital sign or a completed screen.
+INTERVIEW_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE interview_answer_events (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id          TEXT NOT NULL UNIQUE,
+    case_id           TEXT NOT NULL REFERENCES cases(case_id),
+    question_key      TEXT NOT NULL,
+    script_version    TEXT NOT NULL,
+    kind              TEXT NOT NULL CHECK (kind IN ('choice', 'text')),
+    choice_value      TEXT,
+    text_value        TEXT CHECK (text_value IS NULL OR length(text_value) BETWEEN 1 AND 500),
+    source            TEXT NOT NULL CHECK (source IN ('typed', 'transcript')),
+    transcription_id  TEXT REFERENCES voice_transcriptions(transcription_id),
+    char_start        INTEGER,
+    char_end          INTEGER,
+    speaker           TEXT NOT NULL CHECK (speaker IN ('patient', 'caregiver', 'anm')),
+    consent_seq       INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id          TEXT NOT NULL,
+    actor_role        TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    CHECK ((kind = 'choice' AND choice_value IS NOT NULL AND text_value IS NULL) OR (kind = 'text' AND text_value IS NOT NULL AND choice_value IS NULL)),
+    CHECK ((source = 'transcript') = (transcription_id IS NOT NULL)),
+    CHECK ((transcription_id IS NULL AND char_start IS NULL AND char_end IS NULL) OR (char_start >= 0 AND char_end > char_start))
+)""",
+    "CREATE INDEX idx_interview_answers_case ON interview_answer_events(case_id, question_key, seq)",
+    *_append_only("interview_answer_events"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
                                            KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS,
                                            SESSION_STATEMENTS, PATIENT_IDENTITY_STATEMENTS,
-                                           RATE_LIMIT_STATEMENTS)
+                                           RATE_LIMIT_STATEMENTS, INTERVIEW_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before
