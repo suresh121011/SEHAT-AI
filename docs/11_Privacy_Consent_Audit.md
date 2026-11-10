@@ -86,8 +86,15 @@ Browser (httpOnly JWT) → /api/backend proxy → SafeErrorMiddleware → FastAP
   - **They see:** the urgency, rule ids, escalation state, consent states and audit metadata.
   - **They do not see:** the recorded triage input, the engine's result detail, field provenance, free-text review reasons, image findings or body-map regions. The case review returns `clinical_hidden_reason: "role"`, and the body map returns `regions: null, metadata_only: true`.
 - **Facility isolation fails closed** (owner decision D-A, 2026-11-10). The backend refuses to start without `ACCOUNT_FACILITIES`, unless `ALLOW_UNSCOPED_DEMO=true` is set explicitly.
-- **Everyone else, and unknown case IDs,** get an identical 404, and no audit row is written for them.
-- **Limitation:** demo accounts are shared (every `patient_demo` user has the same `user_id`), so these rules demonstrate the authorization *code*, not separation between real people.
+- **Everyone else, and unknown case IDs,** get an identical 404.
+  - A refusal for a case that **exists** writes one `access_denied` audit event (reason `facility_scope` or `not_permitted`) after the request ends. The caller sees nothing different.
+  - An unknown id writes nothing. This changed on 2026-11-10 with post-remediation hardening A5; previously no row was written for either.
+- **Limitation (demo mode only):** demo accounts are shared (every `patient_demo` user has the same `user_id`), so these rules demonstrate the authorization *code*, not separation between real people.
+- **With `AUTH_MODE=oidc`:**
+  - Every login is one provider identity.
+  - A patient reads only visits linked to the record their login was explicitly bound to (an ANM-issued, single-use code), and only while each visit's `link_visits` consent is in effect.
+  - Sessions are server-side and revocable.
+  - See `docs/security/post-remediation-hardening.md`.
 
 ### 3a. Patient-to-health-worker handover (2026-10-10)
 

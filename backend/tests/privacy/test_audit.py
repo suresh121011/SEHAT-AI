@@ -28,8 +28,8 @@ def populated(client):
     return cid
 
 
-def _verify(client):
-    return client.post("/api/v1/audit/verify", headers=auth(token_for(client, "supervisor")))
+def _verify(client, token=None):
+    return client.post("/api/v1/audit/verify", headers=auth(token or token_for(client, "supervisor")))
 
 
 def _admin_edit(sql: str, params=()):
@@ -50,12 +50,13 @@ def test_events_capture_actor_from_token_and_no_raw_content(client, populated):
 
 
 def test_chain_verifies_and_verify_does_not_cover_itself(client, populated):
+    sup = token_for(client, "supervisor")  # log in first: a login is itself an audited event
     before = len(audit_rows(client))
-    body = _verify(client).json()
+    body = _verify(client, sup).json()
     assert body == {"ok": True, "verified_through_seq": before, "first_bad_seq": None}
     rows = audit_rows(client)
     assert rows[-1]["action"] == "audit_verified" and len(rows) == before + 1
-    assert _verify(client).json()["ok"] is True  # the verify event itself chains correctly
+    assert _verify(client, sup).json()["ok"] is True  # the verify event itself chains correctly
 
 
 def test_update_and_delete_are_rejected_by_triggers(client, populated):

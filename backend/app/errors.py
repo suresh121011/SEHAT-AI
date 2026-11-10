@@ -67,11 +67,13 @@ def _validation_field(error: dict[str, Any]) -> str:
 
 
 class ApiError(Exception):
-    def __init__(self, status_code: int, code: str, message: str, details: dict[str, Any] | None = None):
+    def __init__(self, status_code: int, code: str, message: str, details: dict[str, Any] | None = None,
+                 headers: dict[str, str] | None = None):
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details or {}
+        self.headers = headers or {}
 
 
 # Named errors used by the privacy/consent layer (docs/06 §5).
@@ -98,7 +100,7 @@ def _envelope(request: Request, status_code: int, code: str, message: str, detai
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
-        headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+        headers = {**({"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else {}), **exc.headers} or None
         return _envelope(request, exc.status_code, exc.code, exc.message, exc.details, headers)
 
     @app.exception_handler(RequestValidationError)

@@ -701,9 +701,112 @@ PATIENT_REGISTRY_STATEMENTS: tuple[str, ...] = (
     *_append_only("patient_link_events"),
 )
 
+# ── Step 15: server-managed sessions (docs/security/post-remediation-hardening.md A2) ─────────────────────────────
+# Opaque session tokens replace long-lived JWTs. Only SHA-256(token) is stored, never the token. Rows are kept for
+# audit (no DELETE). Identity, lifetime ceiling and a revocation, once set, can never be changed.
+SESSION_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE sessions (
+    session_id           TEXT PRIMARY KEY,
+    token_sha256         TEXT NOT NULL UNIQUE,
+    user_id              TEXT NOT NULL,
+    username             TEXT NOT NULL,
+    role                 TEXT NOT NULL,
+    auth_mode            TEXT NOT NULL CHECK (auth_mode IN ('demo', 'oidc')),
+    issuer               TEXT,
+    subject              TEXT,
+    facilities_json      TEXT,
+    created_at           TEXT NOT NULL,
+    last_seen_at         TEXT NOT NULL,
+    idle_expires_at      TEXT NOT NULL,
+    absolute_expires_at  TEXT NOT NULL,
+    revoked_at           TEXT,
+    revoked_reason       TEXT CHECK (revoked_reason IS NULL OR revoked_reason IN ('logout', 'user_revoked', 'user_revoked_all', 'admin_revoked')),
+    revoked_by           TEXT,
+    CHECK (idle_expires_at <= absolute_expires_at),
+    CHECK ((revoked_at IS NULL) = (revoked_reason IS NULL)),
+    CHECK ((auth_mode = 'oidc') = (issuer IS NOT NULL AND subject IS NOT NULL))
+)""",
+    "CREATE INDEX idx_sessions_user ON sessions(user_id)",
+    """CREATE TRIGGER sessions_no_delete BEFORE DELETE ON sessions
+    BEGIN SELECT RAISE(ABORT, 'sessions are kept for audit'); END""",
+    """CREATE TRIGGER sessions_immutable BEFORE UPDATE ON sessions
+    WHEN NEW.session_id IS NOT OLD.session_id OR NEW.token_sha256 IS NOT OLD.token_sha256 OR NEW.user_id IS NOT OLD.user_id
+      OR NEW.username IS NOT OLD.username OR NEW.role IS NOT OLD.role OR NEW.auth_mode IS NOT OLD.auth_mode
+      OR NEW.issuer IS NOT OLD.issuer OR NEW.subject IS NOT OLD.subject OR NEW.facilities_json IS NOT OLD.facilities_json
+      OR NEW.created_at IS NOT OLD.created_at
+      OR NEW.absolute_expires_at IS NOT OLD.absolute_expires_at
+      OR (OLD.revoked_at IS NOT NULL AND (NEW.revoked_at IS NOT OLD.revoked_at OR NEW.revoked_reason IS NOT OLD.revoked_reason
+          OR NEW.revoked_by IS NOT OLD.revoked_by OR NEW.idle_expires_at IS NOT OLD.idle_expires_at))
+    BEGIN SELECT RAISE(ABORT, 'session identity, lifetime ceiling and revocation are immutable'); END""",
+)
+
+# ── Step 16: patient identity binding (post-remediation hardening A3, owner decision H3) ──────────────────────────
+# A real (OIDC) patient login is bound to a registered patient only by an explicit, single-use code that the visit's
+# ANM issues. Codes are stored as SHA-256 only and can be used once. Bindings are append-only events: the current
+# binding of a login is its latest event. Nothing is matched or merged automatically.
+PATIENT_IDENTITY_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE patient_binding_codes (
+    binding_id      TEXT PRIMARY KEY,
+    code_sha256     TEXT NOT NULL UNIQUE,
+    patient_id      TEXT NOT NULL REFERENCES patients(patient_id),
+    case_id         TEXT NOT NULL REFERENCES cases(case_id),
+    issued_by       TEXT NOT NULL,
+    issued_by_role  TEXT NOT NULL,
+    issued_at       TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    used_at         TEXT,
+    used_by         TEXT,
+    CHECK (issued_at < expires_at),
+    CHECK ((used_at IS NULL) = (used_by IS NULL))
+)""",
+    """CREATE TRIGGER patient_binding_codes_no_delete BEFORE DELETE ON patient_binding_codes
+    BEGIN SELECT RAISE(ABORT, 'patient_binding_codes is append-only'); END""",
+    """CREATE TRIGGER patient_binding_codes_use_once BEFORE UPDATE ON patient_binding_codes
+    WHEN OLD.used_at IS NOT NULL OR NEW.binding_id IS NOT OLD.binding_id OR NEW.code_sha256 IS NOT OLD.code_sha256
+      OR NEW.patient_id IS NOT OLD.patient_id OR NEW.case_id IS NOT OLD.case_id OR NEW.issued_by IS NOT OLD.issued_by
+      OR NEW.issued_by_role IS NOT OLD.issued_by_role OR NEW.issued_at IS NOT OLD.issued_at OR NEW.expires_at IS NOT OLD.expires_at
+    BEGIN SELECT RAISE(ABORT, 'a binding code can be used once and is otherwise immutable'); END""",
+    """CREATE TABLE patient_identity_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    user_id      TEXT NOT NULL,
+    issuer       TEXT NOT NULL,
+    subject      TEXT NOT NULL,
+    patient_id   TEXT NOT NULL REFERENCES patients(patient_id),
+    action       TEXT NOT NULL CHECK (action IN ('bind', 'unbind')),
+    binding_id   TEXT REFERENCES patient_binding_codes(binding_id),
+    reason_code  TEXT CHECK (reason_code IS NULL OR reason_code IN ('patient_request', 'bound_in_error', 'admin')),
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    CHECK ((action = 'bind' AND binding_id IS NOT NULL AND reason_code IS NULL) OR (action = 'unbind' AND binding_id IS NULL AND reason_code IS NOT NULL))
+)""",
+    "CREATE INDEX idx_patient_identity_user ON patient_identity_events(user_id, seq)",
+    "CREATE INDEX idx_patient_identity_patient ON patient_identity_events(patient_id, seq)",
+    *_append_only("patient_identity_events"),
+)
+
+# ── Step 17: rate-limit counters (post-remediation hardening A4, owner decision H4) ────────────────────────────────
+# Fixed-window counters and temporary blocks, shared by every process using this database file (one host; not
+# multi-host). Keys are HMACs of (scope, principal or source address), never the raw user id or IP. Mutable by design.
+RATE_LIMIT_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE rate_limit_counters (
+    bucket_key    TEXT NOT NULL,
+    window_start  TEXT NOT NULL,
+    count         INTEGER NOT NULL CHECK (count >= 0),
+    PRIMARY KEY (bucket_key, window_start)
+)""",
+    """CREATE TABLE rate_limit_blocks (
+    bucket_key     TEXT PRIMARY KEY,
+    blocked_until  TEXT NOT NULL
+)""",
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
-                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS)
+                                           KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS,
+                                           SESSION_STATEMENTS, PATIENT_IDENTITY_STATEMENTS,
+                                           RATE_LIMIT_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

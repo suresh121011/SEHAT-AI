@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { API_BASE_URL, SESSION_COOKIE, homeFor } from "@/lib/auth";
@@ -25,9 +26,20 @@ export async function POST(request: Request) {
   return res;
 }
 
-// DELETE: log out.
+// DELETE: log out. Revokes the server-side session first, so the token stops working everywhere (not only in this
+// browser), then clears the cookie. The cookie is cleared even if the backend is unreachable.
 export async function DELETE() {
-  const res = NextResponse.json({ ok: true });
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  let revoked = false;
+  if (token) {
+    const backend = await fetch(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    }).catch(() => null);
+    revoked = backend?.ok ?? false;
+  }
+  const res = NextResponse.json({ ok: true, revoked });
   res.cookies.delete(SESSION_COOKIE);
   return res;
 }

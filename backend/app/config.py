@@ -133,10 +133,36 @@ class Settings:
     # account sees every facility, the earlier behaviour). Otherwise username → allowed facility codes, or None
     # for "*" (unrestricted). A username missing from an active mapping gets NO facility (see auth.facility_scope).
     account_facilities: dict[str, frozenset[str] | None] | None = None
+    # Server-managed sessions (docs/security/post-remediation-hardening.md A2, owner decision H5). The idle timeout
+    # slides with use; the absolute lifetime never does.
+    # Identity (docs/security/post-remediation-hardening.md A1, owner decision H1). `demo`: the synthetic-data demo
+    # accounts. `oidc`: an OpenID Connect provider; demo login is then switched off entirely (no fallback).
+    auth_mode: str = "demo"
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""  # the expected `aud`
+    oidc_jwks_url: str = ""  # empty = from the issuer's discovery document
+    oidc_allowed_algs: tuple[str, ...] = ("RS256", "ES256")
+    oidc_clock_skew_s: int = 60
+    oidc_role_claim: str = "sehat_role"
+    oidc_facility_claim: str = "sehat_facilities"
+    # Patient-code entry rate limits (A4). Placeholders, not threat-modelled production thresholds: tune per deployment.
+    rate_code_per_minute_principal: int = 10
+    rate_code_per_hour_principal: int = 60
+    rate_code_per_minute_source: int = 30
+    rate_code_per_hour_source: int = 300
+    rate_login_per_minute_source: int = 30
+    rate_login_per_hour_source: int = 300
+    rate_block_minutes: int = 15
+    trusted_proxies: frozenset[str] = frozenset()
+    session_staff_idle_minutes: int = 30
+    session_staff_absolute_hours: int = 12
+    session_patient_idle_minutes: int = 15
+    session_patient_absolute_hours: int = 2
 
     @property
     def facility_isolation(self) -> bool:
-        return self.account_facilities is not None
+        # OIDC sessions always carry the facilities the identity provider asserted (A1); demo uses ACCOUNT_FACILITIES.
+        return self.auth_mode == "oidc" or self.account_facilities is not None
 
     @property
     def sarvam_configured(self) -> bool:
@@ -177,8 +203,12 @@ def get_settings() -> Settings:
 
     # F2 / owner decision D-A: facility isolation fails closed. Running every account across every facility must be
     # an explicit choice (ALLOW_UNSCOPED_DEMO=true), never the silent default.
+    auth_mode, oidc = _auth_settings()
     account_facilities = _account_facilities(_env("ACCOUNT_FACILITIES"))
-    if account_facilities is None and not _flag("ALLOW_UNSCOPED_DEMO"):
+    if auth_mode == "oidc" and (account_facilities is not None or _flag("ALLOW_UNSCOPED_DEMO")):
+        # Unsafe mixed configuration: the demo account mapping or demo opt-out next to real identities.
+        raise RuntimeError("AUTH_MODE=oidc cannot be combined with ACCOUNT_FACILITIES or ALLOW_UNSCOPED_DEMO (demo-only settings)")
+    if auth_mode == "demo" and account_facilities is None and not _flag("ALLOW_UNSCOPED_DEMO"):
         raise RuntimeError("facility isolation is off: set ACCOUNT_FACILITIES (see .env.example), or ALLOW_UNSCOPED_DEMO=true "
                            "to run an unscoped single-facility demo knowingly")
 
@@ -219,7 +249,86 @@ def get_settings() -> Settings:
         **_ai_settings(),
         **_medgemma_settings(_flag("OCR_ENABLED")),
         account_facilities=account_facilities,
+        auth_mode=auth_mode,
+        **oidc,
+        rate_code_per_minute_principal=_bounded_int("RATE_CODE_PER_MINUTE_PRINCIPAL", 10, 1, 1000),
+        rate_code_per_hour_principal=_bounded_int("RATE_CODE_PER_HOUR_PRINCIPAL", 60, 1, 10000),
+        rate_code_per_minute_source=_bounded_int("RATE_CODE_PER_MINUTE_SOURCE", 30, 1, 1000),
+        rate_code_per_hour_source=_bounded_int("RATE_CODE_PER_HOUR_SOURCE", 300, 1, 100000),
+        rate_login_per_minute_source=_bounded_int("RATE_LOGIN_PER_MINUTE_SOURCE", 30, 1, 1000),
+        rate_login_per_hour_source=_bounded_int("RATE_LOGIN_PER_HOUR_SOURCE", 300, 1, 100000),
+        rate_block_minutes=_bounded_int("RATE_BLOCK_MINUTES", 15, 1, 1440),
+        trusted_proxies=_trusted_proxies(_env("TRUSTED_PROXIES")),
+        session_staff_idle_minutes=_bounded_int("SESSION_STAFF_IDLE_MINUTES", 30, 1, 240),
+        session_staff_absolute_hours=_bounded_int("SESSION_STAFF_ABSOLUTE_HOURS", 12, 1, 24),
+        session_patient_idle_minutes=_bounded_int("SESSION_PATIENT_IDLE_MINUTES", 15, 1, 120),
+        session_patient_absolute_hours=_bounded_int("SESSION_PATIENT_ABSOLUTE_HOURS", 2, 1, 24),
     )
+
+
+_OIDC_ALGS = frozenset({"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"})  # asymmetric only
+
+
+def _https_url(name: str, value: str) -> str:
+    """An https URL, or http only for a loopback host (a local test issuer)."""
+    from urllib.parse import urlparse
+
+    u = urlparse(value)
+    loopback = u.hostname in ("localhost", "127.0.0.1", "::1")
+    if not u.hostname or u.scheme not in ("https", "http") or (u.scheme == "http" and not loopback) or u.username or u.password:
+        raise RuntimeError(f"{name} must be an https URL (http only for localhost)")
+    return value.rstrip("/") if name == "OIDC_ISSUER" else value
+
+
+def _auth_settings() -> tuple[str, dict]:
+    """AUTH_MODE and the OIDC settings. `oidc` with anything missing or unsafe refuses to start (fail closed); it never
+    falls back to demo login."""
+    mode = _env("AUTH_MODE", "demo")
+    if mode not in ("demo", "oidc"):
+        raise RuntimeError("AUTH_MODE must be demo or oidc")
+    if mode == "demo":
+        return mode, {}
+    issuer, client_id = _env("OIDC_ISSUER"), _env("OIDC_CLIENT_ID")
+    if not issuer or not client_id:
+        raise RuntimeError("AUTH_MODE=oidc requires OIDC_ISSUER and OIDC_CLIENT_ID")
+    algs = tuple(a.strip() for a in _env("OIDC_ALLOWED_ALGS", "RS256,ES256").split(",") if a.strip())
+    if not algs or any(a not in _OIDC_ALGS for a in algs):
+        raise RuntimeError("OIDC_ALLOWED_ALGS must list asymmetric algorithms only (RS*, PS*, ES*); never HS* or none")
+    jwks = _env("OIDC_JWKS_URL")
+    claim = re.compile(r"^[A-Za-z0-9_.:/-]{1,64}$")
+    role_claim, fac_claim = _env("OIDC_ROLE_CLAIM", "sehat_role"), _env("OIDC_FACILITY_CLAIM", "sehat_facilities")
+    if not claim.fullmatch(role_claim) or not claim.fullmatch(fac_claim):
+        raise RuntimeError("OIDC_ROLE_CLAIM and OIDC_FACILITY_CLAIM must be claim names")
+    return mode, {
+        "oidc_issuer": _https_url("OIDC_ISSUER", issuer),
+        "oidc_client_id": client_id,
+        "oidc_jwks_url": _https_url("OIDC_JWKS_URL", jwks) if jwks else "",
+        "oidc_allowed_algs": algs,
+        "oidc_clock_skew_s": _bounded_int("OIDC_CLOCK_SKEW_S", 60, 0, 300),
+        "oidc_role_claim": role_claim,
+        "oidc_facility_claim": fac_claim,
+    }
+
+
+def _trusted_proxies(value: str) -> frozenset[str]:
+    """Peers whose X-Forwarded-For is believed (exact IP addresses). Empty = never believe the header."""
+    import ipaddress
+
+    out = set()
+    for part in (p.strip() for p in value.split(",") if p.strip()):
+        try:
+            out.add(str(ipaddress.ip_address(part)))
+        except ValueError as exc:
+            raise RuntimeError("TRUSTED_PROXIES must be a comma-separated list of IP addresses") from exc
+    return frozenset(out)
+
+
+def _bounded_int(name: str, default: int, lo: int, hi: int) -> int:
+    """A whole number within [lo, hi]; anything else refuses to start (never silently clamped)."""
+    raw = _env(name, str(default))
+    if not raw.isdigit() or not lo <= int(raw) <= hi:
+        raise RuntimeError(f"{name} must be a whole number from {lo} to {hi}")
+    return int(raw)
 
 
 _FACILITY_CODE = re.compile(r"^[A-Z0-9-]{3,32}$")  # same pattern as CaseCreate.facility_code

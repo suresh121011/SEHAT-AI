@@ -49,7 +49,10 @@ def test_other_account_gets_same_404_as_unknown_case(client, owned, op):
     assert theirs.status_code == unknown.status_code == 404
     strip = lambda r: {k: v for k, v in r.json()["error"].items() if k != "request_id"}  # noqa: E731
     assert strip(theirs) == strip(unknown)
-    assert len(audit_rows(client)) == before  # no audit rows for unauthorized or unknown ids
+    # Post-remediation hardening A5: a refusal for a case that EXISTS is recorded as one `access_denied` event (the
+    # caller still sees the identical 404). An unknown id writes nothing, so random ids cannot flood the log.
+    new = audit_rows(client)[before:]
+    assert [(r["action"], r["outcome"], r["case_id"]) for r in new] == [("access_denied", "denied", cid)]
 
 
 def test_decline_by_other_account_is_404(client, owned):
@@ -92,3 +95,25 @@ def test_unauthenticated_requests_are_401(client, owned):
     _, cid = owned
     assert client.get(f"/api/v1/cases/{cid}").status_code == 401
     assert client.post("/api/v1/cases", json={"scenario": "opd", "facility_code": "PHC-1"}).status_code == 401
+
+
+def test_access_denials_are_audited_by_reason_without_revealing_anything_to_the_caller(client, owned, monkeypatch):
+    import json
+
+    from app.config import get_settings
+
+    _, cid = owned
+    other = token_for(client, "anm_other")
+    before = len(audit_rows(client))
+    assert client.get(f"/api/v1/cases/{cid}", headers=auth(other)).status_code == 404
+    for _ in range(3):
+        assert client.get(f"/api/v1/cases/{uuid.uuid4()}", headers=auth(other)).status_code == 404
+    rows = audit_rows(client)[before:]
+    assert [json.loads(r["details_json"]) for r in rows] == [{"reason": "not_permitted", "mode": "read"}]
+    monkeypatch.setenv("ACCOUNT_FACILITIES", "anm_demo=PHC-PURI-02;mo_demo=PHC-PURI-02;supervisor_demo=*;patient_demo=PHC-PURI-02")
+    get_settings.cache_clear()
+    mo = token_for(client, "mo")
+    assert client.get(f"/api/v1/cases/{cid}", headers=auth(mo)).status_code == 404
+    last = audit_rows(client)[-1]
+    assert last["action"] == "access_denied" and json.loads(last["details_json"]) == {"reason": "facility_scope", "mode": "read"}
+    get_settings.cache_clear()

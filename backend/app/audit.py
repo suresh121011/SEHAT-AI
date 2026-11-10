@@ -68,6 +68,15 @@ AuditAction = Literal[
     "patient_linked",
     "patient_unlinked",
     "patient_lookup",
+    "auth_login_succeeded",
+    "auth_login_failed",
+    "session_revoked",
+    "patient_binding_code_issued",
+    "patient_identity_bound",
+    "patient_identity_unbound",
+    "rate_limited",
+    "access_denied",
+    "patient_record_viewed",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -318,6 +327,57 @@ class PatientLookupDetails(_Details):
     result: Literal["found", "not_found", "code_invalid"]
 
 
+class AuthLoginDetails(_Details):
+    """A session was created. The session id is the public handle (never the token or its hash)."""
+
+    auth_mode: Literal["demo", "oidc"]
+    session_id: str
+
+
+class AuthLoginFailedDetails(_Details):
+    """A refused login, by reason code only: never the submitted username, token or claims."""
+
+    auth_mode: Literal["demo", "oidc"]
+    reason: Literal["unknown_account_or_role", "invalid_token", "identity_not_allowed", "auth_mode_disabled"]
+
+
+class SessionRevokedDetails(_Details):
+    scope: Literal["logout", "own_session", "own_all", "admin_user_all"]
+    session_id: str | None = None  # one session; None when every session of a user was revoked
+    target_user_id: str | None = None  # admin revocation only
+    revoked_count: int = Field(ge=0)
+
+
+class PatientIdentityDetails(_Details):
+    """Patient identity binding (A3). Ids and enums only: never the binding code, the provider subject or a name."""
+
+    result: Literal["issued", "bound", "already_bound", "unbound", "code_invalid", "bound_to_other", "identity_required", "not_bound"]
+    patient_id: str | None = None
+    binding_id: str | None = None
+    reason_code: Literal["patient_request", "bound_in_error", "admin"] | None = None
+
+
+class RateLimitedDetails(_Details):
+    """A temporary block started (abuse signal). Never the user id, IP, code or the bucket key."""
+
+    scope: Literal["patient_code_entry", "login"]
+    key_kind: Literal["principal", "source"]
+    blocked_minutes: int = Field(ge=1)
+
+
+class AccessDeniedDetails(_Details):
+    """A request for an existing case was refused (A5). The caller saw the same 404 as for a missing case."""
+
+    reason: Literal["facility_scope", "not_permitted"]
+    mode: Literal["consent", "write", "triage", "read"]
+
+
+class PatientRecordViewedDetails(_Details):
+    """A patient viewed their own record list (self-access). Counts only."""
+
+    visit_count: int = Field(ge=0)
+
+
 class AuditVerifiedDetails(_Details):
     verified_through_seq: int = Field(ge=0)
     ok: bool
@@ -375,7 +435,7 @@ def compute_hash(row: dict, previous_hash: str) -> str:
 async def record(
     conn: aiosqlite.Connection,
     *,
-    principal: Principal,
+    principal: Principal | None,
     action: AuditAction,
     outcome: Outcome,
     details: _Details,
@@ -394,8 +454,8 @@ async def record(
         "seq": seq,
         "event_id": str(uuid.uuid4()),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-        "actor_id": principal.user_id,
-        "actor_role": principal.role.value,
+        "actor_id": principal.user_id if principal is not None else "anonymous",  # None: a request with no identity yet
+        "actor_role": principal.role.value if principal is not None else "anonymous",
         "action": action,
         "case_id": case_id,
         "outcome": outcome,

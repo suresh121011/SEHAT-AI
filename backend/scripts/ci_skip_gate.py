@@ -43,9 +43,15 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.review.test_facility",
     "tests.privacy.test_config_hardening",
     "tests.ci.test_skip_gate",
+    # post-remediation security hardening
+    "tests.privacy.test_sessions",
+    "tests.privacy.test_oidc",
+    "tests.privacy.test_patient_identity",
+    "tests.privacy.test_rate_limit",
+    "tests.privacy.test_authz",
 )
 
-MIN_EXECUTED = 1390  # CI ran 1393 on 2026-11-10 (guardrails not installed); raise it as tests are added, never lower it silently
+MIN_EXECUTED = 1520  # CI-equivalent ran 1527 on 2026-11-10 after the hardening phase (was 1390); raise it as tests are added, never lower it silently
 
 
 def _module(classname: str) -> str:

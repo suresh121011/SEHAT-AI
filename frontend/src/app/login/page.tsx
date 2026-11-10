@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { DemoBanner } from "@/components/DemoBanner";
 import { Icon, type IconName } from "@/components/Icon";
@@ -23,9 +23,35 @@ const PRINCIPLES: { icon: IconName; title: string; text: string }[] = [
   { icon: "people", title: "A medical officer signs off", text: "Each result is reviewed by a named role, with the source of every value." },
 ];
 
+// Real sign-in (AUTH_MODE=oidc): the identity provider handles credentials; demo accounts are not offered at all.
+function OidcSignIn({ next, error }: { next: string | null; error: string | null }) {
+  const href = `/api/auth/oidc/start${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+  return (
+    <div className="w-full max-w-xl space-y-6">
+      <div className="lg:hidden">
+        <Wordmark subtitle="Clinical triage · research prototype" />
+      </div>
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Sign in</h1>
+        <p className="text-base text-muted">Sign in with your organisation&apos;s account. Your password is entered on the identity provider&apos;s page, never here.</p>
+      </div>
+      {error && <Notice tone="error" title="Sign-in failed"><p>Please try again. If it keeps failing, ask your administrator.</p></Notice>}
+      <a href={href} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-3 font-bold text-white">Sign in with your organisation</a>
+    </div>
+  );
+}
+
 function LoginForm() {
   const router = useRouter();
-  const next = useSearchParams().get("next");
+  const params = useSearchParams();
+  const next = params.get("next");
+  const [mode, setMode] = useState<"demo" | "oidc" | null>(null);
+  useEffect(() => {
+    fetch("/api/backend/auth/mode", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { auth_mode: "demo" | "oidc" }) => setMode(d.auth_mode))
+      .catch(() => setMode("demo"));
+  }, []);
   const [username, setUsername] = useState(DEMO_ACCOUNTS[1].username);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,6 +72,9 @@ function LoginForm() {
       setBusy(false);
     }
   }
+
+  if (mode === "oidc") return <OidcSignIn next={next} error={params.get("error")} />;
+  if (mode === null) return <p className="text-muted">Loading sign-in…</p>;
 
   return (
     <form onSubmit={onSubmit} className="w-full max-w-xl space-y-6">

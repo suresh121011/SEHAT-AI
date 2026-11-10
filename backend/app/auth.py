@@ -1,4 +1,4 @@
-"""Hackathon JWT auth: pre-seeded demo accounts, role claim, header cross-check.
+"""Authentication: server-managed sessions (app.sessions) for pre-seeded demo accounts, role, header cross-check.
 
 See docs/04_Security_Privacy_Access.md §2 (Hackathon Authentication) and
 docs/06_API_Data_Contracts.md §1 (X-SEHAT-* headers).
@@ -6,14 +6,15 @@ docs/06_API_Data_Contracts.md §1 (X-SEHAT-* headers).
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from enum import Enum
 
-import jwt
+import aiosqlite
 from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app import sessions
 from app.config import get_settings
+from app.database import get_db
 from app.errors import ApiError
 
 
@@ -48,6 +49,8 @@ class Principal:
     # Facilities this account may access (docs/17 §8). None = unrestricted: isolation is off, the account is mapped
     # to "*", or a server-internal actor. Set only from server config (`facility_scope`), never from the client.
     facilities: frozenset[str] | None = None
+    session_id: str | None = None  # the server session this request authenticated with (None for internal actors)
+    auth_mode: str = "demo"  # "demo" (synthetic-data demo accounts) or "oidc"
 
     def may_access_facility(self, facility_code: str | None) -> bool:
         return self.facilities is None or facility_code in self.facilities
@@ -66,17 +69,10 @@ def facility_scope(username: str) -> frozenset[str] | None:
 
 
 def create_access_token(username: str, role: Role) -> tuple[str, int]:
-    settings = get_settings()
-    expires_in = settings.jwt_expire_minutes * 60
-    now = datetime.now(timezone.utc)
-    claims = {
-        "sub": demo_user_id(username),
-        "username": username,
-        "role": role.value,
-        "iat": now,
-        "exp": now + timedelta(seconds=expires_in),
-    }
-    return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm), expires_in
+    """Mint a demo session for an account directly (tests and scripts; the login route uses `app.sessions.create`
+    inside its audited transaction). Returns (opaque session token, absolute lifetime in seconds)."""
+    token = sessions.create_sync(get_settings().database_path, user_id=demo_user_id(username), username=username, role=role.value)
+    return token, int(sessions.lifetimes(role.value)[1].total_seconds())
 
 
 def authenticate_demo_user(username: str, role: Role) -> Principal:
@@ -86,25 +82,6 @@ def authenticate_demo_user(username: str, role: Role) -> Principal:
     return Principal(user_id=demo_user_id(username), username=username, role=role, facilities=facility_scope(username))
 
 
-def _decode(token: str) -> Principal:
-    settings = get_settings()
-    try:
-        claims = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-            options={"require": ["exp", "sub", "role"]},
-        )
-        username = claims.get("username")
-        # The username selects the facility scope, so it must be the one the subject was issued for.
-        if not isinstance(username, str) or demo_user_id(username) != claims["sub"]:
-            raise ValueError("username does not match subject")
-        role = Role(claims["role"])
-    except (jwt.PyJWTError, ValueError) as exc:
-        raise ApiError(401, "UNAUTHORIZED", "Invalid or expired JWT") from exc
-    return Principal(user_id=claims["sub"], username=username, role=role, facilities=facility_scope(username))
-
-
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -112,11 +89,22 @@ async def get_current_principal(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     x_sehat_role: str | None = Header(default=None),
     x_sehat_user_id: str | None = Header(default=None),
+    db: aiosqlite.Connection = Depends(get_db),
 ) -> Principal:
-    """The JWT is authoritative. X-SEHAT-* headers are optional but must match it when sent."""
+    """The server-side session is authoritative (docs/security/post-remediation-hardening.md A2): it is looked up on
+    every request, so a revoked or expired session stops working at once. X-SEHAT-* headers are optional but must
+    match it when sent. Facility scope still comes from server config, never from the client."""
     if credentials is None:
         raise ApiError(401, "UNAUTHORIZED", "Missing bearer token")
-    principal = _decode(credentials.credentials)
+    sess = await sessions.resolve(db, credentials.credentials)
+    if sess is None:
+        raise ApiError(401, "UNAUTHORIZED", "Invalid, expired or revoked session")
+    if sess.auth_mode != get_settings().auth_mode:
+        # A session from the other mode (e.g. a demo session after switching to OIDC) never authorizes anything.
+        raise ApiError(401, "UNAUTHORIZED", "Invalid, expired or revoked session")
+    scope = sess.facilities if sess.auth_mode == "oidc" else facility_scope(sess.username)
+    principal = Principal(user_id=sess.user_id, username=sess.username, role=Role(sess.role), facilities=scope,
+                          session_id=sess.session_id, auth_mode=sess.auth_mode)
     if x_sehat_role is not None and x_sehat_role != principal.role.value:
         raise ApiError(403, "FORBIDDEN", "X-SEHAT-Role does not match token")
     if x_sehat_user_id is not None and x_sehat_user_id != principal.user_id:
