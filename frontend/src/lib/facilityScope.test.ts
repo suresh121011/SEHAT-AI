@@ -40,3 +40,23 @@ test("enforced isolation with a null scope means all facilities, never 'no facil
   assert.match(n.text, /all facilities/);
   assert.doesNotMatch(n.text, /no facility/);
 });
+
+test("the case form offers exactly the facilities the server allows", async () => {
+  const { facilityChoice } = await import("./facilityScope.ts");
+  assert.deepEqual(facilityChoice({ role: "anm", facility_isolation: "enforced", facility_scope: ["PHC-KHURDA-01"] }), { kind: "fixed", code: "PHC-KHURDA-01" });
+  assert.deepEqual(facilityChoice({ role: "anm", facility_isolation: "enforced", facility_scope: ["PHC-PURI-02", "phc-khurda-01 ", "PHC-PURI-02"] }),
+    { kind: "choose", codes: ["PHC-KHURDA-01", "PHC-PURI-02"] });
+  assert.deepEqual(facilityChoice({ role: "anm", facility_isolation: "enforced", facility_scope: [] }), { kind: "none" });
+  for (const me of [null, { role: "anm", facility_isolation: "off", facility_scope: null }, { role: "anm", facility_isolation: "enforced", facility_scope: null },
+    { role: "anm", facility_isolation: "enforced", facility_scope: ["*"] }, { role: "anm" }]) {
+    assert.deepEqual(facilityChoice(me), { kind: "free" });
+  }
+});
+
+test("a refused facility is explained with the codes this account may use", async () => {
+  const { facilityRefusal } = await import("./facilityScope.ts");
+  assert.equal(facilityRefusal({ kind: "fixed", code: "PHC-KHURDA-01" }), "This account can start cases only in PHC-KHURDA-01.");
+  assert.match(facilityRefusal({ kind: "choose", codes: ["A-01", "B-02"] }), /A-01, B-02/);
+  assert.match(facilityRefusal({ kind: "none" }), /not assigned to any facility/);
+  assert.match(facilityRefusal({ kind: "free" }), /Check the facility code/);
+});

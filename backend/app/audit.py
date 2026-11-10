@@ -369,7 +369,7 @@ class AccessDeniedDetails(_Details):
     """A request for an existing case was refused (A5). The caller saw the same 404 as for a missing case."""
 
     reason: Literal["facility_scope", "not_permitted"]
-    mode: Literal["consent", "write", "triage", "read"]
+    mode: Literal["consent", "write", "triage", "read", "create"]  # "create": starting a case in a facility outside scope
 
 
 class PatientRecordViewedDetails(_Details):

@@ -234,7 +234,8 @@ New typed actions, written to the existing hash chain:
 - `patient_binding_code_issued`, `patient_identity_bound` and `patient_identity_unbound`, with a result enum and ids; never the code or the provider subject.
 - `patient_record_viewed`: patient self-access, with a count.
 - `rate_limited`: the start of a block (scope, key kind, minutes); never the key.
-- `access_denied`: a refusal for a case that **exists**, with reason `facility_scope` or `not_permitted` and the access mode. It is written after the request because the request's own transaction rolls back. An unknown id writes nothing. This **changes the earlier rule** of writing no row for these refusals; see docs/11 §3.
+- `access_denied`: a refusal for a case that **exists**, with reason `facility_scope` or `not_permitted` and the access mode.
+  - It is also written when a case is started in a facility outside the account's scope: mode `create`, with no case and never the attempted facility code. The intake form now offers only the facilities the server allows. It is written after the request because the request's own transaction rolls back. An unknown id writes nothing. This **changes the earlier rule** of writing no row for these refusals; see docs/11 §3.
 
 **Never logged or audited:** session tokens, token hashes, ID tokens, binding or patient codes, passwords, audio, raw payloads.
 
