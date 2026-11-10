@@ -39,6 +39,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.privacy.test_migration_integrity",
     "tests.privacy.test_urgency_authority",
     "tests.services.test_kernel",
+    "tests.review.test_supervisor_metadata_only",
     "tests.privacy.test_config_hardening",
     "tests.ci.test_skip_gate",
 )

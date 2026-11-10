@@ -134,7 +134,12 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
         </section>
       )}
 
-      {!review.clinical_content_available && (
+      {!review.clinical_content_available && review.clinical_hidden_reason === "role" && (
+        <Notice tone="consent" title="Supervisor view: metadata only">
+          <p>Recorded clinical details, the body map and free-text reasons are visible only to the case&apos;s health worker and medical officers. The urgency, escalation and audit metadata stay visible for oversight.</p>
+        </Notice>
+      )}
+      {!review.clinical_content_available && review.clinical_hidden_reason !== "role" && (
         <Notice tone="consent" title="Triage consent is not in effect">
           <p>Clinical details are hidden and no review can be recorded. The urgency and RED status stay visible for safety.</p>
         </Notice>

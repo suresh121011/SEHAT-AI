@@ -201,3 +201,16 @@ Residual raised by the council: **the semantics of the negation and temporal fix
   - no transcript text appears in the logs.
 - The V4 test for withdrawal during the **local** engine needs the local model, so it is not covered; only the cloud mid-flight test exists.
 - Verified: backend 1476 passed / 14 allowlisted skips; frontend 122/122, tsc and eslint clean.
+
+**Step 7a (F2, owner decision D-A)**
+- Startup refuses when `ACCOUNT_FACILITIES` is unset, unless `ALLOW_UNSCOPED_DEMO=true` is set.
+- `.env.example` ships a scoped mapping.
+- The single-facility demo commands in the e2e scripts and docs 12/14, and the test suite, now opt out explicitly.
+- **Local effect:** a `.env` without either variable now refuses to start, with instructions.
+
+**Step 7b (F4, owner decision D-B; F5)**
+- Supervisors' case review hides input, result detail, field provenance, free-text reasons and image findings (`clinical_hidden_reason: "role"`). Urgency, rule ids, escalation and audit metadata stay visible.
+- The body map returns `regions: null, metadata_only: true` to a supervisor.
+- The frontend shows a "Supervisor view: metadata only" notice, and the intake pages tolerate null regions.
+- docs/11 now matches the code: supervisor metadata-only, fail-closed facilities, and the MO's audit rows (F5).
+- Verified: backend 1482 passed / 14 allowlisted skips; frontend tsc and eslint clean, 122/122.
