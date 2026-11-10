@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     replaced = rotate(args.env_file)
     print(f"JWT_SECRET_KEY {'rotated' if replaced else 'added'} in {args.env_file} (value not shown). "
           "Restart the backend: every existing session is now invalid and users sign in again.")
+    if os.environ.get("JWT_SECRET_KEY"):
+        # S-3: the backend loads .env without overriding exported variables, so the old exported secret stays in force.
+        print("WARNING: JWT_SECRET_KEY is also exported in this shell's environment, and an exported value overrides "
+              ".env. Unset it (or remove it from your shell profile) before restarting, or the old secret stays active.")
+        return 1
     return 0
 
 

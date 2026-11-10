@@ -53,3 +53,13 @@ def test_duplicate_definitions_are_all_rotated_so_no_stale_secret_stays_active(t
     rot.rotate(env)
     active = dotenv_values(env)["JWT_SECRET_KEY"]
     assert "old" not in env.read_text() and len(active) >= 48
+
+
+def test_a_secret_exported_in_the_environment_is_flagged_because_it_overrides_the_file(tmp_path, capsys, monkeypatch):
+    """S-3: python-dotenv never overrides an exported variable, so rotating the file alone would change nothing."""
+    env = tmp_path / ".env"
+    env.write_text("JWT_SECRET_KEY=old-secret-value-old-secret-value-1234\n")
+    monkeypatch.setenv("JWT_SECRET_KEY", "exported-sentinel-value-0004-exported-sentinel")
+    assert rot.main(["--env-file", str(env)]) == 1
+    out = capsys.readouterr().out
+    assert "exported" in out.lower() and "exported-sentinel-value-0004" not in out

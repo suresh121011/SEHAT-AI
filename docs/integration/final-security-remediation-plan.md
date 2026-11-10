@@ -223,3 +223,45 @@ Residual raised by the council: **the semantics of the negation and temporal fix
 - Nothing is written. A new test fails if a case route is added without a probe; two routes are exempt with a stated reason.
 - **F6:** every patient-code lookup is audited as `patient_lookup` with `result` = found / not_found / code_invalid, and never the code or the patient id.
   - Lookups are not rate-limited yet (residual).
+
+**Step 8b (S-3, documentation)**
+- `rotate_jwt_secret.py` now exits 1 with a warning when `JWT_SECRET_KEY` is also exported in the shell, because an exported value overrides `.env` and rotating the file alone would change nothing. The value is never printed.
+
+## 8. CI test matrix
+
+| CI step (job "backend tests", required) | What it proves |
+|---|---|
+| Install core + dev + OCR runtime + Silero VAD (CPU torch from the PyTorch index only) | The voice-consent, summary and verification-queue suites can run |
+| Migration checks | Upgrade path, step-13 repair, newer-DB refusal, schema fingerprint, append-only |
+| Full backend suite with JUnit XML | All tests, including privacy, consent, facility isolation, urgency authority |
+| Skip gate (`scripts/ci_skip_gate.py`) | No unallowlisted skip; every required safety module ran with no skips; at least `MIN_EXECUTED` tests ran |
+
+**Not installed in CI**, so their tests are skipped and allowlisted:
+- guardrails (`nemoguardrails`);
+- the live tests against real engines, local models or paid APIs (`SEHAT_LIVE_*`, `RUN_LIVE_*`);
+- the documented PII-scrubber misses, which are skips that record a known weakness, not passes.
+
+## 9. Recovery notes
+
+- **Schema mismatch at startup** (`SchemaMismatchError`): the database came from newer code, or its schema has drifted. Nothing was changed. Development data is synthetic, so delete the database file and restart, or use code that matches the database.
+- **Startup refused because facility isolation is off:** set `ACCOUNT_FACILITIES` (see `.env.example`), or set `ALLOW_UNSCOPED_DEMO=true` to run an unscoped single-facility demo knowingly.
+- **JWT secret refused** (under 32 bytes): run `backend/scripts/rotate_jwt_secret.py`, and unset any exported `JWT_SECRET_KEY`.
+
+**Voice consent lifecycle** (unchanged except V2):
+- The browser re-reads consent before upload.
+- The server pre-checks consent read-only before reading the body (V2).
+- T1 checks again under the write lock and creates the pending row before any engine runs.
+- T2 re-checks after VAD and the engine; a withdrawal mid-run discards the result.
+- Reads share one snapshot with the consent check (F7).
+- Audio is never stored.
+
+## 10. Residual risks (not fixed here)
+
+- **F1:** all patients share one demo account, so a patient login that knows a case id can read that case. This needs a real identity provider. Real use is blocked at startup outside development and test.
+- **S-3:** there is no `jti` and no revocation list, and logout only clears the cookie. Rotating the secret is the only way to invalidate tokens.
+- **S2:** temporal attributes (past or current) are not modelled in AI extraction. Only flagged mentions are withheld.
+- **F6:** patient-code lookups are audited but not rate-limited.
+- **M-4:** the step-13 repair is logged, not written to the audit log.
+- **F8:** the unauthenticated `/health` endpoint lists provider status.
+- **V4:** a withdrawal during **local** engine processing has no automated test; it needs the model.
+- **Clinical review:** the summary wording ("Reported/Denied at intake", what is withheld) and the negation handling are engineering decisions. A clinician must review them. **None of this is clinically validated.**
