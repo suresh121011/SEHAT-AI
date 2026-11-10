@@ -230,3 +230,24 @@ def test_linking_never_writes_triage_or_review(scoped):
     v2 = _case(c, anm)
     assert _link(c, anm, v2, code).status_code == 200
     assert _db("SELECT COUNT(*) FROM triage_runs")[0][0] == 0 and _db("SELECT COUNT(*) FROM review_events")[0][0] == 0
+
+
+def test_every_code_lookup_is_audited_with_its_outcome_but_never_the_code(scoped):
+    """F6 (final remediation plan): a lookup is how a code is probed, so each one is on record (found / not found /
+    invalid), with the outcome only."""
+    c = scoped
+    anm = token_for(c, "anm")
+    code = _new(c, anm, _case(c, anm)).json()["patient_code"]
+    v2 = _case(c, anm)
+    look = lambda text: c.post(f"{API}/cases/{v2}/patient/lookup", json={"patient_code": text}, headers=auth(anm))  # noqa: E731
+    assert look(code).status_code == 200
+    assert look("SP-0000-0000" if code != "SP-0000-0000" else "SP-1111-1111").status_code in (400, 404)
+    typo = code[:-1] + ("0" if code[-1] != "0" else "1")
+    assert look(typo).status_code == 400
+    rows = _db("SELECT outcome, details_json FROM audit_log WHERE action = 'patient_lookup' AND case_id = ? ORDER BY seq", v2)
+    results = [json.loads(d)["result"] for _, d in rows]
+    assert results[0] == "found" and rows[0][0] == "success"
+    assert results[1] in ("not_found", "code_invalid") and results[2] == "code_invalid"
+    assert all(o == "failure" for o, _ in rows[1:])
+    blob = json.dumps(rows)
+    assert code not in blob and code[3:] not in blob and typo[3:] not in blob

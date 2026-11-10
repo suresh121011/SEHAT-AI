@@ -214,3 +214,12 @@ Residual raised by the council: **the semantics of the negation and temporal fix
 - The frontend shows a "Supervisor view: metadata only" notice, and the intake pages tolerate null regions.
 - docs/11 now matches the code: supervisor metadata-only, fail-closed facilities, and the MO's audit rows (F5).
 - Verified: backend 1482 passed / 14 allowlisted skips; frontend tsc and eslint clean, 122/122.
+
+**Step 7c (F3, F6)**
+- **F3:** `test_facility` now probes **every** case-scoped route (24 more). An other-facility case must answer exactly like a missing one. Of the new probes:
+  - 17 return 404 for the medical officer;
+  - the 6 staff-only routes return 404 for an ANM with no facility;
+  - TTS answers 503 identically for both, because the feature is off in that setup.
+- Nothing is written. A new test fails if a case route is added without a probe; two routes are exempt with a stated reason.
+- **F6:** every patient-code lookup is audited as `patient_lookup` with `result` = found / not_found / code_invalid, and never the code or the patient id.
+  - Lookups are not rate-limited yet (residual).

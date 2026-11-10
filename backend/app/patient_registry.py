@@ -174,11 +174,23 @@ async def lookup(conn: aiosqlite.Connection, principal: Principal, case_id: str,
     """Before linking: is this a known patient, and how many linked visits can this account see? Read-only. Only behind
     the same gate as linking, so it is not a free oracle for codes."""
     async def fn(_snap):
-        p = await _patient_by_code(conn, principal, body.patient_code)
+        try:
+            p = await _patient_by_code(conn, principal, body.patient_code)
+        except ApiError as exc:
+            return exc  # audited below, in its own transaction, so the refusal itself is on record
         visits = await _visits(conn, principal, p["patient_id"])
+        await audit.record(conn, principal=principal, action="patient_lookup", outcome="success", case_id=case_id, request_id=request_id,
+                           details=audit.PatientLookupDetails(result="found"))
         return {"patient_code": p["patient_code"], "visible_visits": len(visits), "first_visit_date": visits[0]["visit_date"] if visits else None,
                 "already_linked_here": any(v["case_id"] == case_id for v in visits)}
-    return await _guarded(conn, principal, case_id, request_id, fn)
+    result = await _guarded(conn, principal, case_id, request_id, fn)
+    if isinstance(result, ApiError):
+        # F6: every lookup is how a code would be probed, so a miss is audited too (outcome only, never the code).
+        async with transaction(conn):
+            await audit.record(conn, principal=principal, action="patient_lookup", outcome="failure", case_id=case_id, request_id=request_id,
+                               details=audit.PatientLookupDetails(result="code_invalid" if result.code == "PATIENT_CODE_INVALID" else "not_found"))
+        raise result
+    return result
 
 
 async def link_existing(conn: aiosqlite.Connection, principal: Principal, case_id: str, body: LinkBody, request_id=None) -> dict:
