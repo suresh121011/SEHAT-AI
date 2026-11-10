@@ -31,6 +31,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.voice.test_api",
     "tests.voice.test_schema_consent",
     "tests.ai.test_encounter_summary",
+    "tests.ai.test_encounter_summary_semantics",
     "tests.review.test_verification_queue",
     "tests.privacy.test_remediation_guards",
     "tests.privacy.test_migration_reconcile",

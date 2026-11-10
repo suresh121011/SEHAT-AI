@@ -88,6 +88,8 @@ test("withheld reasons use the application's own codes; an unknown code still sh
   assert.equal(withheldReasonWords("source_not_verified"), "Source not verified by a person");
   assert.equal(withheldReasonWords("document_not_matched"), "Document not matched to this patient");
   assert.equal(withheldReasonWords("evidence_conflict"), "Evidence conflict — sources disagree");
+  assert.match(withheldReasonWords("negation_or_time_uncertain"), /present, denied or in the past/);
+  assert.match(withheldReasonWords("polarity_mismatch"), /^Validation failed/);
   assert.match(withheldReasonWords("diagnostic_language"), /^Validation failed/);
   assert.match(withheldReasonWords("something_new"), /^Validation failed \(something new\)/);
 });

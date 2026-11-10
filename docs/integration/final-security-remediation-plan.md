@@ -158,3 +158,17 @@ Residual raised by the council: **the semantics of the negation and temporal fix
 **Step 2a (V1)**
 - `frontend/src/lib/deviceVoice.ts` selects only `localService` voices for the selected language; a cloud browser voice is never used.
 - Used by `useMatchingVoice`, which covers both read-back and the consent read-aloud. Tests in `deviceVoice.test.ts`.
+
+**Step 2b (S1–S4, encounter summary semantics)**
+- **S1:**
+  - Unreviewed AI symptom, medication and red-flag facts now carry their grounding flags (`negation_conflict`, `negation_unsupported`, `past_history_cue`, `temporal_reference`).
+  - A flagged fact stays in the tables and out of the text, and is listed in `withheld` as `negation_or_time_uncertain` until a person decides it.
+  - The exact case "Cough, no fever." with the model's cross-clause negation now writes cough only.
+- **S3:** the gate blocks `polarity_mismatch` (a "reported" sentence citing a denied fact, or the reverse) and any flagged fact in prose. The unchecked tag is now counted per cited fact.
+- **S4:** a test asserts that a denied symptom renders only as denied.
+- **S2:** "Patient reports/denies" is now "Reported/Denied at intake", which makes no claim about who spoke.
+  - Temporal attributes remain a residual: the extraction schema has no time field.
+- **Schema** `encounter-summary-2026-11-10.3`, so older stored summaries go stale and are rebuilt.
+- **Frontend wording** added for the two new reason codes.
+- **Verified:** backend 1446 passed / 14 allowlisted skips; frontend summary tests 14/14.
+- **Clinical review of the wording is still required.**
