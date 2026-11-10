@@ -1,7 +1,7 @@
 # Semantic Kernel / Gemini Live branch: investigation and remediation plan
 
 > Prepared 2026-11-07 on `integration/semantic-kernel-remediation`, branched from `main` 4b44cc8 (after PR #12).
-> **Status: plan only, awaiting approval. No remediation code has been written.** Revision 2: corrected after a six-perspective review (§12).
+> **Status: implemented on this branch (§13), after owner decisions D1–D9 (2026-11-07).** Revision 2 was corrected after a six-perspective review (§12). Revision 3 records the implementation.
 > Contributor branches investigated:
 > - `origin/feature/gemini-live-duplex-followup`: b1e5656 (niranjanswain067, 2026-11-04)
 > - `origin/feature/semantic-kernel-plugins`: b1e5656 + 69071c4 + **21a9761** (21a9761 was pushed 2026-11-07 19:51, during this review)
@@ -265,3 +265,56 @@ The reviews covered architecture, application security, healthcare privacy and c
 - **Testing:** do not compute the version literal. Adopted.
 
 **Unanimous across reviewers:** D1 = (a) is the safe default. D1 = (b) needs an owner-approved Google consent text (D2), a WebSocket origin decision (D7), checks on spoken output, and the full security set before it could be considered.
+
+
+## 13. Implementation (revision 3)
+
+Owner decisions:
+- **D1, D2:** remove Gemini Live; Sarvam-only voice consent.
+- **D3:** remove `/ai/orchestrate`.
+- **D4:** share this plan with the contributor before the PR.
+- **D5:** pin to 21a9761.
+- **D6:** `kernel.py` stays a smoke test.
+- **D7:** strict WebSocket security. Implemented by having **no** WebSocket endpoint; a test enforces it.
+- **D8:** CI and branch protection.
+- **D9:** JWT rotation.
+
+| Commit | What it does |
+|---|---|
+| d0203f6 | Merges 21a9761 with authorship preserved. Conflicts resolved coherently: the contribution's gemini tables became step 15. |
+| 7941418 | Regression guards (10 fail on d0203f6) |
+| bea77f0 | Removes Gemini Live, `/api/session/token`, gemini config/audit/auth/tables, docs/20 and docs/19 Qdrant (schema back to 14) |
+| f2440d3 | Removes `/ai/orchestrate` and the orchestrator; `kernel.py` restored to the smoke test; plugins become a test harness (no `str(exc)`, no default urgency, no in-process store) |
+| 03e4d41 | Step-13 forward repair (below) |
+| 1dd6ec1 | Field aliases and draft hi/or questions kept as unwired data (docs/13 DRAFT-Q) |
+| 79b8eac | `scripts/rotate_jwt_secret.py` (D9) |
+| 87833af | Guard scope: the repair may name the leftover table |
+| 91ac5b5 | `.github/workflows/ci.yml` (D8) |
+
+**One change from §3C, made at the owner's instruction** ("existing databases receive all expected summary tables, do not silently skip migrations, preserve user data"):
+- A database that skipped main's step 13 is **repaired forward** instead of being refused.
+- `run_migrations` detects the problem by schema (version ≥ 13 and `encounter_summaries` missing) and applies main's step 13 as-is. It uses additive DDL only, in one transaction, with a foreign-key check, and logs counts only.
+- Leftover `gemini_live_*` tables are kept, unused.
+- Migrations 1–14 and their numbering are unchanged.
+- With the repair disabled, 3 of its 6 tests fail.
+
+**Phase 2 voice items, covered by existing tests (unchanged):**
+
+| Requirement | Test |
+|---|---|
+| No silent provider switch | `tests/voice/test_api.py::test_local_engine_never_calls_cloud_and_reports_not_installed` and `::test_provider_failures_are_explicit_and_never_green` |
+| Consent checked before any upload | `::test_cloud_without_voice_cloud_consent_is_denied_before_any_upload` |
+| Withdrawal stops or discards | `::test_consent_withdrawn_during_vad_stops_the_cloud_upload` and `::test_consent_withdrawn_during_processing_discards_result` |
+| A failure never leaves a row pending | `::test_failure_while_finalising_never_leaves_row_pending` |
+| Lifecycle audited before the engine runs | `::test_started_is_audited_before_the_engine_runs` |
+
+With Gemini Live removed there is no streaming session, and `tests/privacy/test_remediation_guards.py` proves no Google audio path or WebSocket endpoint exists.
+
+**D8, CI and protection:**
+- CI passed on `main`: draft test PR #13 ran all three jobs green.
+- Branch protection on `main` is active, as confirmed by the GitHub API:
+  - the three checks are required, in strict mode;
+  - 1 approving review is required, and stale reviews are dismissed;
+  - it applies to admins too;
+  - no force-push, no deletion;
+  - conversations must be resolved.
