@@ -50,9 +50,18 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.privacy.test_rate_limit",
     "tests.privacy.test_authz",
     "tests.interview.test_interview",
+    # summary note from every source (docs/plans/summary-note-all-sources.md): images and interview answers in the
+    # summary, the transparency rules, and the synthetic evaluation corpus (its safety metrics must all pass)
+    "tests.ai.test_encounter_summary_sources",
+    "tests.ai.test_encounter_summary_transparency",
+    "tests.ai.test_encounter_eval",
 )
 
-MIN_EXECUTED = 1520  # CI-equivalent ran 1527 on 2026-11-10 after the hardening phase (was 1390); raise it as tests are added, never lower it silently
+# History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
+#   1390 -> 1520 on 2026-11-10 (CI ran 1527 after the hardening phase)
+#   1520 -> 1555 on 2026-11-11 (CI on main 0b5b23b ran 1541; this change adds 20 tests that run in CI: 14 summary-source,
+#            1 corpus-shape and 5 gate tests, so 1561 are expected; the margin of 6 matches the earlier one)
+MIN_EXECUTED = 1555
 
 
 def _module(classname: str) -> str:
@@ -64,13 +73,13 @@ def _module(classname: str) -> str:
     return classname
 
 
-def check(junit_xml: str) -> list[str]:
-    """Return a list of problems (empty = pass). Pure function so the gate itself is unit-tested."""
+def analyse(junit_xml: str) -> tuple[list[str], dict[str, int]]:
+    """(problems, counts). Pure, so the gate itself is unit-tested. `counts` is what the CI log prints."""
     root = ET.fromstring(junit_xml)
     problems: list[str] = []
     executed: Counter[str] = Counter()
     skipped: Counter[str] = Counter()
-    executed_total = 0
+    executed_total = allowlisted = unexpected = 0
     for case in root.iter("testcase"):
         mod = _module(case.get("classname") or case.get("name", ""))  # a collection skip has no classname
         skip = case.find("skipped")
@@ -80,23 +89,44 @@ def check(junit_xml: str) -> list[str]:
             continue
         skipped[mod] += 1
         reason = (skip.get("message") or "") + " " + (skip.text or "")
-        if not any(re.search(p, reason) for p in ALLOWED_SKIP_REASONS):
+        if any(re.search(p, reason) for p in ALLOWED_SKIP_REASONS):
+            allowlisted += 1
+        else:
+            unexpected += 1
             problems.append(f"unexpected skip in {mod}::{case.get('name')}: {reason.strip()[:200]}")
+    required_run = 0
     for mod in REQUIRED_MODULES:
+        required_run += executed[mod]
         if skipped[mod]:
             problems.append(f"required safety module {mod} has {skipped[mod]} skipped test(s)")
         if not executed[mod]:
             problems.append(f"required safety module {mod} did not run")
     if executed_total < MIN_EXECUTED:
         problems.append(f"only {executed_total} tests ran; at least {MIN_EXECUTED} expected")
-    return problems
+    counts = {"total": executed_total + sum(skipped.values()), "executed": executed_total, "skipped": sum(skipped.values()),
+              "allowlisted_skips": allowlisted, "unexpected_skips": unexpected, "minimum_required": MIN_EXECUTED,
+              "required_safety_modules": len(REQUIRED_MODULES), "required_safety_tests_executed": required_run,
+              "required_safety_tests_skipped": sum(skipped[m] for m in REQUIRED_MODULES)}
+    return problems, counts
+
+
+def check(junit_xml: str) -> list[str]:
+    """Return a list of problems (empty = pass)."""
+    return analyse(junit_xml)[0]
+
+
+def report(counts: dict[str, int]) -> str:
+    return ("skip gate counts: total={total} executed={executed} skipped={skipped} allowlisted_skips={allowlisted_skips} "
+            "unexpected_skips={unexpected_skips} minimum_required={minimum_required} | safety: modules={required_safety_modules} "
+            "tests_executed={required_safety_tests_executed} tests_skipped={required_safety_tests_skipped}").format(**counts)
 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__)
         return 2
-    problems = check(Path(argv[1]).read_text())
+    problems, counts = analyse(Path(argv[1]).read_text())
+    print(report(counts))
     for p in problems:
         print(f"SKIP GATE: {p}")
     if problems:

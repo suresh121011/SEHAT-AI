@@ -5,7 +5,7 @@
 // section as rows with a trust level and their sources. Nothing here computes urgency or picks between conflicting
 // values; accepting the summary changes nothing in triage. Not a diagnosis.
 import Link from "next/link";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
 import { ProvenanceBadge, StatusPill, UrgencyBadge } from "@/components/review/Badges";
@@ -15,6 +15,7 @@ import { ApiError, api } from "@/lib/api";
 import {
   AGREEMENT_WORDS, READINESS_WORDS, TRUST_WORDS, acceptState, groupWithheld, verificationBase, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement,
   readinessReasonWords, reviewWords, sortedAttention, sourceName, sourceWords, verifyLink, withheldReasonWords,
+  imageDescribedBy, imageFieldRows, imageNeedsReview, imageValue, noteSections, shouldAutoBuild, type NoteLine,
   type EncounterSummary, type EvidenceStatus, type Fact, type Row, type SummaryView, type Trust, type UnmatchedDocument, type VerifyPage, type Withheld,
 } from "@/lib/encounterSummary";
 
@@ -147,6 +148,147 @@ function RowSection({ title, rows, s, caseId }: { title: string; rows: Row[]; s:
     <div className="space-y-1">
       <Eyebrow>{title}</Eyebrow>
       <ul className="space-y-1">{rows.map((r) => <RowItem key={r.key} row={r} s={s} caseId={caseId} />)}</ul>
+    </div>
+  );
+}
+
+const LINE_CLASS: Record<NoteLine["kind"], string> = {
+  sentence: "", row: "", status: "", detail: "ml-4 text-muted", conflict: "font-bold text-error",
+};
+
+/** The whole summary as one note, in a fixed clinical order. Every line is the server's text; nothing is composed here. */
+function NoteDocument({ s, reviewText, stale }: { s: EncounterSummary; reviewText: string; stale: boolean }) {
+  const sections = noteSections(s);
+  const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
+  if (!sections.length) return null;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(s.note_text ?? "");
+      setCopied("done");
+    } catch {
+      setCopied("failed");
+    }
+  }
+
+  // Print only the note: a copy of it is placed in its own root and everything else is removed from the printed page
+  // (globals.css, html.print-note), so no navigation, button or other case's content can reach the paper.
+  function print() {
+    const note = document.getElementById("encounter-note");
+    if (!note) return;
+    document.getElementById("print-root")?.remove();
+    const root = document.createElement("div");
+    root.id = "print-root";
+    root.appendChild(note.cloneNode(true));
+    root.querySelector("#encounter-note")?.removeAttribute("id");
+    const foot = document.createElement("p");
+    foot.className = "print-footer";
+    foot.textContent = `Printed ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC · visit ${s.case_id} · ${reviewText}${stale ? " · OUT OF DATE" : ""} · ${s.disclaimer}`;
+    root.appendChild(foot);
+    document.body.appendChild(root);
+    const html = document.documentElement;
+    html.classList.add("print-note");
+    const done = () => {
+      html.classList.remove("print-note");
+      root.remove();
+    };
+    window.addEventListener("afterprint", done, { once: true });
+    window.print();
+  }
+
+  return (
+    <section aria-labelledby="encounter-note-title" className="space-y-2">
+      <div className="no-print flex flex-wrap items-center justify-between gap-2">
+        <Eyebrow icon="list">Summary note (draft; not a diagnosis)</Eyebrow>
+        <div className="flex flex-wrap items-center gap-2">
+          <span role="status" className="text-xs text-muted">
+            {copied === "done" ? "Copied" : copied === "failed" ? "Could not copy. Select the text instead." : ""}
+          </span>
+          <Button variant="secondary" onClick={copy} disabled={!s.note_text}>
+            <Icon name="clipboard" size={16} /> Copy note
+          </Button>
+          <Button variant="secondary" onClick={print}>
+            <Icon name="list" size={16} /> Print
+          </Button>
+        </div>
+      </div>
+      <article id="encounter-note" className="space-y-3 rounded-lg border border-subtle bg-card p-4 text-sm">
+        <header className="border-b border-subtle pb-2">
+          <h4 id="encounter-note-title" className="text-base font-bold">Encounter summary</h4>
+          <p className="text-xs text-muted">
+            Visit {s.case_id} · {reviewText}
+            {stale ? " · OUT OF DATE: information changed after this note was made" : ""} · generated {s.generated_at.slice(0, 16).replace("T", " ")} UTC
+          </p>
+        </header>
+        {sections.map((sec) => (
+          <section key={sec.key} aria-label={sec.title}>
+            <h5 className="text-xs font-bold uppercase tracking-wide text-muted">{sec.title}</h5>
+            <ul className="mt-0.5 space-y-0.5">
+              {sec.lines.map((line, i) => (
+                <li key={i} className={LINE_CLASS[line.kind]}>
+                  {line.fact_ids[0] && line.kind !== "detail" ? <a href={`#fact-${line.fact_ids[0]}`} className="hover:underline">{line.text}</a> : line.text}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </article>
+      <p className="no-print text-xs text-muted">Select a line to jump to its value and sources below.</p>
+    </section>
+  );
+}
+
+/** Uploaded medical images. The described fields are model output for a clinician to check against the image itself. */
+function ImagingSection({ ids, s }: { ids: string[]; s: EncounterSummary }) {
+  const facts = factsFor(s, ids);
+  if (!facts.length) return null;
+  return (
+    <div className="space-y-1">
+      <Eyebrow>Imaging (AI-described visual findings; not a diagnosis)</Eyebrow>
+      <ul className="space-y-1">
+        {facts.map((f) => {
+          const v = imageValue(f);
+          if (!v) return null;
+          const rows = imageFieldRows(v);
+          return (
+            <li key={f.fact_id} id={`fact-${f.fact_id}`} className={`space-y-1 rounded-lg border p-2 ${imageNeedsReview(v) ? "border-error/60 bg-error-bg" : f.trust === "unchecked" ? "border-dashed border-warning/60" : "border-subtle"}`}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p><strong>{f.label}</strong> <span className="text-muted">· {f.display.split(", ").slice(1).join(", ")}</span></p>
+                <TrustPill trust={f.trust} />
+              </div>
+              {imageNeedsReview(v) && (
+                <p className="flex items-start gap-1 text-sm font-bold text-error">
+                  <Icon name="alert" size={14} className="mt-0.5" /> This image carries a flag that nobody has marked as reviewed. Sign-off is blocked until it is.
+                </p>
+              )}
+              {imageDescribedBy(v) && (
+                <p className={`text-xs ${imageDescribedBy(v)!.demo ? "rounded border border-warning bg-warning-bg px-2 py-1 font-bold" : "text-muted"}`}>{imageDescribedBy(v)!.text}</p>
+              )}
+              {rows.length > 0 && (
+                <dl className="grid gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[minmax(8rem,auto)_1fr]">
+                  {rows.map((r) => (
+                    <div key={r.label} className="contents">
+                      <dt className="text-muted">{r.label}</dt>
+                      <dd>{r.text}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {v.flags.map((x, i) => (
+                <p key={i} className="text-xs font-bold text-warning">
+                  Keyword flag for the reviewer: {(x.signal ?? "flag").replaceAll("_", " ").toLowerCase()}{x.negated ? " (negated in the text)" : ""}
+                </p>
+              ))}
+              {v.text_withheld && <p className="text-xs text-warning">Some model text was withheld because it read as a diagnosis or an instruction.</p>}
+              {v.note && <p className="text-xs text-muted">{v.note}</p>}
+              <p className="text-xs">
+                <a href={v.source_image_url} target="_blank" rel="noreferrer" className="text-primary underline">Open the image</a>
+              </p>
+              <Sources facts={[f]} />
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -285,20 +427,36 @@ export function EncounterSummaryPanel({ caseId, canReview }: { caseId: string; c
     api.get<{ role: string }>("auth/me").then((me) => setCanVerify(verificationBase(me.role)), () => setCanVerify(null));
   }, []);
 
+  // A reviewer who opens a case with no summary gets one without pressing a button (once per case; never for a reader).
+  const autoTried = useRef<string | null>(null);
   const load = useCallback(async () => {
     try {
-      setView(await api.get<SummaryView>(`cases/${caseId}/encounter-summary`));
+      let got = await api.get<SummaryView>(`cases/${caseId}/encounter-summary`);
+      if (shouldAutoBuild(got, canReview, autoTried.current === caseId)) {
+        autoTried.current = caseId;
+        got = { ...(await api.post<SummaryView>(`cases/${caseId}/encounter-summary`)), case_id: caseId };
+      }
+      setView(got);
       setError(null);
     } catch (err) {
       setError(explain(err));
     }
-  }, [caseId]);
+  }, [caseId, canReview]);
 
   useEffect(() => {
     setView(null);
     setAck(false);
     void load();
   }, [load]);
+
+  // Evidence recorded elsewhere on this screen (an image marked as reviewed): re-read, so a stale summary says so.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      if ((e as CustomEvent<{ caseId?: string }>).detail?.caseId === caseId) void load();
+    };
+    window.addEventListener("sehat:evidence-changed", onChange);
+    return () => window.removeEventListener("sehat:evidence-changed", onChange);
+  }, [caseId, load]);
 
   async function generate() {
     setBusy(true);
@@ -393,7 +551,9 @@ export function EncounterSummaryPanel({ caseId, canReview }: { caseId: string; c
             <p className="basis-full text-xs text-muted">{s.urgency.message}</p>
           </div>
 
-          {s.narrative.length > 0 && (
+          <NoteDocument s={s} reviewText={status.text} stale={Boolean(view?.is_stale)} />
+
+          {noteSections(s).length === 0 && s.narrative.length > 0 && (
             <div className="space-y-1">
               <Eyebrow icon="list">Drafted handover (from the facts below; not a diagnosis)</Eyebrow>
               <ul className="list-disc space-y-0.5 pl-5 text-sm">
@@ -407,7 +567,7 @@ export function EncounterSummaryPanel({ caseId, canReview }: { caseId: string; c
             </div>
           )}
 
-          {s.narrative.length === 0 && <p className="text-sm text-muted">No sentence could be written yet: every value is still unchecked, conflicting or missing.</p>}
+          {noteSections(s).length === 0 && s.narrative.length === 0 && <p className="text-sm text-muted">No sentence could be written yet: every value is still unchecked, conflicting or missing.</p>}
           <WithheldSection items={s.withheld ?? []} s={s} caseId={caseId} />
           <UnmatchedSection docs={s.unmatched_documents ?? []} caseId={caseId} />
 
@@ -415,8 +575,10 @@ export function EncounterSummaryPanel({ caseId, canReview }: { caseId: string; c
           <FactSection title="Duration and onset (as reported)" ids={s.timeline} s={s} caseId={caseId} />
           <FactSection title="Symptoms reported" ids={s.symptoms.present} s={s} caseId={caseId} />
           <FactSection title="Symptoms denied" ids={s.symptoms.denied} s={s} caseId={caseId} />
+          <FactSection title="Interview answers (as said; confirmed by the health worker; not used as measurements)" ids={s.interview ?? []} s={s} caseId={caseId} />
           <RowSection title="Measurements" rows={s.vitals} s={s} caseId={caseId} />
           <RowSection title="Lab values (with report date)" rows={s.labs} s={s} caseId={caseId} />
+          <ImagingSection ids={s.imaging ?? []} s={s} />
           <FactSection title="Medicines (on a prescription or mentioned; not proof they were taken)" ids={s.medications} s={s} caseId={caseId} />
           <FactSection title="Red flags" ids={s.red_flag_mentions} s={s} caseId={caseId} />
           <FactSection title="Body map" ids={s.body_map} s={s} caseId={caseId} />

@@ -189,6 +189,66 @@ body {
   }
 }
 
+/* Print only the summary note when it was asked for from the note's own Print button: the panel copies the note into
+   #print-root and every other element is removed from the page, so nothing else can be printed with it. */
+#print-root {
+  display: none;
+}
+
+@page {
+  size: A4;
+  margin: 16mm 14mm 18mm;
+}
+
+@media print {
+  html.print-note body > *:not(#print-root) {
+    display: none !important;
+  }
+  html.print-note #print-root {
+    display: block;
+    color: #000;
+    background: #fff;
+    font-size: 10.5pt;
+    line-height: 1.4;
+  }
+  html.print-note #print-root article {
+    border: 0;
+    padding: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+  html.print-note #print-root h4 {
+    font-size: 15pt;
+  }
+  html.print-note #print-root h5 {
+    margin-top: 8pt;
+    font-size: 9.5pt;
+    color: #000;
+    border-bottom: 0.5pt solid #777;
+    break-after: avoid;
+  }
+  html.print-note #print-root li {
+    break-inside: avoid;
+  }
+  html.print-note #print-root section {
+    break-inside: auto;
+  }
+  html.print-note #print-root a {
+    color: inherit;
+    text-decoration: none;
+  }
+  html.print-note #print-root .text-muted,
+  html.print-note #print-root .text-error {
+    color: #000;
+  }
+  html.print-note #print-root .print-footer {
+    margin-top: 12pt;
+    border-top: 0.5pt solid #777;
+    padding-top: 4pt;
+    font-size: 8.5pt;
+  }
+}
+
 @media print {
   .app-sidebar,
   .app-topbar,

@@ -40,7 +40,7 @@ from app.errors import ApiError, not_found
 from app.rules import TriageInput, TriageResult
 from app.rules.required_fields import missing as required_missing
 
-SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-10.3"  # .3: uncertain negation withheld, polarity gate, neutral attribution (S1-S4)
+SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-11.4"  # .4: medical images, interview answers, visit header, sectioned note
 DISCLAIMER = ("AI-assisted draft assembled from recorded sources, pending review by a qualified clinician. Not a diagnosis. "
               "Urgency is the rules engine's. Research prototype, not a clinically validated device.")
 log = logging.getLogger(__name__)
@@ -62,6 +62,15 @@ PROVENANCE: dict[str, dict[str, Any]] = {
     "document_unchecked": {"label": "Machine-read from a document, not yet checked", "trust": "unchecked", "tag": " [machine-read, not yet checked]", "narrative": False},
     "triage_form": {"label": "Entered on the triage form by a health worker", "trust": "entered", "tag": "", "narrative": True},
     "body_map": {"label": "Marked on the body map", "trust": "entered", "tag": "", "narrative": True},
+    # Medical images (docs/18). The finding text is model output no rule validates: it lives in the fact's value (the
+    # Imaging rows) and never in its display, so no sentence can carry it (owner decision D2a, 2026-11-11).
+    "image_described_acknowledged": {"label": "AI-described image findings, marked as reviewed by a clinician (not a diagnosis)", "trust": "checked", "tag": "",
+                                     "narrative": True},
+    "image_described_unacknowledged": {"label": "AI-described image findings, not yet reviewed by a clinician (not a diagnosis)", "trust": "unchecked",
+                                       "tag": " [AI description, not yet reviewed]", "narrative": True},
+    "image_on_file": {"label": "Image uploaded by a health worker; no AI description", "trust": "entered", "tag": "", "narrative": True},
+    # Scripted interview answers (docs/plans/scripted-voice-interviewer.md, I4): a table, never prose.
+    "interview_confirmed": {"label": "Interview answer, as said and confirmed by the health worker", "trust": "checked", "tag": "", "narrative": False},
 }
 TRUST_LEGEND = {
     "checked": "A health worker or doctor checked this value against its source (read-back, document image, or AI field review).",
@@ -79,7 +88,7 @@ def uncertain(f: "Fact") -> bool:
     return any(x in UNCERTAIN_FLAGS for x in f.flags)
 
 
-Section = Literal["presenting_problem", "timeline", "symptoms", "vitals", "labs", "medications", "body_map", "red_flags", "context"]
+Section = Literal["presenting_problem", "timeline", "symptoms", "vitals", "labs", "medications", "body_map", "red_flags", "context", "imaging", "interview"]
 
 
 class _M(BaseModel):
@@ -122,10 +131,24 @@ class Blocked(_M):
 
 class Attention(_M):
     kind: Literal["conflict", "unavailable_source", "blocked_sentence", "pending_review", "triage_predates_evidence", "no_triage_run",
-                  "missing_danger_sign"]
+                  "missing_danger_sign", "image_flag_unacknowledged"]
     message: str
     action: str
     refs: list[str] = Field(default_factory=list)
+
+
+class NoteLine(_M):
+    # sentence: a gated narrative sentence. row: a recorded value with how far it was checked. detail: an image's
+    # described field or flag (never a sentence). conflict: candidates, no value chosen. status: header/urgency/gaps.
+    kind: Literal["sentence", "row", "detail", "conflict", "status"]
+    text: str
+    fact_ids: list[str] = Field(default_factory=list)
+
+
+class NoteSection(_M):
+    key: str
+    title: str
+    lines: list[NoteLine] = Field(min_length=1)
 
 
 class EncounterSummary(_M):
@@ -162,6 +185,13 @@ class EncounterSummary(_M):
     withheld: list[dict] = Field(default_factory=list)
     # Operational counts from the stored rows the summary was built from. Not a clinical confidence score.
     evidence_status: dict = Field(default_factory=dict)
+    # .4: images (fact ids; findings in the fact's value), interview answers (fact ids; table only), the visit header
+    # (no direct identifiers), and the same content as one sectioned note with a plain-text rendering.
+    imaging: list[str] = Field(default_factory=list)
+    interview: list[str] = Field(default_factory=list)
+    header: dict = Field(default_factory=dict)
+    note_sections: list[NoteSection] = Field(default_factory=list)
+    note_text: str = ""
     clinical_use_allowed: Literal[False] = False
     requires_sign_off: Literal[True] = True
 
@@ -568,7 +598,77 @@ async def _body_map_source(conn, case_id: str, b: _Builder, out: dict) -> None:
               [{"type": "body_map", "event_id": row["event_id"], "recorded_by_role": row["actor_role"], "recorded_at": row["created_at"]}])
 
 
-SOURCES = (("ai_extraction", _ai_source), ("voice", _voice_source), ("documents", _ocr_source), ("triage", _triage_source), ("body_map", _body_map_source))
+IMAGE_WORDS = {"chest_xray": "chest X-ray", "ecg_strip": "ECG strip", "ct_report_image": "CT report image", "wound_photo": "wound photo",
+               "skin_lesion": "skin lesion photo"}
+
+
+async def _image_source(conn, case_id: str, b: _Builder, out: dict) -> None:
+    """Every stored medical image that was not deleted (docs/18). The described fields, the description and the keyword
+    flags go in the fact's value; the display names only the image and its review state. The description is shown only
+    while `ai_assist` is in effect; a flag that still needs "findings reviewed" is listed either way."""
+    from app.ocr import image_service
+
+    async with conn.execute(
+        "SELECT m.*, a.actor_role AS ack_role, a.created_at AS ack_at FROM medical_images m "
+        "LEFT JOIN medical_image_acknowledgements a ON a.document_id = m.document_id WHERE m.case_id = ? AND NOT EXISTS "
+        "(SELECT 1 FROM medical_image_purge_events p WHERE p.document_id = m.document_id) ORDER BY m.created_at, m.document_id", (case_id,)) as cur:
+        rows = await cur.fetchall()
+    for row in rows:
+        acked = row["ack_at"] is not None
+        v = image_service.row_view(row, acked)
+        did, word = v["document_id"], IMAGE_WORDS.get(v["declared_type"], "medical image")
+        shown = v["status"] == "described" and out["ai_allowed"]
+        if v["status"] == "described" and not shown and {"source": "image_descriptions", "reason": "ai_assist_consent_not_in_effect"} not in out["excluded"]:
+            out["excluded"].append({"source": "image_descriptions", "reason": "ai_assist_consent_not_in_effect"})
+        if v["status"] == "pending":
+            out["pending"].append({"kind": "medical_image", "ref": did, "label": v["declared_type"], "state": "processing",
+                                   "action": "This image is still being described. Refresh the summary when it is done."})
+        if v["requires_acknowledgement"] and not acked:
+            out["pending"].append({"kind": "medical_image", "ref": did, "label": v["declared_type"], "state": "flag_not_acknowledged",
+                                   "action": "Open the image and its described findings, then record \"findings reviewed\". Sign-off is blocked until then."})
+            out["image_flags"].append(did)
+        prov = ("image_described_acknowledged" if acked else "image_described_unacknowledged") if shown else "image_on_file"
+        state = ("AI visual description marked as reviewed by a clinician" if acked else "AI visual description") if shown else "no AI description"
+        src = {"type": "medical_image", "document_id": did, "image_type": v["declared_type"], "source_image_url": v["source_image_url"],
+               "uploaded_at": v["created_at"], "backend": v["backend"] if shown else None, "model": v["model"] if shown else None,
+               "acknowledged_by_role": row["ack_role"], "acknowledged_at": row["ack_at"]}
+        value = {"document_id": did, "image_type": v["declared_type"], "status": v["status"], "description": v["raw_description"] if shown else None,
+                 "structured_fields": v["structured_fields"] if shown else {}, "text_withheld": bool(shown and (v["withheld"].get("fields") or v["withheld"].get("description"))),
+                 "flags": v["urgency_signals"] if shown else [], "confidence_band": v["confidence_band"] if shown else None,
+                 "classifier_mismatch": v["classifier_mismatch"], "requires_acknowledgement": v["requires_acknowledgement"], "acknowledged": acked,
+                 "source_image_url": v["source_image_url"], "note": v["note"] if shown or v["status"] != "described" else None,
+                 "disclaimer": v["disclaimer"] if shown else None,
+                 # Where the text came from. `synthetic` = canned demo text from the fake backend, not a reading of this image.
+                 "described_by": v["provenance"] if shown else None}
+        b.add("imaging", f"image:{did}", word[:1].upper() + word[1:], f"{word}, {state}", value, prov, [src],
+              ["image_flag"] if shown and v["urgency_signals"] else [])
+
+
+async def _interview_source(conn, case_id: str, b: _Builder, out: dict) -> None:
+    """The latest confirmed answer per scripted question. "Not sure" is kept as said and flagged: it never counts as an
+    answer (present_keys). Read directly: this module never calls the interview service's writers."""
+    from app.ai.question_bank import QUESTIONS
+    from app.interview.script import UNKNOWN_OPTIONS
+
+    async with conn.execute(
+        "SELECT * FROM interview_answer_events e WHERE case_id = ? AND seq = (SELECT MAX(seq) FROM interview_answer_events x "
+        "WHERE x.case_id = e.case_id AND x.question_key = e.question_key) ORDER BY seq", (case_id,)) as cur:
+        rows = await cur.fetchall()
+    for r in rows:
+        key = r["question_key"]
+        text = (QUESTIONS.get(key) or {}).get("question_text") or key.replace("_", " ").capitalize()
+        answer = r["choice_value"] if r["kind"] == "choice" else r["text_value"]
+        unknown = r["kind"] == "choice" and r["choice_value"] in UNKNOWN_OPTIONS
+        src = {"type": "interview_answer", "event_id": r["event_id"], "answer_source": r["source"], "transcription_id": r["transcription_id"],
+               "transcript_chars": [r["char_start"], r["char_end"]] if r["transcription_id"] else None, "speaker": r["speaker"],
+               "recorded_by_role": r["actor_role"], "recorded_at": r["created_at"]}
+        b.add("interview", f"answer:{key}", text, answer, {"question_key": key, "kind": r["kind"], "answer": answer, "speaker": r["speaker"],
+                                                          "answer_source": r["source"], "is_unknown": unknown},
+              "interview_confirmed", [src], ["unknown_answer"] if unknown else [])
+
+
+SOURCES = (("ai_extraction", _ai_source), ("voice", _voice_source), ("documents", _ocr_source), ("triage", _triage_source), ("body_map", _body_map_source),
+           ("medical_images", _image_source), ("interview", _interview_source))
 
 
 async def assemble_evidence(conn: aiosqlite.Connection, case_id: str, *, ai_allowed: bool) -> tuple[_Builder, dict]:
@@ -576,7 +676,7 @@ async def assemble_evidence(conn: aiosqlite.Connection, case_id: str, *, ai_allo
     access and consent checks. Reusable by other views (council). AI fields are read only while `ai_assist` is in effect."""
     b = _Builder()
     out: dict[str, Any] = {"pending": [], "unavailable": [], "excluded": [], "triage_runs": [], "vital_history": {}, "triage_input": None,
-                           "unmatched_documents": [], "doc_stats": None}
+                           "unmatched_documents": [], "doc_stats": None, "ai_allowed": ai_allowed, "image_flags": []}
     for name, fn in SOURCES:
         if name == "ai_extraction" and not ai_allowed:  # a consent choice, not a failure: the summary can still be complete
             out["excluded"].append({"source": name, "reason": "ai_assist_consent_not_in_effect"})
@@ -652,6 +752,31 @@ def duration_conflicts(facts: list[Fact]) -> list[dict]:
     return []
 
 
+# The interview's fixed duration answers as day ranges (inclusive at both ends, so a boundary value never conflicts).
+_DURATION_BUCKETS = {"less than 1 day": (0.0, 1.0), "1-3 days": (1.0, 3.0), "4-7 days": (4.0, 7.0), "more than 1 week": (7.0, float("inf"))}
+_UNIT_DAYS = {"hour": 1 / 24, "day": 1.0, "week": 7.0, "month": 30.0, "year": 365.0}
+
+
+def interview_duration_conflicts(facts: list[Fact]) -> list[dict]:
+    """A confirmed interview duration answer against each recorded duration that parsed to an exact amount. Outside
+    the answer's range → a conflict with no value chosen. Approximate or unparsed durations are never compared."""
+    answer = next((f for f in facts if f.section == "interview" and f.key == "answer:duration" and not (f.value or {}).get("is_unknown")), None)
+    rng = _DURATION_BUCKETS.get(answer.display) if answer else None
+    if rng is None:
+        return []
+    out = []
+    for f in facts:
+        parsed = (f.value or {}).get("parsed") if f.section == "timeline" and f.key == "duration" and isinstance(f.value, dict) else None
+        if not parsed or parsed.get("approximate"):
+            continue
+        days = float(parsed["amount"]) * _UNIT_DAYS[parsed["unit"]]
+        if not rng[0] <= days <= rng[1]:
+            out.append({"key": "duration_interview", "label": "Duration (recorded value and interview answer)", "fact_ids": [f.fact_id, answer.fact_id],
+                        "values": [{"display": x.display, "provenance": x.provenance, "trust": x.trust} for x in (f, answer)],
+                        "action": "The interview answer and the recorded duration do not agree. Ask the patient again; both stay visible until one is confirmed."})
+    return out
+
+
 def symptom_conflicts(facts: list[Fact]) -> list[dict]:
     by_name: dict[str, set[str]] = {}
     for f in facts:
@@ -682,6 +807,9 @@ _RULES_TO_CHECKLIST = {"vitals.spo2": "spo2", "vitals.pulse": "pulse", "vitals.r
 _RULES_WHY = "Required by the rules engine; a missing value is never treated as normal and keeps the case at human review."
 
 
+_INTERVIEW_SATISFIES = {"severity": ("pain_severity",), "current_drugs": ("medication:interview",)}
+
+
 def present_keys(facts: list[Fact], triage_input: TriageInput | None) -> set[str]:
     """Keys a human-checked, entered, or agreed value exists for (AI fields count as in docs/16: unchecked but single-valued)."""
     keys = set()
@@ -697,6 +825,10 @@ def present_keys(facts: list[Fact], triage_input: TriageInput | None) -> set[str
             keys.add(k.replace("lab:", "ocr:"))
         elif f.section == "medications":
             keys.add("medication:" + k.split(":", 2)[1])
+        elif f.section == "interview" and not (f.value or {}).get("is_unknown"):
+            # A confirmed interview answer answers its question; "not sure" never does (interviewer safety rule 5).
+            q = f.value["question_key"]
+            keys.update({q, *_INTERVIEW_SATISFIES.get(q, ())})
     if triage_input is not None and triage_input.red_flag_screen_completed:
         keys.add("red_flag_screen_completed")
     return keys
@@ -737,7 +869,7 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     if pp:
         out.append({"section": "presenting_problem", "fact_ids": pp,
                     "text": "Presenting problem: " + "; ".join(_tagged(facts[f], facts[f].display) for f in pp) + "."})
-    dur_conflict = {c for x in s["conflicts"] if x["key"] == "duration" for c in x["fact_ids"]}
+    dur_conflict = {c for x in s["conflicts"] if x["key"] in ("duration", "duration_interview") for c in x["fact_ids"] if facts[c].section == "timeline"}
     if dur_conflict:
         out.append({"section": "timeline", "fact_ids": sorted(dur_conflict), "names_only": True,
                     "text": "Different durations were recorded, none chosen (see conflicts)."})
@@ -811,6 +943,10 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     bm = [fid for fid in s["body_map"] if ok(fid)]
     if bm:
         out.append({"section": "body_map", "fact_ids": bm, "text": "Body map: " + ", ".join(facts[f].display for f in bm) + "."})
+    for fid in s["imaging"]:  # names the image and its review state only; findings stay in the Imaging rows (D2a)
+        f = facts[fid]
+        tail = "; view the image" if f.provenance == "image_on_file" else " (listed under Imaging)"
+        out.append({"section": "imaging", "fact_ids": [fid], "text": _tagged(f, f"Image on file: {f.display}{tail}") + "."})
     ctx = [fid for fid in s["context"] if ok(fid)]
     if ctx:
         out.append({"section": "context", "fact_ids": ctx, "text": "Context: " + ", ".join(_tagged(facts[f], f"{facts[f].label.lower()} {facts[f].display}") for f in ctx) + "."})
@@ -872,6 +1008,160 @@ def gate(sentences: list[dict], facts: dict[str, Fact]) -> tuple[list[Sentence],
     return passed, blocked
 
 
+# ── The sectioned note (docs/plans/summary-note-all-sources.md S4) ─────────────────────────────────────────────────
+# The same facts as one note in a fixed clinical order. Nothing new is stated: a line is a gated narrative sentence,
+# or a recorded value with how far it was checked, or a status line. Each fact is stated once. Empty sections are left out.
+
+NOTE_ORDER = ("patient_visit", "urgency", "presenting_problem", "history", "interview", "measurements", "labs", "imaging", "medications",
+              "red_flags", "missing_information", "open_items", "sign_off")
+NOTE_TITLES = {"patient_visit": "Patient and visit", "urgency": "Urgency (rules engine)", "presenting_problem": "Presenting problem",
+               "history": "History (as reported)", "interview": "Interview answers", "measurements": "Measurements", "labs": "Lab values",
+               "imaging": "Imaging", "medications": "Medicines", "red_flags": "Red-flag screen and mentions", "missing_information": "Missing information",
+               "open_items": "Waiting for a check", "sign_off": "Review and sign-off"}
+_NOTE_SECTION = {"presenting_problem": "presenting_problem", "timeline": "history", "symptoms": "history", "body_map": "history", "interview": "interview",
+                 "vitals": "measurements", "labs": "labs", "imaging": "imaging", "medications": "medications", "red_flags": "red_flags", "context": "patient_visit"}
+_TRUST_WORDS = {"checked": "checked by a person", "entered": "entered by staff", "unchecked": "not yet checked"}
+SCENARIO_WORDS = {"opd": "Outpatient (OPD)", "maternal": "Maternal", "chronic_ncd": "Chronic disease follow-up", "health_camp": "Health camp"}
+_SPEAKER = {"patient": "the patient", "caregiver": "a caregiver", "anm": "the health worker"}
+
+
+def _row_text(f: Fact) -> str:
+    """One recorded value as a row: what it is, the value, and how far it was checked. Never a bare unchecked value."""
+    trust = (PROVENANCE[f.provenance]["tag"].strip(" []") or _TRUST_WORDS[f.trust]) + ("; negation or timing unclear" if uncertain(f) else "") + ("; handwriting uncertain" if "uncertain_handwriting" in f.flags else "")
+    if f.section == "symptoms":
+        what = f"Symptom {'denied' if f.key.endswith(':denied') else 'reported'}: {f.display}"
+    elif f.section == "red_flags":
+        what = "Red-flag screen: completed on the triage form" if f.key == "red_flag_screen" else \
+            f"Red-flag {'denied in the source text' if f.key.endswith(':denied') else 'mention'}: {f.label}"
+    elif f.section == "labs":
+        v = f.value if isinstance(f.value, dict) else {}
+        what = f"{v.get('name_raw') or f.label}: {f.display}" + (f" (report date {v['date']})" if v.get("date") else "")
+    elif f.section == "interview":
+        v = f.value
+        who = f"answered by {_SPEAKER.get(v.get('speaker'), 'the patient')}; confirmed by the health worker"
+        return f"{f.label} — {f.display} [{who}{'; not known, still missing' if v.get('is_unknown') else ''}]"
+    elif f.section == "body_map":
+        what = f"Body map: {f.display}"
+    else:
+        what = f"{f.label}: {f.display}"
+    return f"{what} [{trust}]"
+
+
+def _image_details(f: Fact) -> list[str]:
+    v = f.value
+    out = [f"{k.replace('_', ' ').capitalize()}: {val}" for k, val in (v.get("structured_fields") or {}).items()]
+    out += [f"Keyword flag for the reviewer: {str(x.get('signal', 'flag')).replace('_', ' ').lower()}"
+            + (" (negated in the text)" if x.get("negated") else "") for x in v.get("flags") or []]
+    if v.get("text_withheld"):
+        out.append("Some model text was withheld because it read as a diagnosis or an instruction.")
+    if v.get("confidence_band") == "low":
+        out.append("The model reported low confidence in its own description (uncalibrated).")
+    if v.get("requires_acknowledgement") and not v.get("acknowledged"):
+        out.append("Flag not yet marked as reviewed: sign-off is blocked until it is.")
+    by = v.get("described_by") or {}
+    if by.get("synthetic"):
+        out.insert(0, "DEMO TEXT from the built-in fake backend. It is not a reading of this image; no model looked at it.")
+    elif by.get("provider"):
+        out.insert(0, f"Described by {by.get('model') or by['provider']} ({by.get('mode', 'unknown')} model"
+                      + ("; not a validated medical device" if by.get("validated_medical_device") is False else "") + ").")
+    if out and v.get("status") == "described":
+        out.append("AI-described visual findings, not a diagnosis. Check the image itself.")
+    elif v.get("note"):
+        out.append(v["note"])
+    return out
+
+
+def build_note(s: dict, facts: dict[str, Fact], narrative: list[Sentence], header: dict, urgency: dict, missing: list[dict], ctx: dict,
+               blocked: list[Blocked]) -> list[NoteSection]:
+    lines: dict[str, list[NoteLine]] = {k: [] for k in NOTE_ORDER}
+    add = lambda sec, kind, text, ids=(): lines[sec].append(NoteLine(kind=kind, text=text, fact_ids=list(ids)))  # noqa: E731
+
+    add("patient_visit", "status", f"Visit type: {SCENARIO_WORDS.get(header.get('scenario'), str(header.get('scenario') or 'not recorded'))}")
+    if header.get("facility_code"):
+        add("patient_visit", "status", f"Facility: {header['facility_code']}")
+    if header.get("visit_started_at"):
+        add("patient_visit", "status", f"Visit started: {header['visit_started_at'][:16].replace('T', ' ')} UTC")
+    if "patient_record_linked" in header:
+        add("patient_visit", "status", "Patient record: linked by patient code" if header["patient_record_linked"] else "Patient record: not linked to an earlier visit")
+
+    if urgency["status"] == "not_determined":
+        add("urgency", "status", urgency["message"])
+    else:
+        add("urgency", "status", f"Urgency (rules engine): {urgency['recorded_urgency']}" + (" — needs human review" if urgency.get("needs_human_review") else ""))
+        for t in urgency.get("triggered_rules", []):
+            add("urgency", "status", f"Rule {t['rule_id']} ({t['urgency']}): {t['reason']}")
+        if urgency.get("rules_missing_fields"):
+            add("urgency", "status", "Missing from the triage run: " + ", ".join(urgency["rules_missing_fields"]))
+        if urgency.get("reviewer_urgency"):
+            add("urgency", "status", f"Reviewer override recorded: {urgency['reviewer_urgency']}")
+        add("urgency", "status", "Triage sign-off: " + ("signed off" if urgency.get("review_status") == "signed_off" else "awaiting review"))
+        if urgency.get("triage_predates_evidence"):
+            add("urgency", "status", "Values were added or checked after this triage run.")
+
+    in_conflict = {i for c in s["conflicts"] for i in c["fact_ids"]}
+    # Facts that agree with a stated one (same row, or same key and display) are cited on its line, not stated again.
+    group: dict[str, set[str]] = {}
+    for r in list(s["vitals"]) + list(s["labs"]):
+        if not r.conflict:
+            for i in r.fact_ids:
+                group[i] = set(r.fact_ids)
+    by_same: dict[tuple, set[str]] = {}
+    for f in facts.values():
+        by_same.setdefault((f.section, f.key, f.display), set()).add(f.fact_id)
+    for ids in by_same.values():
+        for i in ids:
+            group.setdefault(i, set()).update(ids)
+    stated: set[str] = set()
+
+    def state(sec: str, kind: str, text: str, ids: list[str]) -> None:
+        ids = [i for i in ids if i not in stated]
+        extra = sorted({j for i in ids for j in group.get(i, ())} - set(ids) - stated - in_conflict)
+        stated.update(ids + extra)
+        add(sec, kind, text, ids + extra)
+
+    for n in narrative:
+        if set(n.fact_ids) <= in_conflict:  # "sources disagree" sentences: the conflict line below lists the candidates
+            continue
+        state(_NOTE_SECTION.get(n.section, "history"), "sentence", n.text, list(n.fact_ids))
+    for f in facts.values():
+        if f.fact_id not in stated and f.fact_id not in in_conflict:
+            state(_NOTE_SECTION[f.section], "row", _row_text(f), [f.fact_id])
+    for c in s["conflicts"]:
+        sec = _NOTE_SECTION[facts[c["fact_ids"][0]].section]
+        values = " / ".join(f"{v['display']} ({_TRUST_WORDS[v['trust']]})" for v in c.get("values", [])) or "see the sources"
+        add(sec, "conflict", f"{c['label']}: sources disagree, no value chosen — {values}", c["fact_ids"])
+    for fid in s["imaging"]:
+        for text in _image_details(facts[fid]):
+            add("imaging", "detail", text, [fid])
+
+    for m in missing:
+        add("missing_information", "status", f"Not recorded: {m['label']}{' (danger sign)' if m['is_danger_sign'] else ''} — {m['why_it_matters']}")
+    if ctx["pending"]:
+        add("open_items", "status", f"{len(ctx['pending'])} item(s) are waiting for a person to check them.")
+    if s["conflicts"]:
+        add("open_items", "status", f"{len(s['conflicts'])} conflict(s) between sources; no value was chosen.")
+    if blocked:
+        add("open_items", "status", f"{len(blocked)} sentence(s) were withheld by the safety checks; their values are listed as rows.")
+    if ctx["unmatched_documents"]:
+        add("open_items", "status", f"{len(ctx['unmatched_documents'])} document(s) are not yet matched to this patient; their values are not used.")
+    for u in ctx["unavailable"]:
+        add("open_items", "status", f"Source not included: {u['source'].replace('_', ' ')}.")
+    for x in ctx["excluded"]:
+        add("open_items", "status", f"Left out by consent choice: {x['source'].replace('_', ' ')}.")
+    add("sign_off", "status", "DRAFT. Not reviewed until a named clinician accepts it on the case screen.")
+    add("sign_off", "status", DISCLAIMER)
+    return [NoteSection(key=k, title=NOTE_TITLES[k], lines=lines[k]) for k in NOTE_ORDER if lines[k]]
+
+
+def note_text(sections: list[NoteSection], generated_at: str) -> str:
+    """Plain text of the same sections, for copy and print. It adds nothing the sections do not hold."""
+    out = ["ENCOUNTER SUMMARY (DRAFT, pending clinician review)", f"Generated: {generated_at[:16].replace('T', ' ')} UTC"]
+    for sec in sections:
+        out += ["", sec.title.upper()]
+        out += [("    " if line.kind == "detail" else "- ") + line.text for line in sec.lines]
+    return "\n".join(out)
+
+
 # ── Build ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -915,8 +1205,8 @@ def withheld_items(s: dict, facts: dict[str, Fact], blocked: list[Blocked], unma
         if uncertain(f) and PROVENANCE[f.provenance]["narrative"]:
             out.append({"kind": "fact", "section": f.section, "reason": "negation_or_time_uncertain", "fact_ids": [f.fact_id]})
     for c in s["conflicts"]:
-        if c["key"] == "duration":
-            out.append({"kind": "fact", "section": "timeline", "reason": "evidence_conflict", "fact_ids": c["fact_ids"]})
+        if c["key"] in ("duration", "duration_interview"):
+            out.append({"kind": "fact", "section": "timeline", "reason": "evidence_conflict", "fact_ids": [i for i in c["fact_ids"] if facts[i].section == "timeline"]})
     for u in unmatched:
         out.append({"kind": "document", "reason": "document_not_matched", "document_id": u["document_id"],
                     "section": "medications" if u["document_type"] == "prescription" else "labs", "fact_ids": []})
@@ -961,14 +1251,16 @@ def evidence_status(ctx: dict, s: dict, narrative: list[Sentence], blocked: list
     }
 
 
-def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: dict | None, evidence_after: str | None) -> EncounterSummary:
+def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: dict | None, evidence_after: str | None,
+                  header: dict | None = None) -> EncounterSummary:
     facts = b.facts
     by_section: dict[str, list[Fact]] = {}
     for f in facts.values():
         by_section.setdefault(f.section, []).append(f)
     vitals, vconf = reconcile_rows(by_section.get("vitals", []), _VITAL_ORDER, ctx.get("vital_history"))
     labs, lconf = lab_rows(by_section.get("labs", []))
-    conflicts = vconf + lconf + duration_conflicts(list(facts.values())) + symptom_conflicts(list(facts.values()))
+    conflicts = (vconf + lconf + duration_conflicts(list(facts.values())) + interview_duration_conflicts(list(facts.values()))
+                 + symptom_conflicts(list(facts.values())))
     sym = by_section.get("symptoms", [])
     triage_runs = ctx["triage_runs"]
     rules_missing = TriageResult.model_validate_json(triage_runs[-1]["result_json"]).missing_fields if triage_runs else []
@@ -982,6 +1274,8 @@ def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: d
         "body_map": [f.fact_id for f in by_section.get("body_map", [])],
         "red_flag_mentions": [f.fact_id for f in sorted(by_section.get("red_flags", []), key=lambda f: (f.key != "red_flag_screen", f.key.endswith(":denied")))],
         "context": [f.fact_id for f in by_section.get("context", [])],
+        "imaging": [f.fact_id for f in by_section.get("imaging", [])],
+        "interview": [f.fact_id for f in by_section.get("interview", [])],
         "conflicts": conflicts,
     }
     narrative, blocked = gate(render_narrative(s, facts), facts)
@@ -1002,15 +1296,23 @@ def build_summary(case_id: str, scenario: str, b: _Builder, ctx: dict, review: d
     elif urgency["triage_predates_evidence"]:
         attention.append(Attention(kind="triage_predates_evidence", message="Values were added or checked after the last triage run.",
                                    action="If any of them could change urgency, enter them on the triage form and run triage again."))
+    if ctx.get("image_flags"):
+        attention.append(Attention(kind="image_flag_unacknowledged", message=f"{len(ctx['image_flags'])} medical image(s) carry a flag that nobody has marked as reviewed.",
+                                   action="Open the image and its described findings, then record \"findings reviewed\". Sign-off is blocked until then.",
+                                   refs=[f.fact_id for f in by_section.get("imaging", []) if f.value["document_id"] in ctx["image_flags"]]))
     for m in missing:
         if m["is_danger_sign"]:
             attention.append(Attention(kind="missing_danger_sign", message=f"Not yet recorded: {m['label']}.", action=m["why_it_matters"]))
     if ctx["pending"]:
         attention.append(Attention(kind="pending_review", message=f"{len(ctx['pending'])} item(s) are waiting for a person to check them.",
                                    action="Open the listed items and decide each one. Unchecked values are marked and never used as confirmed."))
+    header = {"scenario": scenario, **(header or {})}
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    sections = build_note(s, facts, narrative, header, urgency, missing, ctx, blocked)
     return EncounterSummary(
         schema_version=SUMMARY_SCHEMA_VERSION, case_id=case_id, scenario=scenario, status="partial" if ctx["unavailable"] else "complete",
-        generated_at=datetime.now(timezone.utc).isoformat(timespec="microseconds"), attention=attention,
+        generated_at=generated_at, attention=attention, imaging=s["imaging"], interview=s["interview"], header=header,
+        note_sections=sections, note_text=note_text(sections, generated_at),
         presenting_problem=s["presenting_problem"], timeline=s["timeline"], symptoms=s["symptoms"], vitals=vitals, labs=labs,
         medications=s["medications"], body_map=s["body_map"], red_flag_mentions=s["red_flag_mentions"], context=s["context"],
         missing_information=missing, follow_up_questions=questions, conflicts=conflicts, pending_review=ctx["pending"],
@@ -1029,8 +1331,11 @@ _INVENTORY = (
     ("ocr_review_events", "seq", "case_id = ?"), ("ocr_purge_events", "rowid", "document_id IN (SELECT document_id FROM ocr_documents WHERE case_id = ?)"),
     ("triage_runs", "seq", "case_id = ?"), ("review_events", "seq", "case_id = ?"), ("body_map_events", "seq", "case_id = ?"),
     ("consent_events", "seq", "case_id = ?"), ("cases", "rowid", "case_id = ?"),
+    ("medical_images", "rowid", "case_id = ?"), ("medical_image_acknowledgements", "seq", "case_id = ?"),
+    ("medical_image_purge_events", "seq", "case_id = ?"), ("interview_answer_events", "seq", "case_id = ?"), ("patient_link_events", "seq", "case_id = ?"),
 )
-_MUTABLE = (("ocr_documents", "document_id || ':' || status"), ("voice_transcriptions", "transcription_id || ':' || status"), ("cases", "scenario"))
+_MUTABLE = (("ocr_documents", "document_id || ':' || status"), ("voice_transcriptions", "transcription_id || ':' || status"), ("cases", "scenario"),
+            ("medical_images", "document_id || ':' || status"))
 
 
 async def inventory(conn, case_id: str) -> tuple[str, str | None]:
@@ -1116,11 +1421,16 @@ async def generate(conn: aiosqlite.Connection, principal: Principal, case_id: st
             await audit.record(conn, principal=principal, action="encounter_summary_generated", outcome="success", case_id=case_id, request_id=request_id,
                                details=_details(existing["summary_id"], s, reused=True))
             return _view(existing, sha, await _reviews(conn, existing["summary_id"]))
-        async with conn.execute("SELECT scenario FROM cases WHERE case_id = ?", (case_id,)) as cur:
-            scenario = (await cur.fetchone())["scenario"]
+        async with conn.execute("SELECT scenario, facility_code, created_at FROM cases WHERE case_id = ?", (case_id,)) as cur:
+            case = await cur.fetchone()
+        scenario = case["scenario"]
+        async with conn.execute("SELECT action FROM patient_link_events WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
+            link = await cur.fetchone()
+        # No name, phone, address or patient code: the summary carries no direct identifier.
+        header = {"facility_code": case["facility_code"], "visit_started_at": case["created_at"], "patient_record_linked": bool(link and link["action"] == "link")}
         b, ctx = await assemble_evidence(conn, case_id, ai_allowed=snap.is_effective("ai_assist"))
         review = await _review_status(conn, ctx["triage_runs"][-1]["run_id"]) if ctx["triage_runs"] else None
-        summary = build_summary(case_id, scenario, b, ctx, review, evidence_after)
+        summary = build_summary(case_id, scenario, b, ctx, review, evidence_after, header)
         data = summary.model_dump(mode="json")
         summary_id, now = str(uuid.uuid4()), datetime.now(timezone.utc).isoformat(timespec="microseconds")
         await conn.execute(

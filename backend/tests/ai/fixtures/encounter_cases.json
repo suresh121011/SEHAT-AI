@@ -1,34 +1,876 @@
 {
-  "_about": "Synthetic encounter-summary evaluation corpus (docs/19 §8). No real patients. Each case drives the real API: typed intake through the fake provider (a keyword extractor, NOT an LLM), replayed OCR documents with explicit human review actions, and an optional triage run. `expect` holds the gold labels for the summary stage only. Small and hand-written: a regression and safety check, not evidence of clinical accuracy.",
-  "cases": [
-    {"id": "duration_digits", "texts": ["Fever for 3 days."], "expect": {"duration": "3 days", "present": ["fever"], "linked": "fever"}},
-    {"id": "duration_words", "texts": ["Fever for three days with cough."], "expect": {"duration": "3 days", "present": ["fever", "cough"], "linked": null}},
-    {"id": "duration_weeks_single_symptom", "texts": ["Headache for 2 weeks."], "expect": {"duration": "2 weeks", "present": ["headache"], "linked": "headache"}},
-    {"id": "multi_symptom_sentence_with_negation", "texts": ["Fever, headache and vomiting since 2 days. No chest pain."],
-     "expect": {"duration": "2 days", "present": ["fever", "headache", "vomiting"], "denied": ["chest pain"]}},
-    {"id": "missing_duration", "texts": ["Cough and weakness."], "expect": {"duration": null, "present": ["cough", "weakness"], "missing_includes": ["duration"]}},
-    {"id": "contradictory_durations", "texts": ["Fever for 3 days.", "Fever for 1 week."], "expect": {"conflicts": ["duration"], "duration_not_in_prose": ["3 days", "1 week"]}},
-    {"id": "vitals_conflict_text_vs_form", "texts": ["SpO2 91%."], "triage": {"spo2": 97}, "expect": {"vitals": {"spo2": "conflict"}, "conflicts": ["spo2"]}},
-    {"id": "vitals_agree_text_and_form", "texts": ["BP 120/80."], "triage": {"sbp": 120, "dbp": 80}, "expect": {"vitals": {"bp": "120/80 mmHg"}, "conflicts": []}},
-    {"id": "temperature_fahrenheit", "texts": ["Temperature 102 F."], "expect": {"vitals": {"temp_c": "38.9 °C (said as 102 °F)"}}},
-    {"id": "temperature_unit_missing", "texts": ["Temperature 101."], "expect": {"vitals_absent": ["temp_c"], "pending_states": ["unit_missing"]}},
-    {"id": "no_triage_run", "texts": ["Cough for 5 days."], "expect": {"urgency": null, "missing_includes": ["red_flag_screen", "spo2"]}},
-    {"id": "triage_form_only", "texts": [], "triage": {}, "expect": {"vitals": {"spo2": "98%", "pulse": "78 /min"}, "urgency_from_rules": true}},
-    {"id": "lab_reviewed_and_corrected", "texts": ["Fever for 3 days."], "triage": {},
-     "docs": [{"fixture": "cbc_low_platelet.png", "type": "lab_report", "attest": true, "review": {"hemoglobin": "confirmed", "rbc": ["corrected", {"result": {"value": "4.20"}}]}}],
-     "expect": {"labs": {"hemoglobin": "11.2 g/dL", "rbc": "4.20"}, "labs_unchecked_not_in_prose": ["platelets"]}},
-    {"id": "lab_unattested", "texts": ["Fever for 3 days."],
-     "docs": [{"fixture": "cbc_low_platelet.png", "type": "lab_report", "attest": false}], "expect": {"labs_count": 0, "pending_states": ["attestation_missing"]}},
-    {"id": "duplicate_document", "texts": [],
-     "docs": [{"fixture": "cbc_low_platelet.png", "type": "lab_report", "attest": true, "review": {"hemoglobin": "confirmed"}},
-              {"fixture": "cbc_low_platelet.png", "type": "lab_report", "attest": true, "review": {"hemoglobin": "confirmed"}}],
-     "expect": {"lab_rows": {"hemoglobin": 1}, "lab_sources": {"hemoglobin": 2}}},
-    {"id": "rx_clear_and_ambiguous_handwriting", "texts": ["Fever for 3 days."], "triage": {},
-     "docs": [{"fixture": "rx_handwritten.png", "type": "prescription", "engines": "rx_handwritten", "attest": true, "review": {"Pantoprazole": "confirmed"}}],
-     "expect": {"meds_in_prose": ["Pantoprazole 40 mg"], "meds_abstained": ["Amoxicillin", "Paracetamol", "Ambroxol"], "uncertain_flagged": ["Amoxicillin"]}},
-    {"id": "rx_rejected_line", "texts": [],
-     "docs": [{"fixture": "rx_handwritten.png", "type": "prescription", "engines": "rx_handwritten", "attest": true, "review": {"Amoxicillin": "rejected"}}],
-     "expect": {"meds_absent": ["Amoxicillin"]}},
-    {"id": "ai_consent_declined", "texts": [], "ai_consent": false, "triage": {}, "expect": {"excluded": ["ai_extraction"], "status": "complete"}}
-  ]
+ "_about": "Synthetic encounter-summary evaluation corpus (docs/19 §8). No real patients. Each case drives the real API: typed intake through the fake provider (a keyword extractor, NOT an LLM), replayed OCR documents with explicit human review actions, and an optional triage run. `expect` holds the gold labels for the summary stage only. Small and hand-written: a regression and safety check, not evidence of clinical accuracy. Schema .4 adds image cases (the image model's output is REPLAYED from tests/fixtures/medgemma/model_outputs.json, or the built-in fake output; no image model runs) and interview cases (answers recorded through the interview API, English script only). Expected values were written from the intended behaviour before the cases were run.",
+ "cases": [
+  {
+   "id": "duration_digits",
+   "texts": [
+    "Fever for 3 days."
+   ],
+   "expect": {
+    "duration": "3 days",
+    "present": [
+     "fever"
+    ],
+    "linked": "fever"
+   }
+  },
+  {
+   "id": "duration_words",
+   "texts": [
+    "Fever for three days with cough."
+   ],
+   "expect": {
+    "duration": "3 days",
+    "present": [
+     "fever",
+     "cough"
+    ],
+    "linked": null
+   }
+  },
+  {
+   "id": "duration_weeks_single_symptom",
+   "texts": [
+    "Headache for 2 weeks."
+   ],
+   "expect": {
+    "duration": "2 weeks",
+    "present": [
+     "headache"
+    ],
+    "linked": "headache"
+   }
+  },
+  {
+   "id": "multi_symptom_sentence_with_negation",
+   "texts": [
+    "Fever, headache and vomiting since 2 days. No chest pain."
+   ],
+   "expect": {
+    "duration": "2 days",
+    "present": [
+     "fever",
+     "headache",
+     "vomiting"
+    ],
+    "denied": [
+     "chest pain"
+    ]
+   }
+  },
+  {
+   "id": "missing_duration",
+   "texts": [
+    "Cough and weakness."
+   ],
+   "expect": {
+    "duration": null,
+    "present": [
+     "cough",
+     "weakness"
+    ],
+    "missing_includes": [
+     "duration"
+    ]
+   }
+  },
+  {
+   "id": "contradictory_durations",
+   "texts": [
+    "Fever for 3 days.",
+    "Fever for 1 week."
+   ],
+   "expect": {
+    "conflicts": [
+     "duration"
+    ],
+    "duration_not_in_prose": [
+     "3 days",
+     "1 week"
+    ]
+   }
+  },
+  {
+   "id": "vitals_conflict_text_vs_form",
+   "texts": [
+    "SpO2 91%."
+   ],
+   "triage": {
+    "spo2": 97
+   },
+   "expect": {
+    "vitals": {
+     "spo2": "conflict"
+    },
+    "conflicts": [
+     "spo2"
+    ]
+   }
+  },
+  {
+   "id": "vitals_agree_text_and_form",
+   "texts": [
+    "BP 120/80."
+   ],
+   "triage": {
+    "sbp": 120,
+    "dbp": 80
+   },
+   "expect": {
+    "vitals": {
+     "bp": "120/80 mmHg"
+    },
+    "conflicts": []
+   }
+  },
+  {
+   "id": "temperature_fahrenheit",
+   "texts": [
+    "Temperature 102 F."
+   ],
+   "expect": {
+    "vitals": {
+     "temp_c": "38.9 °C (said as 102 °F)"
+    }
+   }
+  },
+  {
+   "id": "temperature_unit_missing",
+   "texts": [
+    "Temperature 101."
+   ],
+   "expect": {
+    "vitals_absent": [
+     "temp_c"
+    ],
+    "pending_states": [
+     "unit_missing"
+    ]
+   }
+  },
+  {
+   "id": "no_triage_run",
+   "texts": [
+    "Cough for 5 days."
+   ],
+   "expect": {
+    "urgency": null,
+    "missing_includes": [
+     "red_flag_screen",
+     "spo2"
+    ]
+   }
+  },
+  {
+   "id": "triage_form_only",
+   "texts": [],
+   "triage": {},
+   "expect": {
+    "vitals": {
+     "spo2": "98%",
+     "pulse": "78 /min"
+    },
+    "urgency_from_rules": true
+   }
+  },
+  {
+   "id": "lab_reviewed_and_corrected",
+   "texts": [
+    "Fever for 3 days."
+   ],
+   "triage": {},
+   "docs": [
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": true,
+     "review": {
+      "hemoglobin": "confirmed",
+      "rbc": [
+       "corrected",
+       {
+        "result": {
+         "value": "4.20"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "labs": {
+     "hemoglobin": "11.2 g/dL",
+     "rbc": "4.20"
+    },
+    "labs_unchecked_not_in_prose": [
+     "platelets"
+    ]
+   }
+  },
+  {
+   "id": "lab_unattested",
+   "texts": [
+    "Fever for 3 days."
+   ],
+   "docs": [
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": false
+    }
+   ],
+   "expect": {
+    "labs_count": 0,
+    "pending_states": [
+     "attestation_missing"
+    ]
+   }
+  },
+  {
+   "id": "duplicate_document",
+   "texts": [],
+   "docs": [
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": true,
+     "review": {
+      "hemoglobin": "confirmed"
+     }
+    },
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": true,
+     "review": {
+      "hemoglobin": "confirmed"
+     }
+    }
+   ],
+   "expect": {
+    "lab_rows": {
+     "hemoglobin": 1
+    },
+    "lab_sources": {
+     "hemoglobin": 2
+    }
+   }
+  },
+  {
+   "id": "rx_clear_and_ambiguous_handwriting",
+   "texts": [
+    "Fever for 3 days."
+   ],
+   "triage": {},
+   "docs": [
+    {
+     "fixture": "rx_handwritten.png",
+     "type": "prescription",
+     "engines": "rx_handwritten",
+     "attest": true,
+     "review": {
+      "Pantoprazole": "confirmed"
+     }
+    }
+   ],
+   "expect": {
+    "meds_in_prose": [
+     "Pantoprazole 40 mg"
+    ],
+    "meds_abstained": [
+     "Amoxicillin",
+     "Paracetamol",
+     "Ambroxol"
+    ],
+    "uncertain_flagged": [
+     "Amoxicillin"
+    ]
+   }
+  },
+  {
+   "id": "rx_rejected_line",
+   "texts": [],
+   "docs": [
+    {
+     "fixture": "rx_handwritten.png",
+     "type": "prescription",
+     "engines": "rx_handwritten",
+     "attest": true,
+     "review": {
+      "Amoxicillin": "rejected"
+     }
+    }
+   ],
+   "expect": {
+    "meds_absent": [
+     "Amoxicillin"
+    ]
+   }
+  },
+  {
+   "id": "ai_consent_declined",
+   "texts": [],
+   "ai_consent": false,
+   "triage": {},
+   "expect": {
+    "excluded": [
+     "ai_extraction"
+    ],
+    "status": "complete"
+   }
+  },
+  {
+   "id": "lab_identity_mismatch",
+   "group": "image",
+   "texts": [],
+   "docs": [
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": "does_not_match"
+    }
+   ],
+   "expect": {
+    "labs_count": 0,
+    "unmatched_documents": 1,
+    "pending_states": [
+     "attestation_does_not_match"
+    ],
+    "not_in_note_values": [
+     "11.2"
+    ]
+   }
+  },
+  {
+   "id": "lab_value_marked_unsure",
+   "group": "image",
+   "texts": [],
+   "docs": [
+    {
+     "fixture": "cbc_low_platelet.png",
+     "type": "lab_report",
+     "attest": true,
+     "review": {
+      "hemoglobin": "unsure"
+     }
+    }
+   ],
+   "expect": {
+    "labs_unchecked_not_in_prose": [
+     "hemoglobin"
+    ],
+    "pending_states": [
+     "unsure"
+    ]
+   }
+  },
+  {
+   "id": "image_xray_described",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "chest_xray"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": false
+     }
+    ],
+    "findings_not_in_prose": [
+     "opacity",
+     "pneumothorax"
+    ],
+    "image_attention": false
+   }
+  },
+  {
+   "id": "image_flagged_pneumothorax",
+   "group": "image",
+   "texts": [],
+   "triage": {},
+   "images": [
+    {
+     "type": "chest_xray",
+     "stub": "pneumothorax"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": true
+     }
+    ],
+    "findings_not_in_prose": [
+     "pneumothorax"
+    ],
+    "image_attention": true,
+    "pending_states": [
+     "flag_not_acknowledged"
+    ],
+    "urgency_unchanged": "GREEN"
+   }
+  },
+  {
+   "id": "image_ecg_flag_acknowledged",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "ecg_strip",
+     "stub": "st_elevation",
+     "acknowledge": true
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "ecg_strip",
+      "provenance": "image_described_acknowledged",
+      "needs_review": true
+     }
+    ],
+    "findings_not_in_prose": [
+     "elevation"
+    ],
+    "image_attention": false
+   }
+  },
+  {
+   "id": "image_wound_yellow_flag",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "wound_photo",
+     "stub": "wound_necrosis"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "wound_photo",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": true
+     }
+    ],
+    "image_attention": true
+   }
+  },
+  {
+   "id": "image_diagnostic_text_withheld",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "chest_xray",
+     "stub": "bare_label_pneumonia"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": false
+     }
+    ],
+    "image_text_withheld": true,
+    "not_in_note_values": [
+     "pneumonia"
+    ]
+   }
+  },
+  {
+   "id": "image_negated_finding_no_flag_needed",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "chest_xray",
+     "stub": "negated_pneumothorax"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": false
+     }
+    ],
+    "image_attention": false
+   }
+  },
+  {
+   "id": "image_description_excluded_without_ai_consent",
+   "group": "image",
+   "texts": [],
+   "ai_consent": false,
+   "images": [
+    {
+     "type": "chest_xray"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_on_file",
+      "needs_review": false
+     }
+    ],
+    "excluded": [
+     "ai_extraction",
+     "image_descriptions"
+    ],
+    "status": "complete",
+    "not_in_note_values": [
+     "opacity"
+    ]
+   }
+  },
+  {
+   "id": "image_deleted",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "chest_xray",
+     "delete": true
+    }
+   ],
+   "expect": {
+    "images": []
+   }
+  },
+  {
+   "id": "two_images_listed_separately",
+   "group": "image",
+   "texts": [],
+   "images": [
+    {
+     "type": "chest_xray"
+    },
+    {
+     "type": "skin_lesion"
+    }
+   ],
+   "expect": {
+    "images": [
+     {
+      "type": "chest_xray",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": false
+     },
+     {
+      "type": "skin_lesion",
+      "provenance": "image_described_unacknowledged",
+      "needs_review": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "interview_fever_with_duration",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "fever"
+    },
+    {
+     "key": "duration",
+     "choice": "1-3 days"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "fever",
+     "duration": "1-3 days"
+    },
+    "missing_excludes": [
+     "chief_complaint",
+     "duration"
+    ],
+    "missing_includes": [
+     "severity"
+    ],
+    "interview_not_in_prose": [
+     "fever",
+     "1-3 days"
+    ],
+    "present": [],
+    "denied": []
+   }
+  },
+  {
+   "id": "interview_headache_duration_agrees_with_text",
+   "group": "interview",
+   "texts": [
+    "Headache for 2 weeks."
+   ],
+   "triage": {},
+   "interview": [
+    {
+     "key": "duration",
+     "choice": "more than 1 week"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "duration": "more than 1 week"
+    },
+    "duration": "2 weeks",
+    "present": [
+     "headache"
+    ],
+    "conflicts": []
+   }
+  },
+  {
+   "id": "interview_duration_contradicts_text",
+   "group": "interview",
+   "texts": [
+    "Fever for 3 days."
+   ],
+   "triage": {},
+   "interview": [
+    {
+     "key": "duration",
+     "choice": "more than 1 week"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "duration": "more than 1 week"
+    },
+    "conflicts": [
+     "duration_interview"
+    ],
+    "duration_not_in_prose": [
+     "3 days",
+     "more than 1 week"
+    ]
+   }
+  },
+  {
+   "id": "interview_symptom_denial_kept_verbatim",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "no fever, only cough"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "no fever, only cough"
+    },
+    "present": [],
+    "denied": [],
+    "interview_not_in_prose": [
+     "cough",
+     "fever"
+    ]
+   }
+  },
+  {
+   "id": "interview_historical_symptom_kept_verbatim",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "had fever last month, none now, today stomach pain"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "had fever last month, none now, today stomach pain"
+    },
+    "present": [],
+    "denied": [],
+    "interview_not_in_prose": [
+     "last month"
+    ]
+   }
+  },
+  {
+   "id": "interview_not_sure_stays_missing",
+   "group": "interview",
+   "scenario": "chronic_ncd",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "adherence",
+     "choice": "not sure"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "adherence": "not sure"
+    },
+    "interview_unknown": [
+     "adherence"
+    ],
+    "missing_includes": [
+     "adherence"
+    ]
+   }
+  },
+  {
+   "id": "interview_missing_duration",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "cough"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "cough"
+    },
+    "missing_includes": [
+     "duration",
+     "severity"
+    ],
+    "missing_excludes": [
+     "chief_complaint"
+    ]
+   }
+  },
+  {
+   "id": "interview_patient_correction_latest_wins",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "stomach pain"
+    },
+    {
+     "key": "chief_complaint",
+     "text": "chest pain since morning"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "chest pain since morning"
+    },
+    "interview_not_in_note": [
+     "stomach pain"
+    ]
+   }
+  },
+  {
+   "id": "interview_completion",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "cough"
+    },
+    {
+     "key": "duration",
+     "choice": "4-7 days"
+    },
+    {
+     "key": "severity",
+     "choice": "3"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "cough",
+     "duration": "4-7 days",
+     "severity": "3"
+    },
+    "missing_excludes": [
+     "chief_complaint",
+     "duration",
+     "severity"
+    ]
+   }
+  },
+  {
+   "id": "interview_caregiver_speaker_kept",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "child has loose motions",
+     "speaker": "caregiver"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "child has loose motions"
+    },
+    "interview_speaker": {
+     "chief_complaint": "caregiver"
+    }
+   }
+  },
+  {
+   "id": "interview_romanised_hindi_refused_by_privacy_check",
+   "group": "interview",
+   "texts": [],
+   "triage": {},
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "teen din se bukhar hai",
+     "expect_error": "PII_DETECTED"
+    }
+   ],
+   "expect": {
+    "interview": {},
+    "missing_includes": [
+     "chief_complaint"
+    ]
+   },
+   "_note": "KNOWN LIMIT, not a success: the identifier check (English NER) refuses romanised Hindi words as possible names, so such an answer cannot be typed. The case pins that nothing is stored when it is refused."
+  },
+  {
+   "id": "interview_without_triage_run",
+   "group": "interview",
+   "texts": [],
+   "interview": [
+    {
+     "key": "chief_complaint",
+     "text": "cough"
+    }
+   ],
+   "expect": {
+    "interview": {
+     "chief_complaint": "cough"
+    },
+    "missing_includes": [
+     "red_flag_screen",
+     "spo2"
+    ]
+   }
+  }
+ ]
 }

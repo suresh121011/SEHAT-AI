@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 
 import {
   AGREEMENT_WORDS, READINESS_WORDS, acceptState, canOpenVerification, groupWithheld, verificationBase, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement, readinessReasonWords,
-  reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, type EncounterSummary, type Fact, type SummaryView,
+  reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, imageDescribedBy, imageFieldRows, imageNeedsReview, imageValue, noteSections, shouldAutoBuild,
+  type EncounterSummary, type Fact, type SummaryView,
 } from "./encounterSummary.ts";
 
 const summary = (over: Partial<EncounterSummary> = {}): EncounterSummary => ({
@@ -129,4 +130,58 @@ test("route rule: only the medical officer opens /dashboard/verify; the intake d
   assert.deepEqual(allowedRoles("/dashboard/verify"), ["medical_officer"]);
   assert.ok(!allowedRoles("/intake/documents")?.includes("medical_officer"));
   assert.deepEqual(allowedRoles("/dashboard"), ["medical_officer", "supervisor"]); // unchanged
+});
+
+// ── Schema .4: images, interview answers, the sectioned note (docs/plans/summary-note-all-sources.md) ──────────────
+
+const imageFact = (over: Record<string, unknown> = {}): Fact => ({
+  fact_id: "I1", section: "imaging", key: "image:d1", label: "Chest X-ray", display: "chest X-ray, AI visual description", provenance: "image_described_unacknowledged",
+  trust: "unchecked", flags: [], sources: [{ type: "medical_image", document_id: "d1", model: "stub-model-1" }],
+  value: { document_id: "d1", image_type: "chest_xray", status: "described", description: "text", structured_fields: { lung_fields: "clear", cardiac_silhouette: "normal size" },
+           text_withheld: false, flags: [], confidence_band: "moderate", requires_acknowledgement: false, acknowledged: false, source_image_url: "/api/backend/x", note: null,
+           disclaimer: "not a diagnosis", ...over },
+});
+
+test("an image's described fields are rows with plain labels, and only an unreviewed flag blocks", () => {
+  const v = imageValue(imageFact())!;
+  assert.deepEqual(imageFieldRows(v), [{ label: "Lung fields", text: "clear" }, { label: "Cardiac silhouette", text: "normal size" }]);
+  assert.equal(imageNeedsReview(v), false);
+  assert.equal(imageNeedsReview(imageValue(imageFact({ requires_acknowledgement: true }))!), true);
+  assert.equal(imageNeedsReview(imageValue(imageFact({ requires_acknowledgement: true, acknowledged: true }))!), false);
+  assert.deepEqual(imageFieldRows(imageValue(imageFact({ structured_fields: {} }))!), []);
+  assert.equal(imageValue({ ...imageFact(), section: "labs" }), null);
+  assert.equal(imageDescribedBy(v), null); // an older snapshot records no source: nothing is invented
+  const demo = imageDescribedBy(imageValue(imageFact({ described_by: { provider: "fake", model: null, mode: "fake", synthetic: true } }))!)!;
+  assert.equal(demo.demo, true);
+  assert.match(demo.text, /^DEMO TEXT/);
+  const real = imageDescribedBy(imageValue(imageFact({ described_by: { provider: "local", model: "medgemma-1.5", mode: "local", synthetic: false, validated_medical_device: false } }))!)!;
+  assert.equal(real.text, "Described by medgemma-1.5 (local model; not a validated medical device).");
+});
+
+test("a flagged image that nobody reviewed is a danger item, ahead of the routine ones", () => {
+  const items = ["pending_review", "image_flag_unacknowledged", "no_triage_run"].map((kind) => ({ kind, message: "", action: "", refs: [] }));
+  assert.deepEqual(sortedAttention(items).map((a) => a.kind), ["image_flag_unacknowledged", "no_triage_run", "pending_review"]);
+  assert.equal(attentionTone("image_flag_unacknowledged"), "danger");
+});
+
+test("image and interview sources are described in plain words, without inventing a model or a speaker", () => {
+  assert.equal(sourceWords({ type: "medical_image", model: "stub-model-1", acknowledged_by_role: "medical_officer" }),
+    "Uploaded image, described by stub-model-1 · marked as reviewed by medical officer");
+  assert.equal(sourceWords({ type: "medical_image", model: null }), "Uploaded image, no AI description");
+  assert.equal(sourceWords({ type: "interview_answer", speaker: "caregiver", answer_source: "typed", recorded_by_role: "anm" }),
+    "Interview answer from a caregiver (typed by the health worker) · confirmed by health worker");
+  assert.match(sourceWords({ type: "interview_answer", speaker: "patient", answer_source: "transcript", transcript_chars: [3, 20] }), /transcript characters 3–20/);
+  assert.match(flagWords("unknown_answer")!, /still missing/);
+  assert.equal(flagWords("image_flag"), null);
+});
+
+test("the note is shown only when the snapshot has one, and is built automatically once for a reviewer only", () => {
+  assert.deepEqual(noteSections(summary()), []);
+  const sections = [{ key: "urgency", title: "Urgency", lines: [{ kind: "status" as const, text: "x", fact_ids: [] }] }, { key: "empty", title: "Empty", lines: [] }];
+  assert.deepEqual(noteSections(summary({ note_sections: sections })).map((x) => x.key), ["urgency"]);
+  assert.equal(shouldAutoBuild({ case_id: "c", summary: null }, true, false), true);
+  assert.equal(shouldAutoBuild({ case_id: "c", summary: null }, false, false), false); // a reader never triggers a build
+  assert.equal(shouldAutoBuild({ case_id: "c", summary: null }, true, true), false); // only once
+  assert.equal(shouldAutoBuild({ case_id: "c", summary: summary() }, true, false), false);
+  assert.equal(shouldAutoBuild(null, true, false), false);
 });

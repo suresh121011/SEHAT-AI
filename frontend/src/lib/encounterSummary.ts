@@ -70,7 +70,61 @@ export type EncounterSummary = {
   unmatched_documents?: UnmatchedDocument[];
   withheld?: Withheld[];
   evidence_status?: EvidenceStatus;
+  // Schema .4. Optional: a snapshot made before them has none and is shown as stale until refreshed.
+  imaging?: string[];
+  interview?: string[];
+  header?: { scenario?: string; facility_code?: string; visit_started_at?: string; patient_record_linked?: boolean };
+  note_sections?: NoteSection[];
+  note_text?: string;
 };
+
+export type NoteLine = { kind: "sentence" | "row" | "detail" | "conflict" | "status"; text: string; fact_ids: string[] };
+export type NoteSection = { key: string; title: string; lines: NoteLine[] };
+
+/** What the server recorded for one medical image. The findings are model output: shown as rows, never as a sentence. */
+export type ImageValue = {
+  document_id: string; image_type: string; status: string; description: string | null; structured_fields: Record<string, unknown>;
+  text_withheld: boolean; flags: { signal?: string; action?: string; negated?: boolean }[]; confidence_band: string | null;
+  requires_acknowledgement: boolean; acknowledged: boolean; source_image_url: string; note: string | null; disclaimer: string | null;
+  described_by?: { provider: string | null; model: string | null; mode: string; synthetic: boolean; validated_medical_device?: boolean } | null;
+};
+
+/** Who wrote the image description. Canned demo text is called out so it is never taken for a model's reading. */
+export function imageDescribedBy(v: ImageValue): { text: string; demo: boolean } | null {
+  const by = v.described_by;
+  if (!by) return null;
+  if (by.synthetic) return { text: "DEMO TEXT from the built-in fake backend. It is not a reading of this image; no model looked at it.", demo: true };
+  if (!by.provider) return null;
+  return { text: `Described by ${by.model ?? by.provider} (${by.mode} model${by.validated_medical_device === false ? "; not a validated medical device" : ""}).`, demo: false };
+}
+
+export function imageValue(f: Fact): ImageValue | null {
+  const v = f.value as Partial<ImageValue> | null;
+  return f.section === "imaging" && v && typeof v.document_id === "string" ? (v as ImageValue) : null;
+}
+
+/** Field rows of a described image, in the server's order, with plain labels. Empty when nothing was described. */
+export function imageFieldRows(v: ImageValue): { label: string; text: string }[] {
+  return Object.entries(v.structured_fields ?? {}).map(([k, val]) => {
+    const label = k.replaceAll("_", " ");
+    return { label: label.charAt(0).toUpperCase() + label.slice(1), text: String(val) };
+  });
+}
+
+/** A flagged image that nobody has marked as reviewed: sign-off is blocked until it is. */
+export function imageNeedsReview(v: ImageValue): boolean {
+  return v.requires_acknowledgement && !v.acknowledged;
+}
+
+/** The sectioned note, or none for a snapshot made before schema .4. */
+export function noteSections(s: EncounterSummary): NoteSection[] {
+  return (s.note_sections ?? []).filter((x) => x.lines.length > 0);
+}
+
+/** Build the summary once, without a button press, when a reviewer opens a case that has none yet. Never for a reader. */
+export function shouldAutoBuild(view: SummaryView | null, canReview: boolean, alreadyTried: boolean): boolean {
+  return Boolean(view) && view!.summary === null && canReview && !alreadyTried;
+}
 
 export type Agreement = "engines_agree" | "engines_disagree" | "single_reading";
 export type UnmatchedRow = {
@@ -109,7 +163,7 @@ export const TRUST_WORDS: Record<Trust, { label: string; tone: "done" | "neutral
 };
 
 /** Attention order: things that make the summary unsafe to rely on come first. */
-const ATTENTION_ORDER = ["unavailable_source", "conflict", "missing_danger_sign", "no_triage_run", "triage_predates_evidence", "blocked_sentence", "pending_review"];
+const ATTENTION_ORDER = ["unavailable_source", "conflict", "missing_danger_sign", "image_flag_unacknowledged", "no_triage_run", "triage_predates_evidence", "blocked_sentence", "pending_review"];
 
 export function sortedAttention(items: Attention[]): Attention[] {
   const rank = (k: string) => {
@@ -120,7 +174,7 @@ export function sortedAttention(items: Attention[]): Attention[] {
 }
 
 export function attentionTone(kind: string): "danger" | "attention" {
-  return kind === "unavailable_source" || kind === "conflict" || kind === "missing_danger_sign" ? "danger" : "attention";
+  return kind === "unavailable_source" || kind === "conflict" || kind === "missing_danger_sign" || kind === "image_flag_unacknowledged" ? "danger" : "attention";
 }
 
 /** Plain words for where a fact came from. Never invents a location the source did not record. */
@@ -144,6 +198,14 @@ export function sourceWords(src: SourceRef): string {
     }
     case "body_map":
       return `Body map${typeof src.recorded_by_role === "string" ? `, marked by ${roleWord(src.recorded_by_role)}` : ""}`;
+    case "medical_image":
+      return `Uploaded image${typeof src.model === "string" ? `, described by ${src.model}` : ", no AI description"}${
+        typeof src.acknowledged_by_role === "string" ? ` · marked as reviewed by ${roleWord(src.acknowledged_by_role)}` : ""}`;
+    case "interview_answer": {
+      const who = src.speaker === "caregiver" ? "a caregiver" : src.speaker === "anm" ? "the health worker" : "the patient";
+      const how = src.answer_source === "transcript" ? `voice recording, transcript characters ${charSpan(src.transcript_chars)}` : "typed by the health worker";
+      return `Interview answer from ${who} (${how})${typeof src.recorded_by_role === "string" ? ` · confirmed by ${roleWord(src.recorded_by_role)}` : ""}`;
+    }
     default:
       return "Source recorded (type not shown)";
   }
@@ -188,11 +250,13 @@ export function flagWords(flag: string): string | null {
   if (flag.startsWith("drug_name_not_matched")) return "Drug name not matched in the offline drug list";
   if (flag.startsWith("band:")) return null; // engine band is shown by the document view
   if (flag.startsWith("linked_to:")) return null;
+  if (flag === "unknown_answer") return "Answered \"not sure\": this information is still missing";
+  if (flag === "image_flag") return null; // shown with the image's own flag rows
   if (flag.startsWith("ocr_")) return null; // OCR agreement is shown as its own label (H1-3), not as flag text
   return flag.replaceAll("_", " ");
 }
 
-const SOURCE_NAMES: Record<string, string> = { ai_extraction: "AI extraction", voice: "voice read-back", documents: "documents", triage: "triage form", body_map: "body map", triage_input: "triage input" };
+const SOURCE_NAMES: Record<string, string> = { image_descriptions: "AI descriptions of images", medical_images: "medical images", interview: "interview answers", ai_extraction: "AI extraction", voice: "voice read-back", documents: "documents", triage: "triage form", body_map: "body map", triage_input: "triage input" };
 
 export function sourceName(s: string): string {
   return SOURCE_NAMES[s] ?? s.replaceAll("_", " ");

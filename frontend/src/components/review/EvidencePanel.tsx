@@ -104,6 +104,8 @@ export function EvidencePanel({ caseId, consent, clinical, onImagesPending }: Pr
   async function acknowledge(documentId: string) {
     await api.post(`cases/${caseId}/medical-images/${documentId}/acknowledge`, {});
     await loadImages();
+    // The encounter summary on the same screen re-reads its state, so it shows "Out of date" at once (it never rebuilds itself).
+    window.dispatchEvent(new CustomEvent("sehat:evidence-changed", { detail: { caseId } }));
   }
 
   useEffect(() => {
