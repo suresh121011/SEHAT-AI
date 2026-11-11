@@ -146,11 +146,35 @@ Migration step 13 adds `encounter_summaries` and `encounter_summary_review_event
 | abstains_when_unit_or_value_unclear | 1 / 1 |
 | unchecked_kept_out_of_prose | 1 / 1 |
 
+**Rerun on 2026-11-11 (schema `.4`):** 41 cases: the 18 above, 11 image cases and 12 interview cases. All 40 metrics passed
+(for example `supported_sentences` 106 / 106, `traceable_facts` 255 / 255, `image_flag_surfaced` 5 / 5,
+`image_findings_kept_out_of_prose` 4 / 4, `interview_answer_exact` 12 / 12, `interview_never_in_prose` 17 / 17,
+`note_covers_every_fact` 41 / 41). Mode: mock and offline. Image-model output is replayed from fixtures; no model runs.
+The full table is in `docs/implementation/remaining-work-completion-report.md` §I.
+
 **Limits:**
 - The denominators are tiny and the cases were written by the developer.
 - Extraction quality here is the fake provider's.
 - Handwriting accuracy was **not** evaluated: the prescription is one synthetic fixture with replayed engine output.
 - None of this is clinical validation. A real-document evaluation needs the governed plan in docs/15.
+
+## 10. Schema `.4`: images, interview answers, header, sectioned note (2026-11-11)
+
+Plan and record: [`plans/summary-note-all-sources.md`](plans/summary-note-all-sources.md).
+
+- **Medical images (docs/18)** are a source. One fact per stored image in the `imaging` section.
+  - The described fields, the description and the keyword flags are in the fact's `value`. The fact's `display` names only the image and its review state, so no written sentence can carry a finding (owner decision D2a).
+  - Provenances: `image_described_unacknowledged` (not yet checked), `image_described_acknowledged` (a clinician recorded "findings reviewed"; this is not a validation of the findings), `image_on_file` (no description, or `ai_assist` not in effect).
+  - A flag that nobody has marked as reviewed is a pending item and the attention kind `image_flag_unacknowledged`.
+- **Interview answers** are a source. One fact per question in the `interview` section, provenance `interview_confirmed`, **tables only, never prose** (I4).
+  - A confirmed, known answer removes its question from missing information. "Not sure" never does.
+- **Header:** scenario, facility code, visit start, and whether a patient record is linked. No name, phone, address or patient code.
+- **Sectioned note:** `note_sections` and `note_text` hold the same facts in a fixed clinical order. A line is a gated sentence, a value with how far it was checked, an image detail, a conflict, or a status line. Each fact is stated once; empty sections are left out.
+- **Staleness:** the inventory now also covers `medical_images` (with status), `medical_image_acknowledgements`, `medical_image_purge_events`, `interview_answer_events` and `patient_link_events`.
+- **Screen:** the note is shown first, with "Copy note" and "Print". A reviewer who opens a case with no summary gets one built once, without a button press.
+- **Interview against a recorded duration:** a confirmed interview duration answer that falls outside a recorded, exactly parsed duration is a conflict (`duration_interview`). No value is chosen and neither is written in a sentence.
+- **Image text source:** each image row records which backend and model wrote the description. Canned text from the fake backend is labelled "DEMO TEXT" in the note and on screen.
+- **Limits:** the unit tests and the corpus use a stubbed image backend and synthetic data. The real engines were run separately (docs/18 §8.2). Handwritten free-text notes are still not read (owner decision D3: a later phase).
 
 ## 9. Limits and items needing human review
 

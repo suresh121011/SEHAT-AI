@@ -163,6 +163,45 @@ and a note. It **never** hides fields, the description or urgency signals.
 `medical_image_acknowledgements` row (idempotent) and the audit event `medgemma_findings_acknowledged`. Sign-off returns
 `409 IMAGE_FINDINGS_NOT_REVIEWED` (with the pending `document_ids`) while any live image of the case still needs it.
 
+### 8.1 Where the reviewer sees it (2026-11-11)
+
+- **Evidence panel:** the image, the described fields, the keyword flag and its reason, the confidence label, and the
+  "Findings reviewed" tick box (`MedGemmaFindings`).
+- **Encounter summary (docs/19 §10):** each image is one row in the Imaging section. The described text stays in rows and
+  never enters a written sentence. A flag that nobody has marked as reviewed is listed under "Needs attention" and as a
+  pending item.
+- **After the tick:** the summary on the same screen re-reads its state and shows "Out of date". It is never rebuilt
+  by itself; the reviewer presses "Refresh summary". The refreshed summary shows "marked as reviewed by a clinician".
+- **What "reviewed" means:** a named role looked at the image and the description. It is not a validation of the
+  findings and not a radiology report. An image description can only be marked as reviewed or deleted: it cannot be
+  corrected field by field (document rows can; see docs/14).
+- **Where the text came from** is shown with every description: the model and whether it runs locally or in the cloud,
+  or "DEMO TEXT from the built-in fake backend" when no model looked at the image.
+
+### 8.2 Implementation and verification state (2026-11-11)
+
+Full record: [`implementation/remaining-work-completion-report.md`](implementation/remaining-work-completion-report.md).
+
+| Item | State | How it was checked |
+|---|---|---|
+| Flagged image workflow in the browser | Implemented and verified | `scripts/e2e_summary_note_browser_check.py`, fake mode, 30 / 30: flag shown, sign-off refused (409), image opens, "Findings reviewed" recorded, summary goes out of date, refreshed summary shows the reviewed state, audit event present with no finding text |
+| Image description, real engine | Implemented and verified (runtime only) | Local MedGemma 1.5 (MLX 8-bit) described a procedurally drawn picture through the running app, real mode, 29 / 29. This shows the engine runs and its output is labelled. It is not an accuracy result |
+| Document OCR, real engines | Implemented and verified (synthetic pages) | PaddleOCR, Surya and Chandra ran in the opt-in live tests; PaddleOCR also ran through the running app and read 6 rows from the synthetic lab page, all left "machine-read, not yet checked" |
+| Speech, real engines | Implemented and verified (synthetic clips) | Hindi on the local IndicConformer model (live test and through the app). English and Hindi on Sarvam in the opt-in cloud test. English is refused by the local engine. Silence gives `no_speech`; non-audio bytes are refused |
+| Mock and real modes | Explicit | `MEDGEMMA_BACKEND=fake` is named in the capabilities, in every image row and in the summary note. There is no fallback from a real backend to the fake one (§4) |
+| Interview screen and API | Implemented and verified | Questions step, `InterviewPanel`; browser checks for confirm, skip, pause, reload, correction and refusal of identifiers. API unchanged |
+| Summary note print | Implemented and verified, except the native dialog | The button calls `window.print()` once; under print media only the note is laid out; Chrome writes a 2-page A4 PDF. The operating-system print dialog cannot be driven by automation and was not exercised |
+| Evaluation corpus | Extended and rerun | 41 synthetic cases (11 image, 12 interview); all metrics pass; mock mode only (docs/19 §8) |
+| CI skip gate | Updated | Minimum 1555, three more required modules, counts printed; verified locally, not yet on GitHub Actions |
+| Handwritten free-text notes | Deferred by design | Not read; see the plan, decision D3 |
+
+**Required to repeat the real-engine runs:** the local models under `models/` (`scripts/download_ocr_models.py`,
+`download_medgemma_local.py`, `download_voice_models.py`), `.venv-ocr`, and for cloud speech a `SARVAM_API_KEY` with
+`voice_cloud` consent. No new dependency was added.
+
+**Known limits:** the fake ECG text is the only deterministic flagged case; a real model's flag depends on its output.
+One synthetic picture and one synthetic page are not a benchmark. Nothing here is clinical validation.
+
 ## 9. Provenance, audit, storage, retention
 
 - Migration **step 10**: `medical_images` stores declared type, classifier hint and mismatch, synthetic attestation,

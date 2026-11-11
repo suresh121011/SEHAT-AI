@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/Icon";
 import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
+import { InterviewPanel } from "@/components/InterviewPanel";
 import { SourceTag } from "@/components/Provenance";
 import { Button, Card, Field, Notice, Spinner, inputClass } from "@/components/ui";
 import { buildCorrection, correctionKindOf, initialCorrection, type CorrectionField, type CorrectionForm, type CorrectionKind } from "@/lib/aiCorrection";
@@ -411,15 +412,21 @@ function FollowUpScreen() {
         Triage consent is not in effect. <a href={hrefFor("consent", caseId)}>Go to consent</a>.
       </Notice>,
     );
+  // The scripted interview needs triage consent only (no AI): it is offered whether or not AI assistance was agreed.
+  const interview = <InterviewPanel caseId={caseId!} canRecord={role === "anm"} />;
   if (!aiOk)
     return shell(
-      <Notice tone="info" title="Follow-up questions need AI assistance consent">
-        <p>The patient did not agree to AI assistance, so questions are not generated. That is fine: continue to the review step, where every value is entered and checked by you.</p>
-      </Notice>,
+      <div className="space-y-5">
+        {interview}
+        <Notice tone="info" title="AI-suggested follow-up questions need AI assistance consent">
+          <p>The patient did not agree to AI assistance, so no values are extracted by AI. That is fine: use the interview above, then continue to the review step, where every value is entered and checked by you.</p>
+        </Notice>
+      </div>,
     );
 
   return shell(
     <div className="space-y-5">
+      {interview}
       <Notice tone="ai" title="AI-assisted step">
         <p>
           AI extracts facts from the English text and checked transcripts; a fixed list of questions then covers what is still missing. AI never decides urgency.

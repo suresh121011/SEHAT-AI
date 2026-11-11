@@ -62,3 +62,54 @@ def test_too_few_tests_fails():
 def test_class_based_test_ids_map_to_their_module():
     assert gate._module("tests.voice.test_api.TestConsent") == "tests.voice.test_api"
     assert gate._module("tests.voice.test_api") == "tests.voice.test_api"
+
+
+# ── the counts the CI log prints, and the rules that stop the gate being bypassed (2026-11-11) ───────────────────
+
+
+def test_counts_report_total_executed_skipped_allowlisted_unexpected_and_minimum():
+    cases = _all_required(2) + _filler(gate.MIN_EXECUTED) + [
+        _skip("tests.ai.test_guardrails", "could not import 'nemoguardrails': No module"),
+        _skip("tests.rules.test_x", "some new optional dependency"),
+    ]
+    problems, counts = gate.analyse(_xml(cases))
+    n_required = 2 * len(gate.REQUIRED_MODULES)
+    assert counts == {"total": n_required + gate.MIN_EXECUTED + 2, "executed": n_required + gate.MIN_EXECUTED, "skipped": 2, "allowlisted_skips": 1,
+                      "unexpected_skips": 1, "minimum_required": gate.MIN_EXECUTED, "required_safety_modules": len(gate.REQUIRED_MODULES),
+                      "required_safety_tests_executed": n_required, "required_safety_tests_skipped": 0}
+    assert len(problems) == 1
+    line = gate.report(counts)
+    for word in ("total=", "executed=", "skipped=", "allowlisted_skips=1", "unexpected_skips=1", f"minimum_required={gate.MIN_EXECUTED}"):
+        assert word in line
+
+
+def test_one_test_below_the_minimum_fails_and_exactly_the_minimum_passes():
+    n = len(gate.REQUIRED_MODULES)
+    assert gate.check(_xml(_all_required() + _filler(gate.MIN_EXECUTED - n))) == []
+    problems = gate.check(_xml(_all_required() + _filler(gate.MIN_EXECUTED - n - 1)))
+    assert problems == [f"only {gate.MIN_EXECUTED - 1} tests ran; at least {gate.MIN_EXECUTED} expected"]
+
+
+def test_skipped_tests_never_count_towards_the_minimum():
+    # Padding the run with allowlisted skips must not satisfy the minimum.
+    skips = [_skip("tests.ai.test_guardrails", "could not import 'nemoguardrails'") for _ in range(gate.MIN_EXECUTED)]
+    problems = gate.check(_xml(_all_required() + skips))
+    assert len(problems) == 1 and "tests ran" in problems[0]
+
+
+def test_the_minimum_and_the_required_list_are_never_lowered_silently():
+    # A reduction is a reviewed change to this number, like removing a test. See the history beside MIN_EXECUTED.
+    assert gate.MIN_EXECUTED >= 1555
+    for mod in ("tests.ai.test_encounter_summary_sources", "tests.ai.test_encounter_eval", "tests.interview.test_interview",
+                "tests.privacy.test_urgency_authority", "tests.ci.test_skip_gate"):
+        assert mod in gate.REQUIRED_MODULES
+    assert len(gate.REQUIRED_MODULES) == len(set(gate.REQUIRED_MODULES)) >= 24
+
+
+def test_every_required_module_exists_on_disk():
+    # A renamed or deleted safety file must fail here, not pass by never being looked for.
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for mod in gate.REQUIRED_MODULES:
+        assert (root / (mod.replace(".", "/") + ".py")).is_file(), mod
