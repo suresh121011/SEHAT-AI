@@ -104,8 +104,18 @@ def main() -> int:
         print(f"mode={MODE} image backend={caps.get('medgemma_backend')} ({caps.get('medgemma_mode')}), synthetic={caps.get('medgemma_synthetic')}", flush=True)
         check("server image backend matches the requested mode", (caps.get("medgemma_backend") == "fake") == (MODE == "fake"), str(caps.get("medgemma_backend")))
 
+        # per-symptom term and duration (fake keyword extractor in both modes; the real model is checked by
+        # scripts/eval_symptom_extraction_live.py)
+        ext = page.request.post(api(f"cases/{cid}/ai/extractions"), data={"idempotency_key": str(uuid.uuid4()),
+                                "intake_text": "I am suffering from fever since 2 days and my head is paining since 2 hours. No vomiting."})
+        check("symptoms: extraction ran", ext.status == 201, f"{ext.status} {ext.text()[:120] if ext.status != 201 else ''}")
+
         # ── 1. Interview screen (Questions step) ────────────────────────────────────────────────────────────────
         page.goto(f"{FE}/intake/follow-up?case={cid}")
+        page.get_by_role("heading", name="AI-extracted values: your decision").wait_for(timeout=30000)
+        review_text = page.locator("section").filter(has=page.get_by_role("heading", name="AI-extracted values: your decision")).first.inner_text()
+        check("symptoms: the review screen shows each symptom with its own duration and the words said",
+              "headache (said: head is paining), 2 hours" in review_text and "fever, 2 days" in review_text and "denies vomiting" in review_text)
         page.get_by_role("heading", name="Interview: fixed questions for missing information").wait_for(timeout=30000)
         check("interview: screen shows status and progress", page.get_by_test_id("interview-status").inner_text() == "Not started"
               and page.get_by_test_id("interview-known").inner_text() == "0 of 3")
@@ -207,6 +217,7 @@ def main() -> int:
         note = page.locator("#encounter-note").inner_text()
         low = note.lower()
         check("summary: built on open, with interview answers as a table section", "interview answers" in low and "dry cough, worse at night" in note and "1-3 days" in note)
+        check("summary: each symptom is stated with its own duration", "Fever for 2 days" in note and "Headache for 2 hours" in note)
         check("summary: imaging section names the image and its review state", "imaging" in low and "image on file" in low and "not yet reviewed" in low)
         panel = page.locator("section,div").filter(has=page.get_by_role("heading", name="Encounter summary")).first.inner_text()
         if MODE == "fake":

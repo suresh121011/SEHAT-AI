@@ -152,8 +152,31 @@ def ground(segments: dict[str, str], out: ExtractionOutput) -> Grounded:
 
     for s in out.symptoms:
         negated, flags = _negation(s.negated, s.evidence)
-        text_entry(f"symptom:{norm(s.name)}", "symptom", f"symptom:{norm(s.name)}", s.name, s.evidence, negated,
-                   {"name": s.name, "negated": negated}, flags=flags)
+        # Keyed by the closed-list term when there is one, so passes (and languages) that word a symptom differently
+        # still vote on the same item. The name stays the patient's words and is what the quote check verifies.
+        key = f"symptom:{s.term or norm(s.name)}"
+        value: dict = {"name": s.name, "negated": negated}
+        if s.term and s.term != norm(s.name):
+            value["term"] = s.term
+        vote: object = negated
+        if s.duration and not negated and _quotes_ok(segments, s.evidence) is None:
+            # A duration belongs to this symptom only if its words are in this symptom's own quote; its number only
+            # if the quote contains that number (digits or number words, English or Indic). Otherwise it is dropped
+            # and listed, and the symptom itself is kept.
+            if not _words_ok(s.duration, s.evidence) or norm(s.duration) not in norm(" ".join(e.quote for e in s.evidence)):
+                drop(key, "symptom_duration_not_in_quote")
+            else:
+                amount, unit = s.duration_amount, s.duration_unit
+                if amount is not None and unit is not None:
+                    if not any(abs(n - amount) < 1e-6 for e in s.evidence for n in _numbers_in(e.quote)):
+                        drop(key, "symptom_duration_number_not_in_quote")
+                        flags = (*flags, "duration_number_unverified")
+                        amount = unit = None
+                else:
+                    amount = unit = None
+                value["duration"] = {"text": s.duration, "amount": amount, "unit": unit}
+                vote = (negated, norm(s.duration) if amount is None else _num_key(amount), unit)
+        text_entry(key, "symptom", key, s.name, s.evidence, vote, value, flags=flags)
 
     for med in out.medications:
         parts = " ".join(p for p in (med.name, med.dose, med.frequency) if p)

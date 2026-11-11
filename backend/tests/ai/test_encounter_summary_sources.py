@@ -170,7 +170,7 @@ def test_header_and_note_cover_every_recorded_fact_once_in_clinical_order(case):
     assert answer(c, anm, case_id, "severity", choice="6").status_code == 201
 
     s = _generate(c, mo, case_id)["summary"]
-    assert s["schema_version"] == es.SUMMARY_SCHEMA_VERSION and s["schema_version"].endswith(".4")
+    assert s["schema_version"] == es.SUMMARY_SCHEMA_VERSION and s["schema_version"].endswith(".5")
     h = s["header"]
     assert h["scenario"] == "opd" and h["facility_code"] == "PHC-KHURDA-01" and h["visit_started_at"] and h["patient_record_linked"] is False
 

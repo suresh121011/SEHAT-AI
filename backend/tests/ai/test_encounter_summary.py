@@ -312,7 +312,7 @@ def test_contradictory_durations_stay_visible_and_neither_is_narrated(ai_case):
     extract(c, anm, case_id, text="Fever for 3 days.")
     extract(c, anm, case_id, text="Fever for 2 weeks.")  # a second run: every run is read, not only the latest
     s = _generate(c, anm, case_id)["summary"]
-    conflict = next(x for x in s["conflicts"] if x["key"] == "duration")
+    conflict = next(x for x in s["conflicts"] if x["key"] == "duration:fever")  # schema .5: the duration belongs to its symptom
     assert {v["display"] for v in conflict["values"]} == {"3 days", "2 weeks"}
     assert all(x["text"][:1].isupper() for x in s["narrative"])  # every sentence starts with a capital
     prose = " ".join(x["text"] for x in s["narrative"])

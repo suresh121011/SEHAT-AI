@@ -26,6 +26,9 @@ class CorrectedValue(BaseModel):
     value2: float | None = None
     unit: str | None = Field(default=None, max_length=20)
     negated: bool | None = None
+    # A symptom's own duration, as the patient confirms it (both or neither). Closed unit list; no free text.
+    duration_amount: float | None = Field(default=None, gt=0, le=1000)
+    duration_unit: Literal["hour", "day", "week", "month", "year"] | None = None
 
 
 class ReviewBody(BaseModel):
@@ -47,6 +50,10 @@ def _check(kind: str, body: ReviewBody, row) -> None:
             raise ApiError(422, "CORRECTION_INVALID", "This correction needs a text value")
         if kind in ("symptom", "red_flag") and c.negated is None:
             raise ApiError(422, "CORRECTION_INVALID", "This correction needs negated true/false")
+        if (c.duration_amount is None) != (c.duration_unit is None):
+            raise ApiError(422, "CORRECTION_INVALID", "A duration correction needs both the number and the unit")
+        if c.duration_amount is not None and (kind != "symptom" or c.negated):
+            raise ApiError(422, "CORRECTION_INVALID", "A duration can only be recorded for a symptom the patient has")
         if any(isinstance(x, str) and residual_hit(x) for x in (c.value, c.unit)):
             raise ApiError(422, "PII_DETECTED", "The correction looks like it contains an identifier; enter the clinical value only")
     elif body.corrected is not None:
@@ -128,6 +135,11 @@ def effective_value(kind: str, value, rv: dict | None):
         base.update({"name": c["value"]} if "value" in c else {})
     elif kind in ("symptom", "red_flag"):
         base.update({"negated": c["negated"]} if "negated" in c else {})
+        if kind == "symptom" and base.get("negated"):
+            base.pop("duration", None)  # a denied symptom has no duration
+        elif kind == "symptom" and "duration_amount" in c:
+            amount = int(c["duration_amount"]) if float(c["duration_amount"]).is_integer() else c["duration_amount"]
+            base["duration"] = {"text": f"{amount} {c['duration_unit']}{'' if amount == 1 else 's'}", "amount": amount, "unit": c["duration_unit"]}
     return base
 
 

@@ -26,7 +26,7 @@ _NEG = re.compile(r"\b(?:no|not|never|without|denies|denied|deny|negative for|ni
 SYMPTOMS: list[tuple[str, str]] = [
     ("chest pain", r"chest pain|pain in (?:the )?chest"),
     ("abdominal pain", r"(?:abdominal|stomach|belly|abdomen) pain|pain in (?:the )?(?:abdomen|stomach|belly)"),
-    ("headache", r"headache|head ache"),
+    ("headache", r"headache|head ache|head (?:is |was )?(?:paining|aching|hurting)|pain in (?:the |my )?head"),
     ("fever", r"fever|febrile"),
     ("cough", r"cough"),
     ("vomiting", r"vomit(?:ing|ed|s)?|throwing up"),
@@ -85,6 +85,19 @@ MEDICATION = re.compile(
 )
 
 
+_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "ten": 10, "a": 1, "an": 1}
+
+
+_SENTENCE = re.compile(r"[.;!?\n]")
+
+
+def _sentence_start(text: str, pos: int) -> int:
+    start = 0
+    for m in _SENTENCE.finditer(text, 0, pos):
+        start = m.end()
+    return start
+
+
 def _clause_start(text: str, pos: int) -> int:
     start = 0
     for m in _CLAUSE.finditer(text, 0, pos):
@@ -119,8 +132,27 @@ def extract(segments: tuple[tuple[str, str], ...]) -> dict:
                 continue
             seen_sym.add(name)
             negated, qs = _mention(text, m)
-            ev = [{"segment_id": sid, "quote": text[qs:m.end()]}]
-            out["symptoms"].append({"name": name, "negated": negated, "evidence": ev})
+            term = next(t for t, p in SYMPTOMS if re.fullmatch(p, name, _I))
+            sym = {"name": name, "negated": negated, "term": term if term != name else None, "duration": None, "duration_amount": None, "duration_unit": None}
+            end = m.end()
+            # This symptom's own duration: the next "for/since N unit" in its sentence, and only when this is the single
+            # symptom named since the previous duration. "Fever, headache and vomiting since 2 days" names three, so none
+            # of them gets it and the visit-level duration carries it, as before.
+            s_end = next((b.start() for b in _SENTENCE.finditer(text, m.end())), len(text))
+            d = DURATION.search(text, m.end(), s_end)
+            if d:
+                prev = max((x.end() for x in DURATION.finditer(text, _sentence_start(text, m.start()), m.start())), default=_sentence_start(text, m.start()))
+                if sum(1 for x in matches if prev <= x.start() < d.start()) != 1:
+                    d = None
+            if d and not negated:
+                amount, unit = d.group(1).split()[0].lower(), d.group(1).split()[-1].lower().rstrip("s")
+                sym.update(duration=d.group(1), duration_amount=_num(amount) if amount[0].isdigit() else _WORDS.get(amount), duration_unit=unit)
+                if sym["duration_amount"] is None:
+                    sym["duration_unit"] = None
+                end = d.end()
+            ev = [{"segment_id": sid, "quote": text[qs:end]}]
+            sym["evidence"] = ev
+            out["symptoms"].append(sym)
             if out["chief_complaint"] is None and not negated:
                 out["chief_complaint"] = {"value": name, "evidence": ev}
         for flag, pattern in RED_FLAGS:
