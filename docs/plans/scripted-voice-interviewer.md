@@ -26,7 +26,7 @@ Nothing is generated or chosen by a model, and nothing is saved as fact without 
 ## 3. Scope
 
 **In scope (v1):**
-- **Questions:** the existing deterministic English question bank, driven by the rules engine's missing-fields list (at most 5, danger signs first).
+- **Questions:** the existing deterministic English question bank, driven by the rules engine's missing-fields list (danger signs first; at most 5 patient questions and, counted apart, at most 5 health-worker tasks).
 - **Two kinds of entry in the bank.**
   - Patient questions are spoken: main problem, duration, severity, danger signs, LMP, medicines, adherence.
   - Health-worker tasks are shown, never spoken: "Please measure and record SpO2 / BP / pulse / temperature / breathing rate".
@@ -106,7 +106,7 @@ Nothing is generated or chosen by a model, and nothing is saved as fact without 
 
 ## 6. Tests (written before the code)
 
-- **Script:** it is deterministic for a given input; danger signs come first; at most 5 questions; it never includes text that isn't in the bank.
+- **Script:** it is deterministic for a given input; danger signs come first; at most 5 patient questions and at most 5 health-worker tasks; it never includes text that isn't in the bank.
 - **Answers:**
   - only the ANM or handler may record;
   - an answer needs triage consent and `confirm: true`;
@@ -143,4 +143,5 @@ Nothing is generated or chosen by a model, and nothing is saved as fact without 
 - **I1:** English only.
 - **I2:** device voice by default, with optional Sarvam TTS under `voice_cloud` consent.
 - **I3:** the missing-fields question bank (at most 5).
+  - **Amended 2026-11-11 (owner, after a browser check):** the limit of 5 is counted separately for patient questions and for health-worker tasks. Before, a visit with no vitals used four of the five places for measurement tasks and offered the patient one question. The order (danger signs first) and the question text are unchanged. Script version `.2`.
 - **I4:** case review and an encounter-summary table, never prose.

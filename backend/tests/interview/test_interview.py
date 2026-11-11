@@ -47,7 +47,9 @@ def triaged(client):
 
 def test_the_script_is_deterministic_danger_first_and_capped():
     a, b = script.build("opd", None), script.build("opd", None)
-    assert a == b and len(a) <= 5
+    assert a == b
+    # two separate limits (2026-11-11): at most 5 patient questions and at most 5 health-worker tasks
+    assert len([q for q in a if q.answerable]) <= 5 and len([q for q in a if not q.answerable]) <= 5
     assert a[0].key == "red_flag_screen" and a[0].audience == "worker" and a[0].is_danger_sign
 
 
@@ -57,6 +59,24 @@ def test_only_patient_questions_are_spoken_or_answerable_and_measurements_never_
             assert q.audience == "worker" and not q.answerable, q.key
         else:
             assert q.audience == "patient" and q.answerable, q.key
+
+
+def test_health_worker_tasks_never_crowd_out_the_patient_questions():
+    # No triage form yet: the screen and every measurement are missing. The patient questions must still all be offered.
+    for scenario, patient in (("opd", ["chief_complaint", "duration", "severity"]),):
+        qs = script.build(scenario, None)
+        assert [q.key for q in qs if q.answerable] == patient
+        tasks = [q.key for q in qs if not q.answerable]
+        assert tasks[0] == "red_flag_screen" and {"spo2", "bp", "pulse"} <= set(tasks) and len(tasks) <= 5
+    for scenario in ("opd", "maternal", "chronic_ncd", "health_camp"):
+        qs = script.build(scenario, None)
+        assert len([q for q in qs if q.answerable]) <= 5 and len([q for q in qs if not q.answerable]) <= 5
+        assert qs[0].is_danger_sign  # danger signs still lead the list
+        # the order is still the required-fields order: nothing is reshuffled, only the two limits are counted apart
+        from app.rules.required_fields import missing
+
+        order = [r.key for r in missing(scenario, set())]
+        assert [q.key for q in qs] == [k for k in order if k in {q.key for q in qs}]
 
 
 def test_the_script_text_comes_only_from_the_question_bank():
