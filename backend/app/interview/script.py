@@ -1,7 +1,8 @@
 """The interview script (docs/plans/scripted-voice-interviewer.md §3, owner decision I3). Pure: no I/O, no model.
 
 The questions are the fixed English question bank (app.ai.question_bank) for the information the latest triage form
-is still missing (app.rules.required_fields.missing: danger signs first, at most 5). The script depends only on the
+is still missing (app.rules.required_fields.missing: danger signs first). At most 5 patient questions and, counted
+apart, at most 5 health-worker tasks, so missing measurements never crowd out the questions. The script depends only on the
 triage form, not on interview answers, so it does not shift while the interview is being done.
 
 Two audiences:
@@ -21,7 +22,7 @@ from app.ai.question_bank import MAX_QUESTIONS, QUESTIONS
 from app.rules.models import TriageInput
 from app.rules.required_fields import missing
 
-SCRIPT_VERSION = "interview-script-2026-11-10.1"
+SCRIPT_VERSION = "interview-script-2026-11-11.2"  # .2: patient questions and health-worker tasks are limited separately
 LANGUAGE = "en"  # owner decision I1: English only until hi/or wording is reviewed (docs/13)
 
 # Keys answered by the health worker (measured, screened or looked up), never asked of the patient here.
@@ -63,13 +64,18 @@ def present_from_triage(inp: TriageInput | None) -> set[str]:
 
 def build(scenario: str, triage_input: TriageInput | None) -> list[Question]:
     out = []
-    for r in missing(scenario, present_from_triage(triage_input))[:MAX_QUESTIONS]:
+    left = {"patient": MAX_QUESTIONS, "worker": MAX_QUESTIONS}  # two limits, so one audience never uses the other's places
+    for r in missing(scenario, present_from_triage(triage_input)):
         q = QUESTIONS.get(r.key)
         if q is None:
             continue
+        audience = "worker" if r.key in WORKER_KEYS else "patient"
+        if not left[audience]:
+            continue
+        left[audience] -= 1
         options = tuple(q["response_options"])
         out.append(Question(key=r.key, label=r.label, question_text=q["question_text"], kind="choice" if options else "text",
-                            options=options, audience="worker" if r.key in WORKER_KEYS else "patient", is_danger_sign=r.danger_sign))
+                            options=options, audience=audience, is_danger_sign=r.danger_sign))
     return out
 
 
