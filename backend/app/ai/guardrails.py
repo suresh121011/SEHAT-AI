@@ -74,6 +74,8 @@ def output_texts(res) -> list[str]:
             for k in ("name", "dose", "frequency", "unit"):
                 if isinstance(value.get(k), str):
                     out.append(value[k])
+            if isinstance(value.get("duration"), dict) and isinstance(value["duration"].get("text"), str):
+                out.append(value["duration"]["text"])  # a symptom's duration words are model-produced text too
 
     for f in res.fields:
         if f.kind in ("red_flag", "urgency"):

@@ -40,7 +40,7 @@ from app.errors import ApiError, not_found
 from app.rules import TriageInput, TriageResult
 from app.rules.required_fields import missing as required_missing
 
-SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-11.4"  # .4: medical images, interview answers, visit header, sectioned note
+SUMMARY_SCHEMA_VERSION = "encounter-summary-2026-11-11.5"  # .5: each symptom with its own duration and normalised term
 DISCLAIMER = ("AI-assisted draft assembled from recorded sources, pending review by a qualified clinician. Not a diagnosis. "
               "Urgency is the rules engine's. Research prototype, not a clinically validated device.")
 log = logging.getLogger(__name__)
@@ -306,6 +306,16 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
     ) as cur:
         rows = await cur.fetchall()
     durations, segs_by_run = [], {}
+    # Durations a run already ties to a symptom. The run's visit-level duration is the same statement when it equals
+    # one of them, so it is not stated a second time (and cannot then look like a conflict with the other symptom's).
+    own: dict[str, set[str]] = {}
+    for r in rows:
+        if r["kind"] == "symptom" and r["origin"] != "ocr_reviewed":
+            pv = field_view(r, reviews.get(r["field_id"]))
+            # the duration as the run extracted it (not a later correction): that is what the visit-level text repeats
+            d = (pv["value"] or {}).get("duration") if not (pv["review"] and pv["review"]["outcome"] == "rejected") else None
+            if d:
+                own.setdefault(r["run_id"], set()).add(json.dumps(_symptom_duration(d)[1] or d["text"].lower(), sort_keys=True))
     for r in rows:
         if r["origin"] == "ocr_reviewed":
             continue
@@ -336,6 +346,9 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
             value: Any = {"text": v}
             if key == "duration":
                 parsed = parse_duration(v)
+                if json.dumps({k: parsed[k] for k in ("amount", "unit")} if parsed else str(v).lower(), sort_keys=True) in own.get(r["run_id"], ()):
+                    out["pending"] = [p for p in out["pending"] if p["ref"] != f["field_id"]]  # decided with its symptom, not on its own
+                    continue
                 value = {"text": v, "parsed": parsed}
                 display = duration_display(parsed) if parsed else str(v)
                 fid = b.add(section, key, "Duration", display, value, prov, sources, merge_key=parsed or v)
@@ -369,8 +382,16 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
                 b.add("labs" if name != "pain_severity" else "context", name, label, f"{_num(v['value'])}{unit}", v, prov, sources,
                       merge_key=[v["value"], v.get("unit")])
         elif kind == "symptom":
-            b.add("symptoms", f"symptom:{v['name'].lower()}:{'denied' if v['negated'] else 'present'}", v["name"], v["name"], v, prov, sources, hold,
-                  merge_key=[v["name"].lower(), v["negated"]])
+            # Shown by the closed-list term when the model gave one; the words the patient used stay in the value.
+            shown = (v.get("term") or v["name"]).lower()
+            label = shown if shown == v["name"].lower() else f"{shown} (said: {v['name']})"
+            b.add("symptoms", f"symptom:{shown}:{'denied' if v['negated'] else 'present'}", label, shown, v, prov, sources, hold,
+                  merge_key=[shown, v["negated"]])
+            if v.get("duration") and not v["negated"]:
+                disp, parsed = _symptom_duration(v["duration"])
+                full = {**parsed, "approximate": False, "text": v["duration"]["text"]} if parsed else None
+                b.add("timeline", f"duration:{shown}", f"Duration of {shown}", disp, {"text": v["duration"]["text"], "parsed": full, "linked_symptom": shown},
+                      prov, sources, hold, merge_key=[shown, parsed or v["duration"]["text"].lower()])
         elif kind == "medication":
             extra = " ".join(p for p in (v.get("dose"), v.get("frequency")) if p)
             b.add("medications", f"reported:{v['name'].lower()}", "Reported by patient", f"{v['name']}{' ' + extra if extra else ''}", v, prov, sources, hold,
@@ -385,6 +406,17 @@ async def _ai_source(conn, case_id: str, b: _Builder, out: dict) -> None:
         if len(same) == 1:
             b.facts[fid].value = {**b.facts[fid].value, "linked_symptom": same[0].display}
             b.facts[fid].flags.append(f"linked_to:{same[0].fact_id}")
+
+
+def _symptom_duration(d: dict) -> tuple[str, dict | None]:
+    """(display, {amount, unit} or None) for one symptom's duration. The verified number and unit when there are any,
+    else whatever the words parse to, else the words as said. Never an onset date."""
+    if d.get("amount") is not None and d.get("unit"):
+        amount = int(d["amount"]) if float(d["amount"]).is_integer() else d["amount"]
+        parsed = {"amount": amount, "unit": d["unit"]}
+        return duration_display({**parsed, "approximate": False}), parsed
+    p = parse_duration(d.get("text"))
+    return (duration_display(p), {"amount": p["amount"], "unit": p["unit"]}) if p and not p["approximate"] else (str(d.get("text")), None)
 
 
 async def _voice_source(conn, case_id: str, b: _Builder, out: dict) -> None:
@@ -743,13 +775,20 @@ def lab_rows(facts: list[Fact]) -> tuple[list[Row], list[dict]]:
 
 
 def duration_conflicts(facts: list[Fact]) -> list[dict]:
-    durs = [f for f in facts if f.key == "duration"]
-    parsed = {json.dumps((f.value or {}).get("parsed") or f.display, sort_keys=True) for f in durs}
-    if len(durs) > 1 and len(parsed) > 1:
-        return [{"key": "duration", "label": "Duration", "fact_ids": [f.fact_id for f in durs],
-                 "values": [{"display": f.display, "provenance": f.provenance, "trust": f.trust} for f in durs],
-                 "action": "Different durations were recorded. Ask the patient again; both stay visible until one is confirmed."}]
-    return []
+    """The visit-level duration, and each symptom's own duration, compared only with itself: "fever 2 days" and
+    "headache 2 hours" are two facts, not a disagreement."""
+    by_key: dict[str, list[Fact]] = {}
+    for f in facts:
+        if f.section == "timeline" and (f.key == "duration" or f.key.startswith("duration:")):
+            by_key.setdefault(f.key, []).append(f)
+    out = []
+    for key, durs in by_key.items():
+        parsed = {json.dumps({k: p[k] for k in ("amount", "unit")} if (p := (f.value or {}).get("parsed")) else f.display, sort_keys=True) for f in durs}
+        if len(durs) > 1 and len(parsed) > 1:
+            out.append({"key": key, "label": "Duration" if key == "duration" else f"Duration of {key.split(':', 1)[1]}", "fact_ids": [f.fact_id for f in durs],
+                        "values": [{"display": f.display, "provenance": f.provenance, "trust": f.trust} for f in durs],
+                        "action": "Different durations were recorded. Ask the patient again; both stay visible until one is confirmed."})
+    return out
 
 
 # The interview's fixed duration answers as day ranges (inclusive at both ends, so a boundary value never conflicts).
@@ -764,12 +803,18 @@ def interview_duration_conflicts(facts: list[Fact]) -> list[dict]:
     rng = _DURATION_BUCKETS.get(answer.display) if answer else None
     if rng is None:
         return []
-    out = []
+    exact = []
     for f in facts:
-        parsed = (f.value or {}).get("parsed") if f.section == "timeline" and f.key == "duration" and isinstance(f.value, dict) else None
-        if not parsed or parsed.get("approximate"):
-            continue
-        days = float(parsed["amount"]) * _UNIT_DAYS[parsed["unit"]]
+        is_dur = f.section == "timeline" and (f.key == "duration" or f.key.startswith("duration:")) and isinstance(f.value, dict)
+        parsed = (f.value or {}).get("parsed") if is_dur else None
+        if parsed and not parsed.get("approximate"):
+            exact.append((f, float(parsed["amount"]) * _UNIT_DAYS[parsed["unit"]]))
+    # The answer is about the main problem. With each symptom carrying its own duration, it disagrees only when it
+    # matches none of the recorded ones ("1-3 days" beside "fever 2 days, headache 2 hours" is not a conflict).
+    if any(rng[0] <= days <= rng[1] for _, days in exact):
+        return []
+    out = []
+    for f, days in exact:
         if not rng[0] <= days <= rng[1]:
             out.append({"key": "duration_interview", "label": "Duration (recorded value and interview answer)", "fact_ids": [f.fact_id, answer.fact_id],
                         "values": [{"display": x.display, "provenance": x.provenance, "trust": x.trust} for x in (f, answer)],
@@ -818,7 +863,7 @@ def present_keys(facts: list[Fact], triage_input: TriageInput | None) -> set[str
         if f.section == "vitals":
             keys.add({"temp_c": "temp"}.get(k, k))
         elif f.section in ("presenting_problem", "timeline", "context"):
-            keys.add(k)
+            keys.add("duration" if k.startswith("duration:") else k)  # a symptom's own duration answers "how long"
             if k == "pain_severity":
                 keys.add("pain_severity")
         elif f.section == "labs":
@@ -869,7 +914,8 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
     if pp:
         out.append({"section": "presenting_problem", "fact_ids": pp,
                     "text": "Presenting problem: " + "; ".join(_tagged(facts[f], facts[f].display) for f in pp) + "."})
-    dur_conflict = {c for x in s["conflicts"] if x["key"] in ("duration", "duration_interview") for c in x["fact_ids"] if facts[c].section == "timeline"}
+    dur_conflict = {c for x in s["conflicts"] if x["key"] in ("duration", "duration_interview") or x["key"].startswith("duration:")
+                    for c in x["fact_ids"] if facts[c].section == "timeline"}
     if dur_conflict:
         out.append({"section": "timeline", "fact_ids": sorted(dur_conflict), "names_only": True,
                     "text": "Different durations were recorded, none chosen (see conflicts)."})
@@ -882,7 +928,25 @@ def render_narrative(s: dict, facts: dict[str, Fact]) -> list[dict]:
         f = facts[fid]
         parsed = f.value.get("parsed") if isinstance(f.value, dict) else None
         groups.setdefault((f.key, json.dumps(parsed or f.display, sort_keys=True)), []).append(f)
-    for group in groups.values():
+    # A visit-level duration and a symptom's own duration that agree are one statement, written once: as the
+    # visit-level sentence when that one is better checked (the link to the symptom stays in the rows), otherwise as
+    # the symptom's sentence.
+    def _au(f: Fact):
+        p = f.value.get("parsed") if isinstance(f.value, dict) else None
+        return (p["amount"], p["unit"]) if p else None
+
+    best = lambda g: min(_TRUST_RANK[x.trust] for x in g if ok(x.fact_id)) if any(ok(x.fact_id) for x in g) else None  # noqa: E731
+    visit = {_au(g[0]): best(g) for (k, _), g in groups.items() if k == "duration" and _au(g[0]) and best(g) is not None}
+    own = {}
+    for (k, _), g in groups.items():
+        if k.startswith("duration:") and _au(g[0]) and best(g) is not None:
+            own[_au(g[0])] = min(own.get(_au(g[0]), 9), best(g))
+    for (gkey, _), group in groups.items():
+        au = _au(group[0])
+        if au in visit and au in own:
+            visit_wins = visit[au] < own[au]
+            if (gkey == "duration") != visit_wins:
+                continue
         f = min(group, key=lambda x: _TRUST_RANK[x.trust])
         if not ok(f.fact_id):
             continue
@@ -1205,7 +1269,7 @@ def withheld_items(s: dict, facts: dict[str, Fact], blocked: list[Blocked], unma
         if uncertain(f) and PROVENANCE[f.provenance]["narrative"]:
             out.append({"kind": "fact", "section": f.section, "reason": "negation_or_time_uncertain", "fact_ids": [f.fact_id]})
     for c in s["conflicts"]:
-        if c["key"] in ("duration", "duration_interview"):
+        if c["key"] in ("duration", "duration_interview") or c["key"].startswith("duration:"):
             out.append({"kind": "fact", "section": "timeline", "reason": "evidence_conflict", "fact_ids": [i for i in c["fact_ids"] if facts[i].section == "timeline"]})
     for u in unmatched:
         out.append({"kind": "document", "reason": "document_not_matched", "document_id": u["document_id"],

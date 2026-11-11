@@ -97,10 +97,10 @@ def _score(s: dict, case: dict, t: Tally) -> None:
             (s["urgency"]["recorded_urgency"] is None) == ("triage" not in case), cid)
 
     if "duration" in e:
-        durs = {facts[i]["display"] for i in s["timeline"] if facts[i]["key"] == "duration"}
+        durs = {facts[i]["display"] for i in s["timeline"] if facts[i]["key"].split(":")[0] == "duration"}  # visit-level or a symptom's own
         t.check("duration_exact", durs == ({e["duration"]} if e["duration"] else set()), f"{cid}: {durs}")
     if "linked" in e:
-        linked = {(facts[i]["value"] or {}).get("linked_symptom") for i in s["timeline"] if facts[i]["key"] == "duration"}
+        linked = {(facts[i]["value"] or {}).get("linked_symptom") for i in s["timeline"] if facts[i]["key"].split(":")[0] == "duration"}
         t.check("duration_symptom_link", linked == {e["linked"]}, f"{cid}: {linked}")
     for kind in ("present", "denied"):
         if kind in e:
@@ -150,6 +150,15 @@ def _score(s: dict, case: dict, t: Tally) -> None:
         t.check("missing_info_listed", k in {m["key"] for m in s["missing_information"]}, f"{cid}: {k}")
     for st in e.get("pending_states", []):
         t.check("pending_surfaced", st in {p["state"] for p in s["pending_review"]}, f"{cid}: {st}")
+    # ── schema .5: each symptom's own duration ──
+    if "symptom_durations" in e:
+        got = {(facts[i]["value"] or {}).get("linked_symptom"): facts[i]["display"] for i in s["timeline"] if facts[i]["key"].startswith("duration:")}
+        t.check("symptom_duration_exact", got == e["symptom_durations"], f"{cid}: {got}")
+    for w in e.get("prose_has", []):
+        t.check("symptom_duration_stated", w in prose, f"{cid}: {w!r} not in the written text")
+    for term, said in e.get("said_as", {}).items():
+        f = next((facts[i] for i in s["symptoms"]["present"] if facts[i]["display"] == term), None)
+        t.check("patients_words_kept_beside_the_term", bool(f) and f["value"]["name"] == said, f"{cid}: {term}")
     # ── schema .4: every case ──
     cited = {i for sec in s["note_sections"] for line in sec["lines"] for i in line["fact_ids"]}
     t.check("note_covers_every_fact", cited == set(facts), f"{cid}: {len(set(facts) - cited)} fact(s) not in the note")
@@ -224,7 +233,7 @@ def test_corpus_has_image_and_interview_cases_with_gold_labels():
     for case in CORPUS:
         groups[case.get("group", "summary")].append(case)
         assert case["expect"], case["id"]
-    assert len(groups["image"]) >= 10 and len(groups["interview"]) >= 10 and len(groups["summary"]) >= 18
+    assert len(groups["image"]) >= 10 and len(groups["interview"]) >= 10 and len(groups["summary"]) >= 18 and len(groups["symptom"]) >= 6
     assert len({c["id"] for c in CORPUS}) == len(CORPUS)
 
 

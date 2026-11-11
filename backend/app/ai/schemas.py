@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.rules.models import AtpFlag
 
-SCHEMA_VERSION = "extraction-2026-10-03.1"
+SCHEMA_VERSION = "extraction-2026-11-11.2"  # .2: per-symptom term and duration (docs/plans/clinical-note-v2-plan.md step 1)
 
 MeasurementName = Literal[
     "temp", "spo2", "pulse", "resp_rate", "bp",  # vitals (bp: value = systolic, value2 = diastolic)
@@ -47,10 +47,28 @@ class Measurement(_M):
     evidence: list[Evidence] = Field(min_length=1, max_length=3)
 
 
+# Closed list of everyday symptom terms. A model may label a symptom with one of these so that "my head is paining"
+# and "sir dard" both read as "headache"; it can never write a term of its own. Not a coded clinical vocabulary.
+SYMPTOM_TERMS: tuple[str, ...] = (
+    "fever", "headache", "cough", "cold", "sore throat", "breathlessness", "chest pain", "abdominal pain", "vomiting", "nausea", "diarrhoea",
+    "constipation", "body ache", "joint pain", "back pain", "weakness", "dizziness", "fainting", "seizure", "rash", "itching", "swelling",
+    "bleeding", "burning urination", "loss of appetite", "weight loss", "ear pain", "eye pain", "toothache", "reduced fetal movement",
+)
+SymptomTerm = Literal[SYMPTOM_TERMS]  # type: ignore[valid-type]
+DurationUnit = Literal["hour", "day", "week", "month", "year"]
+
+
 class Symptom(_M):
+    """`name` is the patient's own words (checked against the quote). `term`, `duration*` are optional and default to
+    null so rows and fixtures written before schema .2 still validate; the provider schema still requires every key."""
+
     name: str = Field(min_length=1, max_length=80)
     negated: bool
     evidence: list[Evidence] = Field(min_length=1, max_length=3)
+    term: SymptomTerm | None = None
+    duration: str | None = Field(default=None, min_length=1, max_length=40)  # the words said for THIS symptom's duration
+    duration_amount: float | None = Field(default=None, gt=0, le=1000)
+    duration_unit: DurationUnit | None = None
 
 
 class Medication(_M):

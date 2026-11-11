@@ -7,7 +7,7 @@ import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { InterviewPanel } from "@/components/InterviewPanel";
 import { SourceTag } from "@/components/Provenance";
 import { Button, Card, Field, Notice, Spinner, inputClass } from "@/components/ui";
-import { buildCorrection, correctionKindOf, initialCorrection, type CorrectionField, type CorrectionForm, type CorrectionKind } from "@/lib/aiCorrection";
+import { DURATION_UNITS, buildCorrection, correctionKindOf, initialCorrection, symptomWords, type CorrectionField, type CorrectionForm, type CorrectionKind } from "@/lib/aiCorrection";
 import { ApiError, api } from "@/lib/api";
 import { readNotes, writeNotes } from "@/lib/intakeStore";
 import { hrefFor } from "@/lib/steps";
@@ -41,7 +41,7 @@ type AiField = {
   evidence: { quote?: string }[];
   needs_review: boolean;
   priority_review: boolean;
-  review: { event_id: string; outcome: string; corrected?: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown } | null } | null;
+  review: { event_id: string; outcome: string; corrected?: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown; duration_amount?: unknown; duration_unit?: unknown } | null } | null;
 };
 
 function show(v: unknown): string {
@@ -49,14 +49,15 @@ function show(v: unknown): string {
   if (typeof v !== "object") return String(v);
   const o = v as Record<string, unknown>;
   if ("flag" in o) return `${String(o.flag).replaceAll("_", " ")}${o.negated ? " (denied)" : ""}`;
-  if ("name" in o && "negated" in o) return `${o.negated ? "denies " : ""}${o.name}`;
+  if ("name" in o && "negated" in o) return symptomWords(o);
   if ("name" in o) return [o.name, o.dose, o.frequency].filter(Boolean).join(" ");
   if ("value" in o) return `${o.value}${o.value2 != null ? `/${o.value2}` : ""}${o.unit ? ` ${o.unit}` : ""}`;
   return JSON.stringify(v);
 }
 
-function correctedText(c: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown }): string {
-  if (typeof c.negated === "boolean" && c.value == null) return c.negated ? "denies it" : "has it";
+function correctedText(c: { value?: unknown; value2?: unknown; unit?: unknown; negated?: unknown; duration_amount?: unknown; duration_unit?: unknown }): string {
+  if (typeof c.negated === "boolean" && c.value == null)
+    return c.negated ? "denies it" : `has it${typeof c.duration_amount === "number" ? `, for ${c.duration_amount} ${String(c.duration_unit)}${c.duration_amount === 1 ? "" : "s"}` : ""}`;
   return [c.value != null ? `${c.value}${c.value2 != null ? `/${c.value2}` : ""}` : null, typeof c.unit === "string" ? c.unit : null].filter(Boolean).join(" ");
 }
 
@@ -258,6 +259,19 @@ function CorrectionEditor({ field, kind, busy, onCancel, onSave }: { field: AiFi
               </label>
             ))}
           </fieldset>
+        )}
+        {kind === "symptom" && form.negated === "present" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field id={`${id}-dur`} label="How long has this symptom been there? (optional)" hint="A number, for example 2. Leave both empty if the patient is not sure." error={errors.durationAmount}>
+              <input id={`${id}-dur`} className={inputClass} inputMode="decimal" value={form.durationAmount ?? ""} maxLength={6} onChange={(e) => set("durationAmount", e.target.value)} aria-invalid={errors.durationAmount ? true : undefined} aria-describedby={`${id}-dur-hint${errors.durationAmount ? ` ${id}-dur-error` : ""}`} />
+            </Field>
+            <Field id={`${id}-dur-unit`} label="Unit" error={errors.durationUnit}>
+              <select id={`${id}-dur-unit`} className={inputClass} value={form.durationUnit ?? ""} onChange={(e) => set("durationUnit", e.target.value)} aria-invalid={errors.durationUnit ? true : undefined}>
+                <option value="">Choose…</option>
+                {DURATION_UNITS.map((u) => <option key={u} value={u}>{u}s</option>)}
+              </select>
+            </Field>
+          </div>
         )}
       </div>
       {serverError && (

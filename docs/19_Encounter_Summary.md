@@ -176,6 +176,16 @@ Plan and record: [`plans/summary-note-all-sources.md`](plans/summary-note-all-so
 - **Image text source:** each image row records which backend and model wrote the description. Canned text from the fake backend is labelled "DEMO TEXT" in the note and on screen.
 - **Limits:** the unit tests and the corpus use a stubbed image backend and synthetic data. The real engines were run separately (docs/18 §8.2). Handwritten free-text notes are still not read (owner decision D3: a later phase).
 
+## 11. Schema `.5`: each symptom with its own duration (2026-11-12)
+
+Plan and record: [`plans/clinical-note-v2-plan.md`](plans/clinical-note-v2-plan.md) §10.
+
+- A symptom is shown by its closed-list term when the extraction gave one; the words the patient used stay in the value ("headache (said: head is paining)").
+- A symptom's own duration is a timeline fact keyed `duration:<symptom>`, written as "Headache for 2 hours (as reported)."
+- Durations are compared per key, so two symptoms with different durations are not a conflict; one symptom with two different durations is.
+- A visit-level duration that agrees with a symptom's own is written once: as the visit-level sentence when that one is better checked, otherwise as the symptom's sentence.
+- The interview's duration answer conflicts only when it matches none of the recorded durations.
+
 ## 9. Limits and items needing human review
 
 - **Privacy change R11 needs a privacy reviewer's sign-off.**
