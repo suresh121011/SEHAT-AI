@@ -157,7 +157,7 @@ const LINE_CLASS: Record<NoteLine["kind"], string> = {
 };
 
 /** The whole summary as one note, in a fixed clinical order. Every line is the server's text; nothing is composed here. */
-function NoteDocument({ s, reviewText, stale }: { s: EncounterSummary; reviewText: string; stale: boolean }) {
+export function NoteDocument({ s, reviewText, stale }: { s: EncounterSummary; reviewText: string; stale: boolean }) {
   const sections = noteSections(s);
   const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
   if (!sections.length) return null;

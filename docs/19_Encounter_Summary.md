@@ -90,7 +90,7 @@ Migration step 13 adds `encounter_summaries` and `encounter_summary_review_event
 
 ## 5. Reviewer screen (`frontend/src/components/review/EncounterSummaryPanel.tsx`)
 
-- **Placement:** in the case workspace, between "Why the rules gave X" and the recorded input.
+- **Placement:** in the case workspace, between "Why the rules gave X" and the recorded input. Since 2026-11-12 the note is also built and shown read-only on the health worker's final intake step when triage is submitted (`VisitNote`; plan §11).
 - **Page order:**
   1. "Needs attention before relying on this summary": unavailable sources, conflicts, missing danger signs, no triage run or triage older than the evidence (with a plain action), withheld sentences, and items waiting for a check.
   2. The **rules engine's urgency**, kept apart from the drafted text.

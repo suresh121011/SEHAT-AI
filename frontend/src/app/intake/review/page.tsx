@@ -7,6 +7,7 @@ import { CaseNotFound, IntakeShell } from "@/components/IntakeShell";
 import { SourceTag, roleWords, type SourceKind } from "@/components/Provenance";
 import { Button, ButtonLink, Card, Field, Notice, Spinner, inputClass } from "@/components/ui";
 import { type Counterfactuals, type TriageResult, UrgencyResult } from "@/components/UrgencyResult";
+import { VisitNote } from "@/components/review/VisitNote";
 import { ApiError, api } from "@/lib/api";
 import { labelOf } from "@/lib/bodyMap";
 import { clearNotes, readNotes, type LocalNotes } from "@/lib/intakeStore";
@@ -283,6 +284,7 @@ function ReviewScreen() {
           The result below was saved to this case. Notes kept on this device (body map, follow-up answers) were cleared.
         </Notice>
         <UrgencyResult result={result.result} counterfactuals={cf} />
+        <VisitNote caseId={caseId!} triageRunId={result.run_id} />
         <Card>
           <h2 className="text-xl font-bold">Values the rules used</h2>
           {summaryList}

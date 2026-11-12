@@ -164,6 +164,28 @@ def main() -> int:
               and got["severity"] is None)
         page.screenshot(path=str(OUT / f"e2e_{MODE}_1_interview.png"), full_page=True)
 
+        # ── 1b. Final review step: the note appears when triage is submitted, read-only ──────────────────────────
+        page.goto(f"{FE}/intake/review?case={cid}")
+        page.locator("#f-age_years").wait_for(timeout=30000)
+        page.locator("#f-age_years").fill("40")
+        page.get_by_label("I asked about every sign above with the patient").check()
+        page.get_by_role("button", name="Continue to final check").click()
+        page.get_by_role("button", name="Submit for triage").click()
+        page.get_by_role("heading", name="Summary note for the medical officer").wait_for(timeout=60000)
+        page.locator("#encounter-note").wait_for(timeout=60000)
+        final = page.locator("#encounter-note").inner_text()
+        check("final step: the summary note is built when triage is submitted, without a button press",
+              "Fever for 2 days" in final and "Headache for 2 hours" in final and "dry cough, worse at night" in final and "urgency (rules engine)" in final.lower())
+        items = page.get_by_test_id("visit-note-open-items").inner_text()
+        check("final step: what still needs a person is listed above the note", "not yet checked by a person" in items and "not recorded" in items, items.replace("\n", " | ")[:200])
+        check("final step: the note is read-only for the health worker (no accept, no sign-off)",
+              page.get_by_role("button", name="Accept summary").count() == 0 and page.get_by_role("button", name="Needs changes").count() == 0
+              and page.get_by_role("button", name="Sign off", exact=False).count() == 0)
+        stored = page.request.get(api(f"cases/{cid}/encounter-summary")).json()
+        check("final step: the summary is stored for the medical officer and is not yet reviewed", stored.get("summary") is not None
+              and stored["review"]["status"] == "draft_pending_review" and stored["is_stale"] is False)
+        page.screenshot(path=str(OUT / f"e2e_{MODE}_1b_final_step_note.png"), full_page=True)
+
         # ── 2. Uploads through the API (the engines run on the server) ───────────────────────────────────────────
         def upload(doc_type: str, name: str, data: bytes, mime: str):
             return page.request.post(api("intake/document"), multipart={"case_id": cid, "document_type": doc_type, "idempotency_key": str(uuid.uuid4()),
@@ -214,6 +236,13 @@ def main() -> int:
             check("flagged image: sign-off is refused while the flag is not reviewed", so.status == 409 and so.json()["error"]["code"] == "IMAGE_FINDINGS_NOT_REVIEWED", str(so.status))
         page.goto(f"{FE}/dashboard?case={cid}")
         page.locator("#encounter-note").wait_for(timeout=60000)
+        # The note was built on the health worker's final step; the uploads above came after it. The doctor's screen
+        # must say so and must not rebuild by itself.
+        page.get_by_text("Out of date").first.wait_for(timeout=30000)
+        check("summary: evidence added after the final step shows the stored note as out of date, not silently rebuilt",
+              "image on file" not in page.locator("#encounter-note").inner_text().lower())
+        page.get_by_role("button", name="Refresh summary").click()
+        page.get_by_text("Image on file").first.wait_for(timeout=60000)
         note = page.locator("#encounter-note").inner_text()
         low = note.lower()
         check("summary: built on open, with interview answers as a table section", "interview answers" in low and "dry cough, worse at night" in note and "1-3 days" in note)
