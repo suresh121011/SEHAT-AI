@@ -878,11 +878,42 @@ REFERRAL_STATEMENTS: tuple[str, ...] = (
     *_append_only("referral_events"),
 )
 
+# ── Step 20: the fenced clinical assistant (docs/24). Additive only. One row per answer, never changed: the question id
+# (a closed list), the tools called and refused, the kept sentences with their citations, the dropped sentences' reasons
+# and citations only (never their text), token counts, the model and prompt version, and the consent sequence. ──────
+ASSISTANT_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE assistant_runs (
+    seq                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id             TEXT NOT NULL UNIQUE,
+    case_id            TEXT NOT NULL REFERENCES cases(case_id),
+    question_id        TEXT NOT NULL CHECK (question_id IN ('summary', 'check_first', 'missing', 'changed')),
+    status             TEXT NOT NULL CHECK (status IN ('answered', 'unparseable', 'tool_limit')),
+    model              TEXT NOT NULL,
+    prompt_version     TEXT NOT NULL,
+    gate_version       TEXT NOT NULL,
+    inventory_sha256   TEXT NOT NULL,
+    summary_basis      TEXT REFERENCES encounter_summaries(summary_id),
+    tools_json         TEXT NOT NULL,
+    answer_json        TEXT NOT NULL,
+    sentences_kept     INTEGER NOT NULL CHECK (sentences_kept BETWEEN 0 AND 6),
+    sentences_dropped  INTEGER NOT NULL CHECK (sentences_dropped >= 0),
+    prompt_tokens      INTEGER CHECK (prompt_tokens IS NULL OR prompt_tokens >= 0),
+    completion_tokens  INTEGER CHECK (completion_tokens IS NULL OR completion_tokens >= 0),
+    consent_seq        INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id           TEXT NOT NULL,
+    actor_role         TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    CHECK (status = 'answered' OR sentences_kept = 0)
+)""",
+    "CREATE INDEX idx_assistant_runs_case ON assistant_runs(case_id, question_id, seq)",
+    *_append_only("assistant_runs"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
                                            KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS,
                                            SESSION_STATEMENTS, PATIENT_IDENTITY_STATEMENTS,
-                                           RATE_LIMIT_STATEMENTS, INTERVIEW_STATEMENTS, REFERRAL_STATEMENTS)
+                                           RATE_LIMIT_STATEMENTS, INTERVIEW_STATEMENTS, REFERRAL_STATEMENTS, ASSISTANT_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

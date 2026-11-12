@@ -80,7 +80,8 @@ WITHHELD. Those two states exist for a working copy and for a passage changed af
 `backend/app/evidence/index.py` builds an in-memory SQLite FTS5 table (BM25 ranking) from each passage's location,
 the source's citation, the rules' wording and the passage text. It accepts **one word from a closed vocabulary** (the
 words of the rules' wording and the locations); free text, and above all a patient's words, is refused. No embedding
-model, no vector store, no network. No route uses it yet: it is for the assistant's read-only evidence tool (Phase 5).
+model, no vector store, no network. No route uses it yet. The Phase 5 assistant (`docs/24`) does not use it either: an evidence tool waits until passages
+have checked text.
 It indexes every entry whatever its gate state and returns passage ids only, so Phase 5 must pass every hit through
 `gate.view` before anything is shown or given to the assistant, with a test.
 

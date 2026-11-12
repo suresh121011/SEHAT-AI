@@ -76,6 +76,12 @@ REQUIRED_MODULES: tuple[str, ...] = (
     # protocol evidence (docs/23): every fired rule has a corpus entry from its own source, the gate shows a passage
     # only when its hash, licence and review allow it, the index takes rule vocabulary only, the rules never import it
     "tests.evidence.test_evidence",
+    # the fenced clinical assistant (docs/24): the answer gate, the closed question list, tools only from the question's
+    # list, limits, the privacy gateway path, append-only runs, ids-only audit, who may call a chat model, the fence corpus
+    "tests.assistant.test_assistant_gate",
+    "tests.assistant.test_assistant",
+    "tests.assistant.test_assistant_boundary",
+    "tests.assistant.test_assistant_eval",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -90,7 +96,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1774 -> 1800 on 2026-11-13 (main 10f8827 after the referral PR expects 1783; this change adds 26 lab-timeline tests, so 1809 are expected)
 #   1800 -> 1828 on 2026-11-13 (main ab0096f after the lab-timeline PR expects 1809; this change adds 23 protocol-evidence
 #            tests and 5 agent-harness cases for the newly protected evidence files, so 1837 are expected)
-MIN_EXECUTED = 1828
+#   1828 -> 1962 on 2026-11-13 (main bbb6aa7 after the protocol-evidence PR expects 1837; this change adds 134 assistant tests,
+#            so 1971 are expected)
+MIN_EXECUTED = 1962
 
 
 def _module(classname: str) -> str:

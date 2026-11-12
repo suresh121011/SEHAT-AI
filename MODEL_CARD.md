@@ -90,10 +90,19 @@ One procedurally drawn picture (ellipses and arcs, not a radiograph): **describe
 fields: clear") **with self-reported confidence 0.95**. First call 15.2 s, warm call 7.5 s. This is why image output is
 a description for a clinician, confidence is shown only as a label, and acknowledgement is required before sign-off.
 
+### Clinical assistant fence (scripted model; mock mode), 2026-11-13 (`docs/24` §7)
+
+The full assistant on one synthetic visit, with scripted model replies through Semantic Kernel's real function-calling
+loop (11 runs, all four questions): supported sentences kept 7/7 (compared exactly); unsafe or unsupported sentences dropped
+33/33, each for the expected reason 33/33; tool calls outside the question's list refused 3/3; tool calls run all on the list
+18/18.
+This measures the fence, not the model: it says nothing about how often `gpt-4.1-mini` writes a useful answer.
+
 ### Not yet measured
 
-Real documents (OCR), native Hindi and Odia speech, translation quality, and any performance difference across
-language, age, sex or literacy. No component has been compared with clinicians.
+Real documents (OCR), native Hindi and Odia speech, translation quality, the clinical assistant on the real Azure
+model, and any performance difference across language, age, sex or literacy. No component has been compared with
+clinicians.
 
 ## Known failure modes
 

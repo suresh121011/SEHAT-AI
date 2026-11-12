@@ -9,6 +9,7 @@ import { Icon } from "@/components/Icon";
 import { ProvenanceBadge, StatusPill, URGENCY_MEANING, UrgencyBadge } from "@/components/review/Badges";
 import { AcknowledgeButton, CorrectVitalsDialog, OverrideDialog, SignOffDialog, type ActionDone } from "@/components/review/ReviewActions";
 import { EncounterSummaryPanel } from "@/components/review/EncounterSummaryPanel";
+import { AssistantPanel } from "@/components/review/AssistantPanel";
 import { LabTimelinePanel } from "@/components/review/LabTimelinePanel";
 import { ProtocolEvidencePanel } from "@/components/review/ProtocolEvidencePanel";
 import { ReferralPanel } from "@/components/review/ReferralPanel";
@@ -234,6 +235,9 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
       {review.clinical_content_available && review.can_review && <PatientCodeCard caseId={c.case_id} canIssue={false} visitHref={(id) => `/dashboard?case=${encodeURIComponent(id)}`} />}
 
       {review.clinical_content_available && review.can_review && <EncounterSummaryPanel caseId={c.case_id} canReview={review.can_review} />}
+
+      {/* The fenced assistant (docs/24): a medical officer only, as the route; keyed by case so it starts fresh for another visit. */}
+      {review.clinical_content_available && review.can_review && <AssistantPanel key={`assistant:${c.case_id}`} caseId={c.case_id} />}
 
       {review.clinical_content_available && review.can_review && <LabTimelinePanel key={c.case_id} caseId={c.case_id} />}
 

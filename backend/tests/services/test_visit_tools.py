@@ -30,7 +30,7 @@ APP = Path(__file__).resolve().parents[2] / "app"
 MO = Principal(user_id=demo_user_id("mo_demo"), username="mo_demo", role=Role.MEDICAL_OFFICER)
 ANM = Principal(user_id=demo_user_id("anm_demo"), username="anm_demo", role=Role.ANM)
 TOOLS = ("get_visit_facts", "list_missing_information", "list_conflicts", "list_waiting_for_check", "get_urgency_record",
-         "suggest_follow_up_questions")
+         "suggest_follow_up_questions", "list_changes_since_last_summary")
 
 
 async def _call(principal, case_id, name):
@@ -65,7 +65,7 @@ def _counts():
 # ── shape: six tools, none takes a parameter ───────────────────────────────────────────────────────────────────────
 
 
-def test_six_tools_are_registered_on_the_kernel_and_none_takes_a_parameter():
+def test_seven_tools_are_registered_on_the_kernel_and_none_takes_a_parameter():
     from app.services.kernel import build_kernel
 
     kernel = build_kernel(get_settings())
@@ -86,7 +86,9 @@ def test_the_tools_answer_from_this_visits_record(visit):
     by_value = {f["value"]: f for f in facts}
     assert by_value["fever"]["check"] == "not yet checked" and by_value["fever"]["section"] == "symptoms"
     assert "Fever for 2 days" in {f["value"] for f in facts if f["section"] == "timeline"} or by_value.get("2 days")
-    assert all(set(f) == {"id", "section", "label", "value", "check", "flags"} for f in facts)
+    assert all(set(f) - {"tag"} == {"id", "section", "label", "value", "check", "flags"} for f in facts)
+    # an unchecked value carries the tag a sentence must repeat after it (docs/24 §3); a checked one has none
+    assert all(("tag" in f) == (f["check"] == "not yet checked") for f in facts) and by_value["fever"]["tag"] == " [not yet checked]"
 
     urgency = call(MO, case_id, "get_urgency_record")
     assert urgency["urgency"] in ("RED", "YELLOW", "GREEN") and urgency["source"] == "rules engine"
@@ -203,7 +205,7 @@ def test_tools_called_at_the_same_time_all_answer(visit):
             await conn.close()
 
     outs = asyncio.run(go())
-    assert len(outs) == 12 and all(isinstance(json.loads(o), dict) for o in outs)
+    assert len(outs) == 2 * len(TOOLS) and all(isinstance(json.loads(o), dict) for o in outs)
 
 
 def test_the_kernel_invokes_a_tool_for_the_bound_visit_only(visit):

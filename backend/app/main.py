@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
 from app import security_events
-from app.routes import ai, audit, auth, cases, evidence, health, interview, lab_timeline, ocr, patient_identity, patients, referral_notes, review, triage, voice
+from app.routes import ai, assistant, audit, auth, cases, evidence, health, interview, lab_timeline, ocr, patient_identity, patients, referral_notes, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -149,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(referral_notes.router, prefix=API_PREFIX)  # referral closure tracking (docs/21)
     app.include_router(lab_timeline.router, prefix=API_PREFIX)  # lab timeline across reports and linked visits (docs/22)
     app.include_router(evidence.router, prefix=API_PREFIX)  # protocol evidence behind fired rules (docs/23)
+    app.include_router(assistant.router, prefix=API_PREFIX)  # the fenced clinical assistant (docs/24)
     return app
 
 
