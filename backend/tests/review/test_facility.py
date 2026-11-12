@@ -141,6 +141,9 @@ def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]
         ("GET", f"/cases/{cid}/referrals/{oid}/letter", None),
         ("GET", f"/cases/{cid}/referrals/{oid}/fhir", None),
         ("GET", f"/cases/{cid}/lab-timeline", None),  # lab timeline (docs/22)
+        # the fenced clinical assistant (docs/24)
+        ("GET", f"/cases/{cid}/assistant", None),
+        ("POST", f"/cases/{cid}/assistant/answers", {"question_id": "summary"}),
     ]
 
 

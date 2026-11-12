@@ -1,6 +1,6 @@
 # Semantic Kernel orchestration and the clinical assistant: findings and plan
 
-> 2026-11-12. Base: `main` `ed64e64`. **Status: owner approved K1–K6 as recommended on 2026-11-12 (K5 withdrawn, see §4). Step 1 merged (PR #22, §11). Step 2 built on branch `feat/sk-visit-tools` (§12). Azure works since the owner's settings change on 2026-11-12 (§3).**
+> 2026-11-12. Base: `main` `ed64e64`. **Status: owner approved K1–K6 as recommended on 2026-11-12 (K5 withdrawn, see §4). Step 1 merged (PR #22, §11). Step 2 merged (PR #23, §12). Steps 3–6 built in Phase 5 on branch `feat/sk-assistant` (§13; `docs/24`), verified with a scripted model; the real-Azure run is pending. Azure works since the owner's settings change on 2026-11-12 (§3).**
 > Research prototype, non-diagnostic. The rules engine stays the only urgency authority. A named human signs off.
 
 ## 1. What was asked
@@ -249,3 +249,54 @@ Also needed: the hackathon date and the organisers' judging sheet.
 | Scratch app in Chrome with Azure extraction | "My stomach is hurting since 3 days and I have fever since 1 day. I do not have vomiting." gave abdominal pain 3 days, fever 1 day, vomiting denied (each agreed 3 of 3); after triage the note on the final step and on the doctor's screen showed them with the body map; no console errors |
 
 **Not in this step:** the model's answer is not gated or shown anywhere yet (steps 3 and 4). Seen in the smoke run: the model also cited non-fact labels such as "[missing item: Chief complaint]", and wrote "yellow" from the urgency record. The gate in step 4 must decide how such citations and quoted urgency are handled.
+
+## 13. Steps 3–6 record: the fenced assistant (2026-11-13; `docs/24`)
+
+**Built**
+
+- `app/assistant/`:
+  - the closed question list (four buttons);
+  - the answer gate;
+  - the fixed prompt and JSON answer shape;
+  - the service, which runs through `gateway.submit_structured`.
+- `routes/assistant.py`: two routes, medical officer only.
+- `assistant_runs`: schema step 20, append-only.
+- The `assistant_answered` audit event.
+- The Assistant panel on the case screen.
+- Step 3, the readable draft: the "Summarise" question as a fixed sequence (the server fetches the facts; no tool
+  choosing).
+- Step 4, the assistant: the other three questions use function calling, limited to the question's own tools.
+- Step 5: the screen.
+- Step 6: the mock fence evaluation.
+- **The tools:** `visit_tools.py` gains a seventh tool, `list_changes_since_last_summary`. It also gains a citable id on
+  every item, the unchecked tag on facts, and a record of what was returned to the model.
+
+**Decisions taken in building (the plan left them open)**
+
+- **Quoted urgency (§12, "Not in this step").** Any sentence with an urgency word is dropped, even a correct quote. The
+  screen shows the rules engine's result beside the answer.
+- **Citations of non-fact labels.** Missing items, conflicts, pending checks, questions and changes now have ids. A
+  sentence may cite them, but only if a tool returned them in that run. Its numbers must come from them.
+- **The boundary test.** `tests/privacy/test_boundary.py` was not changed. The assistant calls the chat service; Semantic
+  Kernel invokes the tools. A new test, `tests/assistant/test_assistant_boundary.py`, names the only three modules that
+  may call a chat model. It also requires the assistant's call to sit inside the gateway's run.
+- **Reuse.** An answer is stored and reused while the record, the last summary, the model and the prompt are unchanged.
+  This keeps cost down.
+
+**Not done**
+
+- The readable draft on the local model (step 3's "and on the local model when Azure is off").
+- A real-Azure run on synthetic visits, reported with denominators (step 6, second half). It needs the owner's Azure
+  settings.
+
+**Safety review (2026-11-13): BLOCK, then fixed.** The review-only agent found three blocking gaps in the answer gate:
+- numbers and fact checks could be bypassed through non-fact citations;
+- polarity was checked only for "reported/denied at intake" sentences;
+- the word lists missed judgement, reassurance and diagnostic words.
+
+All are fixed with tests (`docs/24` §9), as are its warnings: refused tool names, runaway replies, and identifier
+checks on tool output. A second round (BLOCK, fixed) tightened three things: polarity to strict forms, brackets to the exact unchecked tags,
+and treatment, medicine and disposition wording to a list of its own (`docs/24` §9). A third round (BLOCK, fixed) added the naming check (nothing named that is not cited, against a server-side list of
+what the record names) and dropped invisible or look-alike characters. A fourth round (BLOCK, fixed) gave non-fact items fixed sentence forms and limited check-state words to facts a
+person checked; the prompt now teaches the forms. The fifth round passed (no structural bypass left).
+

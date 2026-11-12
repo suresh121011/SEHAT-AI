@@ -81,6 +81,7 @@ AuditAction = Literal[
     "referral_created",
     "referral_status_recorded",
     "referral_exported",
+    "assistant_answered",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -457,6 +458,20 @@ class ReferralStatusDetails(_Details):
 class ReferralExportedDetails(_Details):
     referral_id: str
     format: Literal["fhir_r4"]
+
+
+class AssistantAnsweredDetails(_Details):
+    """The fenced clinical assistant (docs/24): ids and counts only. The answer text stays in assistant_runs; supervisors
+    read this log and see metadata only (docs/11)."""
+
+    run_id: str
+    question_id: Literal["summary", "check_first", "missing", "changed"]
+    status: Literal["answered", "unparseable", "tool_limit"]
+    tool_calls: int = Field(ge=0, le=64)
+    refused_calls: int = Field(ge=0, le=64)
+    sentences_kept: int = Field(ge=0, le=6)
+    sentences_dropped: int = Field(ge=0, le=64)
+    reused: bool
 
 
 def _canonical(payload: dict) -> str:

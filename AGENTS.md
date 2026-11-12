@@ -37,6 +37,7 @@ All project documentation lives in `docs/`:
 | [`docs/21_Referral_Closure_Tracking.md`](docs/21_Referral_Closure_Tracking.md) | Referral closure tracking (Phase 2): signed-off referral packet, append-only forward-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export, supervisor metadata only, limits |
 | [`docs/22_Lab_Timeline.md`](docs/22_Lab_Timeline.md) | Lab timeline (Phase 3): checked values across reports and linked visits, day-first report dates, higher/lower/same only when comparable, named gaps, no urgency, limits |
 | [`docs/23_Protocol_Evidence.md`](docs/23_Protocol_Evidence.md) | Protocol evidence (Phase 4): the cited source and curated passage behind each fired rule, looked up by rule id; evidence gate (hash, source, licence, thresholds, named reviewer); locations only until passages are checked; closed-vocabulary search; no urgency, limits |
+| [`docs/24_Clinical_Assistant.md`](docs/24_Clinical_Assistant.md) | The fenced clinical assistant (Phase 5): four fixed questions, read-only visit tools, Semantic Kernel function calling limited per question, through the privacy gateway, answer gate (citations, numbers, tags, no urgency, guards), append-only runs, ids-only audit, reuse, mock evaluation, limits |
 
 ## Agent Rules
 
@@ -72,6 +73,7 @@ All project documentation lives in `docs/`:
 | `backend/app/ocr/` | OCR engines and worker client, Gödel verification, RxNorm, sourced reference ranges, medical image descriptions |
 | `backend/app/voice/`, `backend/app/interview/` | VAD, speech engines, read-back; the scripted voice interviewer |
 | `backend/app/services/` | Semantic Kernel factory and the read-only visit tools for the assistant |
+| `backend/app/assistant/` | The fenced clinical assistant: closed question list, answer gate, prompt, service through the privacy gateway (docs/24) |
 | `backend/app/routes/` | FastAPI routers; only those registered in `backend/app/main.py` are live |
 | `backend/app/*.py` | Consent, audit, auth, sessions, OIDC, rate limits, security events, review and verification queues, case triage, patient registry and identity, config |
 | `backend/tests/` | pytest suites by area; `tests/ci/` guards the CI skip gate and the agent harness |
