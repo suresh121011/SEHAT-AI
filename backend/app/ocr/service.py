@@ -1087,13 +1087,26 @@ async def reviewed(conn, principal: Principal, case_id: str, request_id=None) ->
         denial = exc
     if denial is not None:
         raise await consent.audit_denied(conn, principal, case_id, denial, request_id)
-    out = []
-    unresolved = []
     async with read_transaction(conn):
         await _consent_still_effective(conn, case_id)
-        async with conn.execute("SELECT document_id FROM ocr_documents WHERE case_id = ? AND status = 'completed' ORDER BY created_at", (case_id,)) as cur:
-            doc_ids = [r["document_id"] for r in await cur.fetchall()]
-        views = [await document_view(conn, d) for d in doc_ids]
+        views = await completed_document_views(conn, case_id)
+    out, unresolved = reviewed_items(views)
+    return {"case_id": case_id, "values": out, "unresolved": unresolved,
+            "note": "View only. Reviewed document values never change triage or urgency; enter any value on the triage form yourself if clinically relevant."}
+
+
+async def completed_document_views(conn, case_id: str) -> list[dict]:
+    """Every completed document of the case, oldest first (deleted ones come back with status 'deleted')."""
+    async with conn.execute("SELECT document_id FROM ocr_documents WHERE case_id = ? AND status = 'completed' ORDER BY created_at", (case_id,)) as cur:
+        doc_ids = [r["document_id"] for r in await cur.fetchall()]
+    return [await document_view(conn, d) for d in doc_ids]
+
+
+def reviewed_items(views: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(values a person confirmed or corrected on identity-checked documents, what is still unresolved). Shared by
+    `reviewed` and the lab timeline (app/lab_timeline), so both apply exactly the same rule."""
+    out: list[dict] = []
+    unresolved: list[dict] = []
     for doc in views:
         if doc["status"] == "deleted":
             continue
@@ -1116,8 +1129,7 @@ async def reviewed(conn, principal: Principal, case_id: str, request_id=None) ->
                            "field_id": f["field_id"], "page_index": f["page_index"], "png_sha256": f["page_png_sha256"], "regions": f["regions"],
                            "resolved_by_role": f["review"]["actor_role"] if f["review"] else None},
             })
-    return {"case_id": case_id, "values": out, "unresolved": unresolved,
-            "note": "View only. Reviewed document values never change triage or urgency; enter any value on the triage form yourself if clinically relevant."}
+    return out, unresolved
 
 
 # ── startup sweep ─────────────────────────────────────────────────────────────────────────────────

@@ -133,6 +133,7 @@ def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]
         ("POST", f"/cases/{cid}/patient/binding-code", None),
         ("GET", f"/cases/{cid}/interview", None),
         ("POST", f"/cases/{cid}/interview/answers", {"question_key": "duration", "choice": "1-3 days", "speaker": "patient", "confirm": True}),
+        ("GET", f"/cases/{cid}/lab-timeline", None),  # lab timeline (docs/22)
     ]
 
 

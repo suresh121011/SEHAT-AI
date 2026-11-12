@@ -138,7 +138,8 @@ Every change must keep these numbers or raise them. Record a new row when a phas
 | Date | Commit | Backend (local) | Backend (CI) | Frontend |
 |:---|:---|:---|:---|:---|
 | 2026-11-12 | `main` at `ba9bee5` | 1658 passed, 14 skipped, 5 xfailed | 1613 executed of 1633; skip gate ok (minimum 1604, 27 required modules) | 143 passed; TypeScript clean |
-| 2026-11-12 | `feat/governance-harness` (Phase 1) | 1787 passed, 14 skipped, 5 xfailed | 1742 expected; minimum 1733, 28 required modules | 143 passed; TypeScript and ESLint clean |
+| 2026-11-12 | `main` at `9132951` (Phase 1 merged) | 1787 passed, 14 skipped, 5 xfailed | 1742 executed; skip gate ok (minimum 1733, 28 required modules) | 143 passed; TypeScript and ESLint clean |
+| 2026-11-13 | `feat/lab-timeline` (Phase 3) | 1813 passed, 14 skipped, 5 xfailed | 1768 expected; minimum 1759, 30 required modules | 147 passed; TypeScript and ESLint clean |
 
 The 14 local skips are opt-in live tests; the 5 expected failures document known PII-scrubber misses.
 
@@ -146,9 +147,9 @@ The 14 local skips are opt-in live tests; the 5 expected failures document known
 
 | Phase | Work | Status |
 |:---|:---|:---|
-| 1 | Governance and agent harness (this set of files) | In review |
+| 1 | Governance and agent harness | Merged (PR #24) |
 | 2 | Referral note generator: consent, audit, append-only status, 48-hour overdue flag, transport and escort, print, FHIR R4 export from the reviewed record (features #26–29) | Planned |
-| 3 | Lab timeline across reports with missing, stale and changed flags; no urgency output | Planned |
+| 3 | Lab timeline across reports and linked visits with named gaps; no urgency output (`docs/22`) | In review |
 | 4 | Evidence-locked protocol retrieval: the checked source passage behind each fired rule, abstaining when none is checked (feature #40) | Planned |
 | 5 | Semantic Kernel assistant screen with closed actions and a quote gate (steps 3–7 of `docs/plans/semantic-kernel-orchestration-plan.md`) | Planned |
 | 6 | `make safety-eval`: one safety scorecard with denominators (feature #31) | Planned |

@@ -64,6 +64,10 @@ REQUIRED_MODULES: tuple[str, ...] = (
     # the agent harness (HARNESS.md): the hooks that refuse broad git operations, secrets and the shared database,
     # and ask before safety-critical files change; the settings, skills and review-only subagent that wire them
     "tests.ci.test_agent_harness",
+    # lab timeline (docs/22): checked values only, day-first report dates, higher/lower only when comparable, gaps named,
+    # linked visits only with link_visits consent, no urgency
+    "tests.lab_timeline.test_timeline_pure",
+    "tests.lab_timeline.test_timeline_api",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -74,7 +78,8 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1568 -> 1590 on 2026-11-12 (CI on main ed64e64 ran 1574; this change adds 24 tests, so 1598 are expected)
 #   1590 -> 1604 on 2026-11-12 (CI on main 62d19fe ran 1598; this change adds 15 tests, so 1613 are expected)
 #   1604 -> 1733 on 2026-11-12 (CI on main ba9bee5 ran 1613; this change adds 129 agent-harness tests, so 1742 are expected)
-MIN_EXECUTED = 1733
+#   1733 -> 1759 on 2026-11-13 (CI on main 9132951 ran 1742; this change adds 26 lab-timeline tests, so 1768 are expected)
+MIN_EXECUTED = 1759
 
 
 def _module(classname: str) -> str:
