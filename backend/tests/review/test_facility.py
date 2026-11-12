@@ -140,6 +140,7 @@ def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]
         ("POST", f"/cases/{cid}/referrals/{oid}/status", {"status": "in_transit", "expected_status": "referred", "confirm": True}),
         ("GET", f"/cases/{cid}/referrals/{oid}/letter", None),
         ("GET", f"/cases/{cid}/referrals/{oid}/fhir", None),
+        ("GET", f"/cases/{cid}/lab-timeline", None),  # lab timeline (docs/22)
     ]
 
 

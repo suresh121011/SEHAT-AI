@@ -35,6 +35,7 @@ All project documentation lives in `docs/`:
 | [`docs/19_Encounter_Summary.md`](docs/19_Encounter_Summary.md) | Clinical encounter summary: case-level, deterministic, source-linked summary from every recorded source (all extraction runs, voice read-back, documents incl. unchecked handwriting, triage vitals, reviewer status, body map); one trust vocabulary; grounding gate; staleness by source inventory; review without touching triage; root causes found; synthetic evaluation with denominators; limits |
 | [`docs/20_Agent_Harness_and_Governance_Files.md`](docs/20_Agent_Harness_and_Governance_Files.md) | What every governance and agent file contains (CLAUDE.md, AGENTS.md, SKILLS.md, HARNESS.md, GUARDRAILS.md, ETHICS.md, MODEL_CARD.md, SECURITY.md, RUNBOOK.md, `.claude/`), who reads it, why it exists and when to update it |
 | [`docs/21_Referral_Closure_Tracking.md`](docs/21_Referral_Closure_Tracking.md) | Referral closure tracking (Phase 2): signed-off referral packet, append-only forward-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export, supervisor metadata only, limits |
+| [`docs/22_Lab_Timeline.md`](docs/22_Lab_Timeline.md) | Lab timeline (Phase 3): checked values across reports and linked visits, day-first report dates, higher/lower/same only when comparable, named gaps, no urgency, limits |
 
 ## Agent Rules
 

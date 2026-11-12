@@ -69,6 +69,10 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.referral_notes.test_referral_pure",
     "tests.referral_notes.test_referral_api",
     "tests.referral_notes.test_referral_fhir",
+    # lab timeline (docs/22): checked values only, day-first report dates, higher/lower only when comparable, gaps named,
+    # linked visits only with link_visits consent, no urgency
+    "tests.lab_timeline.test_timeline_pure",
+    "tests.lab_timeline.test_timeline_api",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -80,7 +84,8 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1590 -> 1604 on 2026-11-12 (CI on main 62d19fe ran 1598; this change adds 15 tests, so 1613 are expected)
 #   1604 -> 1733 on 2026-11-12 (CI on main ba9bee5 ran 1613; this change adds 129 agent-harness tests, so 1742 are expected)
 #   1733 -> 1774 on 2026-11-13 (CI on main 9132951 ran 1742; this change adds 41 referral tests, so 1783 are expected)
-MIN_EXECUTED = 1774
+#   1774 -> 1800 on 2026-11-13 (main 10f8827 after the referral PR expects 1783; this change adds 26 lab-timeline tests, so 1809 are expected)
+MIN_EXECUTED = 1800
 
 
 def _module(classname: str) -> str:

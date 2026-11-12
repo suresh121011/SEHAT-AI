@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.errors import SafeErrorMiddleware, register_error_handlers
 from app import security_events
-from app.routes import ai, audit, auth, cases, health, interview, ocr, patient_identity, patients, referral_notes, review, triage, voice
+from app.routes import ai, audit, auth, cases, health, interview, lab_timeline, ocr, patient_identity, patients, referral_notes, review, triage, voice
 from app.services.kernel import build_kernel
 
 API_PREFIX = "/api/v1"
@@ -147,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(patient_identity.router, prefix=API_PREFIX)  # patient login ↔ patient record binding (hardening A3)
     app.include_router(interview.router, prefix=API_PREFIX)  # scripted voice interviewer (docs/plans/scripted-voice-interviewer.md)
     app.include_router(referral_notes.router, prefix=API_PREFIX)  # referral closure tracking (docs/21)
+    app.include_router(lab_timeline.router, prefix=API_PREFIX)  # lab timeline across reports and linked visits (docs/22)
     return app
 
 
