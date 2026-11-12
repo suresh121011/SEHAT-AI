@@ -88,5 +88,6 @@ logs/
 *.temp
 .cache/
 
-# ── Agent tooling (HarnessKit session logs) ─────────────────
+# ── Agent tooling (HarnessKit session logs; personal Claude Code settings) ─
 .harnesskit/
+.claude/settings.local.json

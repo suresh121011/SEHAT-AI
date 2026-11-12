@@ -34,8 +34,37 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | [`docs/09_Implementation_Todo_List.md`](docs/09_Implementation_Todo_List.md) | Granular checkbox task list for each phase |
 | [`docs/10_Safety_Rules_Engine.md`](docs/10_Safety_Rules_Engine.md) | Deterministic triage rules engine: clinical sources, decisions, tests |
 | [`docs/11_Privacy_Consent_Audit.md`](docs/11_Privacy_Consent_Audit.md) | Consent, PII redaction, AI gateway, audit log — implemented controls, threat model, limitations (demo-only) |
+| [`docs/12_Voice_Pipeline.md`](docs/12_Voice_Pipeline.md) | Voice pipeline: technology decisions, consent, read-back policy, verification status |
+| [`docs/13_Language_Review_Checklist.md`](docs/13_Language_Review_Checklist.md) | Hindi and Odia wording awaiting native-speaker and clinical review |
 | [`docs/14_OCR_Pipeline.md`](docs/14_OCR_Pipeline.md) | OCR pipeline (Phase 5): on-device Surya/PaddleOCR + Chandra, Gödel verification, RxNorm, sourced reference ranges, source-linked review |
 | [`docs/15_OCR_Evaluation_Plan.md`](docs/15_OCR_Evaluation_Plan.md) | Governed real-document OCR evaluation plan (not started; required before real patient data): governance, sampling, annotation, metrics, proposed acceptance criteria |
+| [`docs/16_LLM_Extraction_MAKER.md`](docs/16_LLM_Extraction_MAKER.md) | LLM extraction: providers, local model, NeMo Guardrails, red-flag keywords, grounding, MAKER voting, measured results |
+| [`docs/17_Reviewer_Dashboard.md`](docs/17_Reviewer_Dashboard.md) | Reviewer dashboard: rules-ordered queue, sign-off and override, RED review target |
+| [`docs/18_Medical_Image_Pipeline.md`](docs/18_Medical_Image_Pipeline.md) | Medical image descriptions (never findings): backends, gates, local MedGemma, limits |
+| [`docs/19_Encounter_Summary.md`](docs/19_Encounter_Summary.md) | Deterministic, source-linked encounter summary and its synthetic evaluation |
+| [`docs/20_Agent_Harness_and_Governance_Files.md`](docs/20_Agent_Harness_and_Governance_Files.md) | What each governance and agent file contains, who reads it and why |
+
+---
+
+## Quick start
+
+```bash
+python3.11 -m venv .venv && make setup && make doctor
+```
+
+Copy `.env.example` to `.env` and fill in your own values, then run `make dev-backend` and `make dev-frontend` in two
+terminals and open `http://127.0.0.1:3010`. `make test` runs every suite. [`RUNBOOK.md`](RUNBOOK.md) has the details.
+
+## Governance and agent files
+
+| File | Purpose |
+|:---|:---|
+| [`GUARDRAILS.md`](GUARDRAILS.md) | Every safety control: what it does, where it lives, which test pins it, its limits; built vs planned |
+| [`ETHICS.md`](ETHICS.md) | Principles, Indian and international frameworks, patient rights, what SEHAT does not claim |
+| [`MODEL_CARD.md`](MODEL_CARD.md) | Every model and engine: pin, licence, intended use, measured results with denominators, failure modes |
+| [`SECURITY.md`](SECURITY.md) | Reporting a vulnerability; controls and known limits |
+| [`RUNBOOK.md`](RUNBOOK.md) | Setup, run, test, demo, troubleshooting, test baseline, roadmap |
+| [`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md), [`SKILLS.md`](SKILLS.md), [`HARNESS.md`](HARNESS.md) | Rules, skills and enforcement for AI coding agents working in this repo |
 
 ---
 
