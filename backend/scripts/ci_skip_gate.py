@@ -73,6 +73,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
     # linked visits only with link_visits consent, no urgency
     "tests.lab_timeline.test_timeline_pure",
     "tests.lab_timeline.test_timeline_api",
+    # protocol evidence (docs/23): every fired rule has a corpus entry from its own source, the gate shows a passage
+    # only when its hash, licence and review allow it, the index takes rule vocabulary only, the rules never import it
+    "tests.evidence.test_evidence",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -85,7 +88,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1604 -> 1733 on 2026-11-12 (CI on main ba9bee5 ran 1613; this change adds 129 agent-harness tests, so 1742 are expected)
 #   1733 -> 1774 on 2026-11-13 (CI on main 9132951 ran 1742; this change adds 41 referral tests, so 1783 are expected)
 #   1774 -> 1800 on 2026-11-13 (main 10f8827 after the referral PR expects 1783; this change adds 26 lab-timeline tests, so 1809 are expected)
-MIN_EXECUTED = 1800
+#   1800 -> 1828 on 2026-11-13 (main ab0096f after the lab-timeline PR expects 1809; this change adds 23 protocol-evidence
+#            tests and 5 agent-harness cases for the newly protected evidence files, so 1837 are expected)
+MIN_EXECUTED = 1828
 
 
 def _module(classname: str) -> str:

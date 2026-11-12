@@ -111,6 +111,7 @@ ASKED_COMMANDS = [
     "echo '{}' > ../.claude/settings.json",
     "rm -rf app",
     "mv app/privacy/pii.py /tmp/",
+    "cd backend && sed -i '' 's/x/y/' app/evidence/reviewers.json",
 ]
 
 ALLOWED_COMMANDS = [  # no decision: Claude Code's normal permission flow continues
@@ -172,6 +173,10 @@ EDIT_CASES = [
     ("backend/app/rules/atp.py", ASK),
     ("/somewhere/.worktrees/x/backend/app/rules/sources.py", ASK),
     ("backend/app/ai/guard.py", ASK),
+    ("backend/app/evidence/gate.py", ASK),  # protocol evidence (docs/23): the gate, the passages, the reviewer list
+    ("backend/app/evidence/passages.jsonl", ASK),
+    ("/somewhere/.worktrees/x/backend/app/evidence/reviewers.json", ASK),
+    ("backend/app/evidence/index.py", None),
     ("backend/app/privacy/gateway.py", ASK),
     ("backend/app/consent.py", ASK),
     ("backend/app/database.py", ASK),

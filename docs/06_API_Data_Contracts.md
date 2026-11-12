@@ -94,6 +94,8 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 | PATCH | `/triage/{case_id}/sign-off` | Sign off on a triage note | medical_officer |
 | PATCH | `/triage/{case_id}/override` | Override urgency (with reason) | medical_officer |
 
+> **Protocol evidence (implemented, [docs/23](23_Protocol_Evidence.md)):** `GET /evidence/rules?ids=ATP_RED_RR,NEWS2_HIGH` (anm, medical_officer, supervisor; patients 403). Takes 1–50 rule ids only, never case or patient data, and returns for each `{rule_id, known, source: {id, citation, reference, version} | null, passages: [{passage_id, state, reasons, locator, text, reviewer, reviewed_at, message}]}` plus a `note`. `state` is `VERIFIED`, `UNCHECKED`, `LOCATOR_ONLY` or `WITHHELD`; `text` is present only for the first two. Display only: it never changes urgency.
+
 ### 2.5 Referral
 
 > **Implemented with case-scoped paths** ([`21_Referral_Closure_Tracking.md`](21_Referral_Closure_Tracking.md) §3): `GET|POST /cases/{case_id}/referrals`, `POST /cases/{case_id}/referrals/{referral_id}/status` (append-only events, not PATCH), `GET /cases/{case_id}/referrals/{referral_id}/letter`, `GET /cases/{case_id}/referrals/{referral_id}/fhir` (the FHIR R4 export of a referral), `GET /referral/active`, `GET /referral/overdue`. Supervisors receive metadata only. The table below is the original design sketch.

@@ -10,15 +10,10 @@ same files as plain Markdown. Each skill's `description` says when it applies.
 | [`sehat-run-tests`](.claude/skills/sehat-run-tests/SKILL.md) | Running the backend and frontend suites as CI does, focused runs, or comparing with the baseline | Exact commands (with the worktree venv rule), how to read skips and expected failures, and a table of focused runs |
 | [`sehat-real-app-check`](.claude/skills/sehat-real-app-check/SKILL.md) | A document, OCR, summary or patient-registry change must be confirmed in the running app | Scratch database and ports, the headless Chrome check, which screenshots to look at, known non-failures |
 | [`sehat-demo-run`](.claude/skills/sehat-demo-run/SKILL.md) | Starting, rehearsing or checking the offline demo stack | Pre-day checks, the three-terminal start, the pre-demo check, what to say honestly on stage, cleanup |
+| [`sehat-evidence-corpus`](.claude/skills/sehat-evidence-corpus/SKILL.md) | Adding, checking or changing a protocol passage in the evidence corpus, or a rule that needs its corpus entry | What must never be done (no invented quotes, no self-filled reviewer, no download without permission), the hash, licence and reviewer steps, the linter, and the app check |
 
 The subagent [`sehat-safety-reviewer`](.claude/agents/sehat-safety-reviewer.md) is not a skill: it is a review-only
 agent (no edit tools) that checks a diff against the Agent Rules and reports `PASS` or `BLOCK` with file:line evidence.
-
-## Planned
-
-| Skill | Arrives with | Why not yet |
-|---|---|---|
-| `sehat-evidence-corpus` | Phase 4 (protocol evidence retrieval) | The curated, hash-pinned passage corpus does not exist yet; a skill for it now would describe code that is not there |
 
 ## Adding a skill
 

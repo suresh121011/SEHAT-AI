@@ -36,6 +36,7 @@ All project documentation lives in `docs/`:
 | [`docs/20_Agent_Harness_and_Governance_Files.md`](docs/20_Agent_Harness_and_Governance_Files.md) | What every governance and agent file contains (CLAUDE.md, AGENTS.md, SKILLS.md, HARNESS.md, GUARDRAILS.md, ETHICS.md, MODEL_CARD.md, SECURITY.md, RUNBOOK.md, `.claude/`), who reads it, why it exists and when to update it |
 | [`docs/21_Referral_Closure_Tracking.md`](docs/21_Referral_Closure_Tracking.md) | Referral closure tracking (Phase 2): signed-off referral packet, append-only forward-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export, supervisor metadata only, limits |
 | [`docs/22_Lab_Timeline.md`](docs/22_Lab_Timeline.md) | Lab timeline (Phase 3): checked values across reports and linked visits, day-first report dates, higher/lower/same only when comparable, named gaps, no urgency, limits |
+| [`docs/23_Protocol_Evidence.md`](docs/23_Protocol_Evidence.md) | Protocol evidence (Phase 4): the cited source and curated passage behind each fired rule, looked up by rule id; evidence gate (hash, source, licence, thresholds, named reviewer); locations only until passages are checked; closed-vocabulary search; no urgency, limits |
 
 ## Agent Rules
 
@@ -133,10 +134,11 @@ For Claude Code, `.claude/settings.json` and the hooks in `.claude/hooks/` enfor
 
 The urgency rules and sources (`backend/app/rules/`), the privacy gateway and redaction (`backend/app/privacy/`), the
 output guard, NeMo rails, grounding, MAKER voting and red-flag keywords (`backend/app/ai/guard.py`, `guardrails.py`,
-`grounding.py`, `maker.py`, `redflag_keywords.py`), consent and the consent notice, audit, auth, sessions, OIDC, rate
-limits, security events, patient identity, case triage, the review queue, the database schema and triggers, config,
-the CI workflow and skip gate, the invariant tests named above, `.claude/settings.json`, `.claude/hooks/`, `AGENTS.md`
-and `CLAUDE.md`. The authoritative list is `.claude/hooks/sehat_policy.py`.
+`grounding.py`, `maker.py`, `redflag_keywords.py`), the protocol evidence gate, passages and the owner's reviewer list
+(`backend/app/evidence/gate.py`, `passages.jsonl`, `reviewers.json`), consent and the consent notice, audit, auth,
+sessions, OIDC, rate limits, security events, patient identity, case triage, the review queue, the database schema and
+triggers, config, the CI workflow and skip gate, the invariant tests named above, `.claude/settings.json`,
+`.claude/hooks/`, `AGENTS.md` and `CLAUDE.md`. The authoritative list is `.claude/hooks/sehat_policy.py`.
 
 ## Work in progress: do not touch
 

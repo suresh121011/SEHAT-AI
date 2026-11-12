@@ -23,6 +23,7 @@ Nothing marked Planned may be presented as working.
 | Named sign-off and override reasons | Review actions are append-only events bound to one triage run; an override needs a reason code ("other" needs at least 10 characters) | `backend/app/review_queue.py` | `tests/review/test_review_api.py`, `test_corrections.py` | Request rejected | Shared demo accounts cannot prove who signed (demo only) | Built |
 | RED review target | 180 s deadline computed server-side; an overdue RED is recorded once in the audit log; a lower re-run keeps RED priority | `backend/app/review_queue.py` | `tests/review/test_red_lifecycle.py` | — | **Display only: no SMS, pager or alert delivery** | Partial |
 | Referral closure tracking | A medical officer refers only from a signed-off triage; packet urgency is the rules urgency raised (never lowered) by an override; closed-list fields; append-only, forward-only status; overdue after 48 h without an update before arrival; letter and FHIR R4 export built from the signed-off run; supervisors see metadata only (docs/21) | `backend/app/referral_notes/`, `routes/referral_notes.py` | `tests/referral_notes/`, `tests/review/test_facility.py` | Wrong role 403; stale run, missing sign-off, open referral, stale or invalid status 409; consent refusal audited | **Overdue is displayed, not delivered** (no SMS); demo facility list; FHIR structure-checked, not validated | Built |
+| Protocol evidence behind fired rules | Each fired rule shows its registered source and the passage curated for that rule, looked up by rule id (never by patient text); a passage counts as checked only when its SHA-256, source, licence, threshold numbers and named reviewer all hold, the reviewer is on the owner's list and the output guard passes it, and nothing else ships; no model, no web search, no urgency (docs/23) | `backend/app/evidence/`, `routes/evidence.py`, `scripts/lint_evidence_corpus.py` | `tests/evidence/test_evidence.py` (CI fails if a shipped passage would show as unchecked or withheld, or a rule has no entry) | Changed or off-source text withheld; unknown rule `known: false`; patients 403; bad ids 400 | **No passage text yet: all 44 entries are locations only** until the sources are obtained, their licences checked and a named reviewer checks each passage; threshold check is a number match; the hash detects drift, not tampering: review, the owner's reviewer list (`reviewers.json`, empty today) and the protected-file hook are the controls | Built (locations only) |
 
 ## 2. AI and model controls
 
@@ -84,7 +85,6 @@ Nothing marked Planned may be presented as working.
 
 | Control | Phase | Why it matters |
 |:---|:---|:---|
-| Evidence-locked protocol retrieval: each fired rule shows the checked source passage, quoted word for word; abstains when no checked passage exists (feature #40, the PRD's "CRAG" layer) | 4 | Lets the clinician verify the basis of each flag |
 | Assistant screen with closed actions and a quote gate on protocol sentences | 5 | The tools exist; the screen does not |
 | `make safety-eval` scorecard with denominators (feature #31) | 6 | One reproducible safety slide |
 | HASSUM uncertainty escalation (feature #35) | None assigned | Claimed in the PRD's defence layers but **not implemented**; today grounding failures and MAKER disagreement route to a human instead |
@@ -96,6 +96,7 @@ Nothing marked Planned may be presented as working.
 
 - Synthetic data only. No clinical validation, no real-document OCR evaluation, no native-speaker review of Hindi or Odia.
 - PII redaction is heuristic; 5 misses are documented. The output guard and keyword rules are regular expressions.
+- Protocol evidence shows sources and locations only: no passage has been added and checked by a named reviewer yet.
 - The local model (Qwen3-4B, general-purpose) found 0 of 15 red flags on its own and kept 1 of 4 denied symptoms in a
   one-pass test; the keyword layer and the always-asked red-flag screen cover the first, human review the second.
 - MedGemma was overconfident on a drawing (above). Image descriptions are never findings.

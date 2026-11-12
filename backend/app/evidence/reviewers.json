@@ -1,0 +1,4 @@
+{
+  "note": "Named people who may mark a protocol passage as checked (docs/23). Only the owner adds or removes a name, each as {\"name\": \"...\", \"role\": \"...\", \"added\": \"YYYY-MM-DD\"}; agents never do (a protected file). A passage whose reviewer is not listed here is never shown as checked.",
+  "reviewers": []
+}
