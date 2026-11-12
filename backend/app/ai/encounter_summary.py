@@ -1473,6 +1473,23 @@ def _view(row, current_sha: str, reviews: list[dict]) -> dict:
 # ── Endpoints' services ──────────────────────────────────────────────────────────────────────────────────────
 
 
+async def build_current(conn: aiosqlite.Connection, case_id: str, *, ai_allowed: bool, evidence_after: str | None = None) -> EncounterSummary:
+    """The summary of the visit's records as they are now, in memory: nothing is stored or audited. The caller has
+    already checked access and consent, inside its own transaction. Used by `generate` and by the assistant's read-only
+    tools (app.services.visit_tools)."""
+    if evidence_after is None:
+        _, evidence_after = await inventory(conn, case_id)
+    async with conn.execute("SELECT scenario, facility_code, created_at FROM cases WHERE case_id = ?", (case_id,)) as cur:
+        case = await cur.fetchone()
+    async with conn.execute("SELECT action FROM patient_link_events WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
+        link = await cur.fetchone()
+    # No name, phone, address or patient code: the summary carries no direct identifier.
+    header = {"facility_code": case["facility_code"], "visit_started_at": case["created_at"], "patient_record_linked": bool(link and link["action"] == "link")}
+    b, ctx = await assemble_evidence(conn, case_id, ai_allowed=ai_allowed)
+    review = await _review_status(conn, ctx["triage_runs"][-1]["run_id"]) if ctx["triage_runs"] else None
+    return build_summary(case_id, case["scenario"], b, ctx, review, evidence_after, header)
+
+
 async def generate(conn: aiosqlite.Connection, principal: Principal, case_id: str, request_id=None) -> dict:
     await _gate(conn, principal, case_id, request_id)
     async with transaction(conn):
@@ -1485,16 +1502,7 @@ async def generate(conn: aiosqlite.Connection, principal: Principal, case_id: st
             await audit.record(conn, principal=principal, action="encounter_summary_generated", outcome="success", case_id=case_id, request_id=request_id,
                                details=_details(existing["summary_id"], s, reused=True))
             return _view(existing, sha, await _reviews(conn, existing["summary_id"]))
-        async with conn.execute("SELECT scenario, facility_code, created_at FROM cases WHERE case_id = ?", (case_id,)) as cur:
-            case = await cur.fetchone()
-        scenario = case["scenario"]
-        async with conn.execute("SELECT action FROM patient_link_events WHERE case_id = ? ORDER BY seq DESC LIMIT 1", (case_id,)) as cur:
-            link = await cur.fetchone()
-        # No name, phone, address or patient code: the summary carries no direct identifier.
-        header = {"facility_code": case["facility_code"], "visit_started_at": case["created_at"], "patient_record_linked": bool(link and link["action"] == "link")}
-        b, ctx = await assemble_evidence(conn, case_id, ai_allowed=snap.is_effective("ai_assist"))
-        review = await _review_status(conn, ctx["triage_runs"][-1]["run_id"]) if ctx["triage_runs"] else None
-        summary = build_summary(case_id, scenario, b, ctx, review, evidence_after, header)
+        summary = await build_current(conn, case_id, ai_allowed=snap.is_effective("ai_assist"), evidence_after=evidence_after)
         data = summary.model_dump(mode="json")
         summary_id, now = str(uuid.uuid4()), datetime.now(timezone.utc).isoformat(timespec="microseconds")
         await conn.execute(
