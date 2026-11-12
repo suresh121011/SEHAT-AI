@@ -133,6 +133,13 @@ def extra_case_requests(cid: str, oid: str) -> list[tuple[str, str, dict | None]
         ("POST", f"/cases/{cid}/patient/binding-code", None),
         ("GET", f"/cases/{cid}/interview", None),
         ("POST", f"/cases/{cid}/interview/answers", {"question_key": "duration", "choice": "1-3 days", "speaker": "patient", "confirm": True}),
+        # referral closure tracking (docs/21)
+        ("GET", f"/cases/{cid}/referrals", None),
+        ("POST", f"/cases/{cid}/referrals", {"triage_run_id": oid, "to_facility": "DH-BBSR-01", "reason_code": "emergency_care",
+                                              "transport_mode": "108_ambulance", "escort_required": True, "insurance_scheme": "none", "confirm": True}),
+        ("POST", f"/cases/{cid}/referrals/{oid}/status", {"status": "in_transit", "expected_status": "referred", "confirm": True}),
+        ("GET", f"/cases/{cid}/referrals/{oid}/letter", None),
+        ("GET", f"/cases/{cid}/referrals/{oid}/fhir", None),
     ]
 
 

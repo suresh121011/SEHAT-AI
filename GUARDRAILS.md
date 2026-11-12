@@ -22,6 +22,7 @@ Nothing marked Planned may be presented as working.
 | Reference ranges never set urgency | Lab values read by OCR are flagged against cited intervals for a clinician; the engine never imports this module | `backend/app/rules/reference_ranges.py` | `tests/ocr/test_safety_boundary.py` (reviewed OCR values never change urgency), `tests/ocr/test_reference_ranges.py` | — | Intervals are population references, not diagnosis | Built |
 | Named sign-off and override reasons | Review actions are append-only events bound to one triage run; an override needs a reason code ("other" needs at least 10 characters) | `backend/app/review_queue.py` | `tests/review/test_review_api.py`, `test_corrections.py` | Request rejected | Shared demo accounts cannot prove who signed (demo only) | Built |
 | RED review target | 180 s deadline computed server-side; an overdue RED is recorded once in the audit log; a lower re-run keeps RED priority | `backend/app/review_queue.py` | `tests/review/test_red_lifecycle.py` | — | **Display only: no SMS, pager or alert delivery** | Partial |
+| Referral closure tracking | A medical officer refers only from a signed-off triage; packet urgency is the rules urgency raised (never lowered) by an override; closed-list fields; append-only, forward-only status; overdue after 48 h without an update before arrival; letter and FHIR R4 export built from the signed-off run; supervisors see metadata only (docs/21) | `backend/app/referral_notes/`, `routes/referral_notes.py` | `tests/referral_notes/`, `tests/review/test_facility.py` | Wrong role 403; stale run, missing sign-off, open referral, stale or invalid status 409; consent refusal audited | **Overdue is displayed, not delivered** (no SMS); demo facility list; FHIR structure-checked, not validated | Built |
 
 ## 2. AI and model controls
 
@@ -82,7 +83,6 @@ Nothing marked Planned may be presented as working.
 
 | Control | Phase | Why it matters |
 |:---|:---|:---|
-| Referral note generator with consent, audit, append-only status, 48-hour overdue flag, FHIR R4 export from the reviewed record (features #26–29) | 2 | The current WIP router is unregistered and unsafe (any role, no consent, no audit) |
 | Lab timeline across reports with missing, stale and changed flags (no urgency output) | 3 | Brief item; WIP module only |
 | Evidence-locked protocol retrieval: each fired rule shows the checked source passage, quoted word for word; abstains when no checked passage exists (feature #40, the PRD's "CRAG" layer) | 4 | Lets the clinician verify the basis of each flag |
 | Assistant screen with closed actions and a quote gate on protocol sentences | 5 | The tools exist; the screen does not |
