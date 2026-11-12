@@ -1,6 +1,6 @@
 # Semantic Kernel orchestration and the clinical assistant: findings and plan
 
-> 2026-11-12. Base: `main` `ed64e64`. **Status: owner approved K1–K6 as recommended on 2026-11-12 (K5 withdrawn, see §4). Nothing implemented. Azure works since the owner's settings change on 2026-11-12 (§3).**
+> 2026-11-12. Base: `main` `ed64e64`. **Status: owner approved K1–K6 as recommended on 2026-11-12 (K5 withdrawn, see §4). Step 1 merged (PR #22, §11). Step 2 built on branch `feat/sk-visit-tools` (§12). Azure works since the owner's settings change on 2026-11-12 (§3).**
 > Research prototype, non-diagnostic. The rules engine stays the only urgency authority. A named human signs off.
 
 ## 1. What was asked
@@ -216,3 +216,36 @@ Also needed: the hackathon date and the organisers' judging sheet.
 - The extraction setting still points at the local Qwen model. Switching to Azure is a separate decision.
 - Semantic Kernel writes its own error log line when the startup check fails; that line can include the provider's error text. It never contains case data (the prompt is fixed).
 - The test that limits who may call a model still names only `services/kernel.py`. It changes in step 4, when the assistant is added.
+
+## 12. Step 2 record: six read-only visit tools (2026-11-12)
+
+**What changed**
+
+- `app/services/visit_tools.py`: `VisitTools`, a Semantic Kernel plugin named `visit` with six functions: `get_visit_facts`, `list_missing_information`, `list_conflicts`, `list_waiting_for_check`, `get_urgency_record`, `suggest_follow_up_questions`.
+- **Bound to one visit by the server.** The plugin is created for one case, principal and connection. No function takes a parameter, so a model cannot name another visit or pass anything in (tested on the kernel's own metadata).
+- **Checked on every call:** the visit's ANM or a medical officer, facility scope, triage consent, and AI-assistance consent (the output is meant for a model). Anyone else gets the same 404 as a missing visit; missing consent gives 403.
+- **Read-only:** a test counts every table before and after all six calls, and scans the file for write statements, audit calls, triage imports and kernel invocation.
+- **Only what may be said:** facts are those the summary may state in prose. Machine-read document values, interview answers (table only, decision I4) and values whose negation or timing is unclear are withheld, with their count. Conflicts are named with their number of sources and no values. No visit id, source id or patient token; the readable text passes the identifier check.
+- `encounter_summary.build_current` builds the summary in memory (nothing stored or audited); `generate` now uses it too.
+
+**Bug found on the real Azure model and fixed:** asked "What should I check first?", `gpt-4.1-mini` called four tools in one turn. Semantic Kernel ran them at the same time on one database connection, and two failed with "cannot start a transaction within a transaction". The tools now take turns on their connection. A test calls all six twice at once.
+
+**Checks**
+
+| Check | Result |
+|---|---|
+| Backend | 1658 passed, 14 skipped (opt-in live tests), 5 expected failures; skip gate ok, minimum 1590 → 1604, one more required module |
+| New tests | 15 |
+| Tools on the synthetic visit from the browser test | urgency YELLOW with its NEWS2 reason; facts include cough 5 days, fever 2 days and the two reviewed prescription lines; waiting: Amoxicillin, Ambroxol; missing: chief complaint, pain score; questions from the fixed bank |
+| Real Azure function calling | the model chose `get_urgency_record`, `list_missing_information`, `list_conflicts`, `get_visit_facts` (7.5 s) and answered citing fact ids |
+
+**Final check before commit (2026-11-12, your Azure, synthetic input)**
+
+| Check | Result |
+|---|---|
+| Connection check | `Azure chat: ready in 2852 ms` |
+| Extraction through Azure, nine sentences | terms 15 / 15, durations 11 / 11, denials 3 / 4, valid 9 / 9, 2.4 s each |
+| Tools with Azure function calling | the model chose four tools and answered with fact ids; no tool call failed |
+| Scratch app in Chrome with Azure extraction | "My stomach is hurting since 3 days and I have fever since 1 day. I do not have vomiting." gave abdominal pain 3 days, fever 1 day, vomiting denied (each agreed 3 of 3); after triage the note on the final step and on the doctor's screen showed them with the body map; no console errors |
+
+**Not in this step:** the model's answer is not gated or shown anywhere yet (steps 3 and 4). Seen in the smoke run: the model also cited non-fact labels such as "[missing item: Chief complaint]", and wrote "yellow" from the urgency record. The gate in step 4 must decide how such citations and quoted urgency are handled.
