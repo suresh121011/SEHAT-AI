@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   AGREEMENT_WORDS, READINESS_WORDS, acceptState, canOpenVerification, groupWithheld, verificationBase, attentionTone, documentLink, factsFor, flagWords, machineAgreed, ocrAgreement, readinessReasonWords,
-  reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, imageDescribedBy, imageFieldRows, imageNeedsReview, imageValue, noteSections, shouldAutoBuild,
+  reviewWords, sortedAttention, sourceWords, TRUST_WORDS, verifyLink, withheldReasonWords, imageDescribedBy, imageFieldRows, openItems, openItemsWords, imageNeedsReview, imageValue, noteSections, shouldAutoBuild,
   type EncounterSummary, type Fact, type SummaryView,
 } from "./encounterSummary.ts";
 
@@ -184,4 +184,24 @@ test("the note is shown only when the snapshot has one, and is built automatical
   assert.equal(shouldAutoBuild({ case_id: "c", summary: null }, true, true), false); // only once
   assert.equal(shouldAutoBuild({ case_id: "c", summary: summary() }, true, false), false);
   assert.equal(shouldAutoBuild(null, true, false), false);
+});
+
+
+// ── the note on the health worker's final step (docs/plans/clinical-note-v2-plan.md step 2) ───────────────────────
+
+test("open items are counted, danger signs first, and an empty list never claims the record is complete", () => {
+  const pending = { kind: "ai_field", ref: "r", label: "l", state: "not_yet_checked", action: "a" };
+  const miss = (key: string, danger: boolean) => ({ key, label: key, why_it_matters: "", is_danger_sign: danger, source: "intake_checklist" });
+  const s = summary({
+    pending_review: [pending, { ...pending, ref: "r2" }], conflicts: [{ key: "bp", label: "BP", fact_ids: [], values: [], action: "" }],
+    missing_information: [miss("red_flag_screen", true), miss("duration", false)],
+    attention: [{ kind: "image_flag_unacknowledged", message: "", action: "", refs: [] }],
+  });
+  const o = openItems(s);
+  assert.deepEqual(o, { waiting: 2, conflicts: 1, missing: 2, dangerMissing: 1, flaggedImages: 1, total: 6 });
+  const words = openItemsWords(o);
+  assert.match(words[0], /danger-sign item is not recorded/); // danger signs lead
+  assert.equal(words.length, 5);
+  assert.deepEqual(openItemsWords(openItems(summary())), []);
+  assert.ok(!openItemsWords(o).join(" ").match(/complete|normal/i));
 });

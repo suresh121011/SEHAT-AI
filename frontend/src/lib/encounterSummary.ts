@@ -369,3 +369,26 @@ export function groupWithheld(items: Withheld[]): Withheld[] {
   }
   return out;
 }
+
+/** What still needs a person, for the short line above the note on the health worker's final step. Counts only. */
+export type OpenItems = { waiting: number; conflicts: number; missing: number; dangerMissing: number; flaggedImages: number; total: number };
+
+export function openItems(s: EncounterSummary): OpenItems {
+  const waiting = s.pending_review.length;
+  const conflicts = s.conflicts.length;
+  const missing = s.missing_information.length;
+  const dangerMissing = s.missing_information.filter((m) => m.is_danger_sign).length;
+  const flaggedImages = s.attention.filter((a) => a.kind === "image_flag_unacknowledged").length;
+  return { waiting, conflicts, missing, dangerMissing, flaggedImages, total: waiting + conflicts + missing + flaggedImages };
+}
+
+/** Plain words for those counts. Never says "complete" or "normal": an empty list only means nothing is waiting. */
+export function openItemsWords(o: OpenItems): string[] {
+  const out: string[] = [];
+  if (o.dangerMissing) out.push(`${o.dangerMissing} danger-sign item${o.dangerMissing === 1 ? " is" : "s are"} not recorded`);
+  if (o.flaggedImages) out.push("an image flag has not been marked as reviewed");
+  if (o.conflicts) out.push(`${o.conflicts} value${o.conflicts === 1 ? "" : "s"} where sources disagree`);
+  if (o.waiting) out.push(`${o.waiting} value${o.waiting === 1 ? "" : "s"} not yet checked by a person`);
+  if (o.missing - o.dangerMissing > 0) out.push(`${o.missing - o.dangerMissing} other item${o.missing - o.dangerMissing === 1 ? "" : "s"} not recorded`);
+  return out;
+}

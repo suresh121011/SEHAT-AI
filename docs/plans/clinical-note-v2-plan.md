@@ -1,6 +1,6 @@
 # Clinical note v2: findings and plan
 
-> 2026-11-11. Base: `main` `4f7750a`. **Status: owner approved N1–N5 as recommended on 2026-11-11. Step 1 implemented on branch `feat/per-symptom-duration` (see §10). Steps 2–7 not started.**
+> 2026-11-11. Base: `main` `4f7750a`. **Status: owner approved N1–N5 as recommended on 2026-11-11. Step 1 merged (PR #20, §10). Step 2 implemented on branch `feat/summary-at-final-review` (§11). Steps 3–7 not started.**
 > Research prototype, non-diagnostic. The rules engine stays the only urgency authority. A named human signs off.
 
 ## 1. What was asked
@@ -198,3 +198,27 @@ Also needed from the owner: the hackathon date and the organisers' actual judgin
 | Typed Hindi | the same sentence, typed | **Refused: the app accepts English text only.** Hindi reaches the model only as speech, through translation. |
 
 Also seen: the model left the chief complaint empty in each run, so the note lists "Chief complaint" as missing although symptoms were found.
+
+## 11. Step 2 record: the note on the final review step (2026-11-12)
+
+**What changed**
+
+- When the health worker submits triage, the final step builds the encounter summary and shows the note under the urgency result, without a button press. It uses the existing endpoint; the visit's health worker was already allowed to build it. No backend change.
+- Above the note, a short list says what still needs a person: danger-sign items not recorded, an image flag not reviewed, values where sources disagree, values not yet checked, other items not recorded. When the list is empty the screen says that this does not mean the record is complete.
+- Read-only for the health worker: no accept, no "needs changes", no sign-off. "Copy note", "Print" and "Build again" are there.
+- A new triage run on the same screen builds the note again.
+- The medical officer's screen is unchanged.
+
+**Behaviour to know**
+
+- The note is now built earlier, at triage. Anything recorded afterwards (a document, an image, an interview answer) makes the stored note out of date. The medical officer then sees "Out of date" and presses "Refresh summary". It is still never rebuilt by itself. Before this step the medical officer's screen usually built the first note on open, so this notice will be seen more often.
+
+**Checks**
+
+| Check | Result |
+|---|---|
+| Frontend | 143 tests passed; TypeScript clean; ESLint 0 errors |
+| Backend | unchanged code; full suite rerun (see the pull request) |
+| Browser check, fake mode | 38 / 38, including: note built on submit, open items listed, read-only for the health worker, stored as a draft, shown as out of date after later uploads and refreshed by the medical officer |
+
+Not run: the real-engine mode of the browser check for this step.
