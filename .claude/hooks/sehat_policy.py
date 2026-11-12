@@ -42,6 +42,11 @@ PROTECTED_FILES: Tuple[str, ...] = (
     "backend/app/ai/grounding.py",
     "backend/app/ai/redflag_keywords.py",
     "backend/app/ai/maker.py",
+    # Protocol evidence (docs/23): what decides that a passage counts as checked, the passages, and the owner's list
+    # of named reviewers. Approved by the owner on 2026-11-13 after the Phase 4 safety review.
+    "backend/app/evidence/gate.py",
+    "backend/app/evidence/passages.jsonl",
+    "backend/app/evidence/reviewers.json",
     "backend/app/consent.py",
     "backend/app/consent_notice.py",
     "backend/app/audit.py",

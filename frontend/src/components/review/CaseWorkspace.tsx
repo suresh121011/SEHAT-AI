@@ -10,6 +10,7 @@ import { ProvenanceBadge, StatusPill, URGENCY_MEANING, UrgencyBadge } from "@/co
 import { AcknowledgeButton, CorrectVitalsDialog, OverrideDialog, SignOffDialog, type ActionDone } from "@/components/review/ReviewActions";
 import { EncounterSummaryPanel } from "@/components/review/EncounterSummaryPanel";
 import { LabTimelinePanel } from "@/components/review/LabTimelinePanel";
+import { ProtocolEvidencePanel } from "@/components/review/ProtocolEvidencePanel";
 import { ReferralPanel } from "@/components/review/ReferralPanel";
 import { PatientCodeCard } from "@/components/PatientCodeCard";
 import { Eyebrow, SectionCard } from "@/components/review/Panel";
@@ -216,6 +217,11 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
             </ul>
           )}
         </SectionCard>
+      )}
+
+      {/* Only beside "Why the rules gave …": the same rules, with their cited sources. Rule ids only, no patient data. */}
+      {result && det && result.triggered_rules.length > 0 && (
+        <ProtocolEvidencePanel key={latest.triage_run_id} ruleIds={result.triggered_rules.map((r) => r.rule_id)} />
       )}
 
       {review.clinical_content_available && review.can_review && (

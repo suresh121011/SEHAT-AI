@@ -141,6 +141,7 @@ Every change must keep these numbers or raise them. Record a new row when a phas
 | 2026-11-12 | `main` at `9132951` (Phase 1 merged) | 1787 passed, 14 skipped, 5 xfailed | 1742 executed; skip gate ok (minimum 1733, 28 required modules) | 143 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/referral-notes` (Phase 2) | 1828 passed, 14 skipped, 5 xfailed | 1783 expected; minimum 1774, 31 required modules | 150 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/lab-timeline` (Phase 3) merged with `main` `10f8827` (Phase 2) | 1854 passed, 14 skipped, 5 xfailed | 1809 expected; minimum 1800, 33 required modules | 154 passed; TypeScript and ESLint clean |
+| 2026-11-13 | `feat/protocol-evidence` (Phase 4) from `main` `ab0096f` | 1882 passed, 14 skipped, 5 xfailed | 1837 expected; minimum 1828, 34 required modules | 157 passed; TypeScript and ESLint clean |
 
 The 14 local skips are opt-in live tests; the 5 expected failures document known PII-scrubber misses.
 
@@ -150,8 +151,8 @@ The 14 local skips are opt-in live tests; the 5 expected failures document known
 |:---|:---|:---|
 | 1 | Governance and agent harness | Merged (PR #24) |
 | 2 | Referral closure tracking: signed-off referral packet, append-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export (features #26–29; `docs/21`) | Merged (PR #25) |
-| 3 | Lab timeline across reports and linked visits with named gaps; no urgency output (`docs/22`) | In review |
-| 4 | Evidence-locked protocol retrieval: the checked source passage behind each fired rule, abstaining when none is checked (feature #40) | Planned |
+| 3 | Lab timeline across reports and linked visits with named gaps; no urgency output (`docs/22`) | Merged (PR #26) |
+| 4 | Protocol evidence behind each fired rule: cited source and its location as cited now; checked passages once the sources are obtained and a named reviewer checks them (feature #40; `docs/23`) | In review |
 | 5 | Semantic Kernel assistant screen with closed actions and a quote gate (steps 3–7 of `docs/plans/semantic-kernel-orchestration-plan.md`) | Planned |
 | 6 | `make safety-eval`: one safety scorecard with denominators (feature #31) | Planned |
 | 7 | Demo hardening: seeded synthetic patient, offline rehearsals, backup recording | Planned |
