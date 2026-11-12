@@ -35,6 +35,7 @@ export const ROLE_LABEL: Record<string, string> = {
 export function sectionTitle(pathname: string): string {
   if (pathname === "/dashboard/overview") return "Overview";
   if (pathname === "/dashboard/governance") return "Governance";
+  if (pathname === "/dashboard/referrals") return "Referrals";
   if (pathname === "/dashboard") return "Review workstation";
   if (pathname.startsWith("/intake")) return "Patient intake";
   return "SEHAT AI";

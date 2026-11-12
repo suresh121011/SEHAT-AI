@@ -10,6 +10,7 @@ import { ProvenanceBadge, StatusPill, URGENCY_MEANING, UrgencyBadge } from "@/co
 import { AcknowledgeButton, CorrectVitalsDialog, OverrideDialog, SignOffDialog, type ActionDone } from "@/components/review/ReviewActions";
 import { EncounterSummaryPanel } from "@/components/review/EncounterSummaryPanel";
 import { LabTimelinePanel } from "@/components/review/LabTimelinePanel";
+import { ReferralPanel } from "@/components/review/ReferralPanel";
 import { PatientCodeCard } from "@/components/PatientCodeCard";
 import { Eyebrow, SectionCard } from "@/components/review/Panel";
 import { Button, ButtonLink, Notice } from "@/components/ui";
@@ -229,6 +230,11 @@ export function CaseWorkspace({ review, now, offsetMs, onAction, onStale, onDial
       {review.clinical_content_available && review.can_review && <EncounterSummaryPanel caseId={c.case_id} canReview={review.can_review} />}
 
       {review.clinical_content_available && review.can_review && <LabTimelinePanel key={c.case_id} caseId={c.case_id} />}
+
+      {/* Keyed by case, run and review state, so the panel starts fresh for another case or after a sign-off. */}
+      {review.clinical_content_available && review.can_review && (
+        <ReferralPanel key={`${c.case_id}:${latest.triage_run_id}:${latest.review_status}`} caseId={c.case_id} />
+      )}
 
       {review.clinical_content_available && <RecordedInput input={latest.input ?? null} provenance={latest.field_provenance} />}
 

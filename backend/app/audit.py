@@ -78,6 +78,9 @@ AuditAction = Literal[
     "access_denied",
     "patient_record_viewed",
     "interview_answer_recorded",
+    "referral_created",
+    "referral_status_recorded",
+    "referral_exported",
 ]
 Outcome = Literal["success", "denied", "failure"]
 
@@ -432,6 +435,28 @@ class EscalationDetails(_Details):
     triage_run_id: str
     deadline: str
     seconds_after_deadline: int  # negative = acknowledged before the deadline
+
+
+class ReferralCreatedDetails(_Details):
+    """Referral closure tracking (docs/21): ids, urgency and destination only. Reason, transport, insurance and outcome
+    codes stay in the referral tables: supervisors read this log and see metadata only (docs/11)."""
+
+    referral_id: str
+    triage_run_id: str
+    urgency: UrgencyLevel
+    to_facility: str = Field(pattern=r"^[A-Z0-9-]{3,32}$")
+
+
+class ReferralStatusDetails(_Details):
+    referral_id: str
+    from_status: str = Field(pattern=r"^[a-z_]{1,32}$")
+    to_status: str = Field(pattern=r"^[a-z_]{1,32}$")
+    has_detail: bool  # an outcome or barrier code was recorded (the code itself is not logged here)
+
+
+class ReferralExportedDetails(_Details):
+    referral_id: str
+    format: Literal["fhir_r4"]
 
 
 def _canonical(payload: dict) -> str:

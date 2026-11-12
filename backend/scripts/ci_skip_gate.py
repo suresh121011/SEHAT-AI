@@ -64,6 +64,11 @@ REQUIRED_MODULES: tuple[str, ...] = (
     # the agent harness (HARNESS.md): the hooks that refuse broad git operations, secrets and the shared database,
     # and ask before safety-critical files change; the settings, skills and review-only subagent that wire them
     "tests.ci.test_agent_harness",
+    # referral closure tracking (docs/21): access, consent, audit, forward-only append-only status, the overdue rule,
+    # supervisor metadata only, the letter from the signed-off run, and the FHIR R4 bundle structure
+    "tests.referral_notes.test_referral_pure",
+    "tests.referral_notes.test_referral_api",
+    "tests.referral_notes.test_referral_fhir",
     # lab timeline (docs/22): checked values only, day-first report dates, higher/lower only when comparable, gaps named,
     # linked visits only with link_visits consent, no urgency
     "tests.lab_timeline.test_timeline_pure",
@@ -78,8 +83,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1568 -> 1590 on 2026-11-12 (CI on main ed64e64 ran 1574; this change adds 24 tests, so 1598 are expected)
 #   1590 -> 1604 on 2026-11-12 (CI on main 62d19fe ran 1598; this change adds 15 tests, so 1613 are expected)
 #   1604 -> 1733 on 2026-11-12 (CI on main ba9bee5 ran 1613; this change adds 129 agent-harness tests, so 1742 are expected)
-#   1733 -> 1759 on 2026-11-13 (CI on main 9132951 ran 1742; this change adds 26 lab-timeline tests, so 1768 are expected)
-MIN_EXECUTED = 1759
+#   1733 -> 1774 on 2026-11-13 (CI on main 9132951 ran 1742; this change adds 41 referral tests, so 1783 are expected)
+#   1774 -> 1800 on 2026-11-13 (main 10f8827 after the referral PR expects 1783; this change adds 26 lab-timeline tests, so 1809 are expected)
+MIN_EXECUTED = 1800
 
 
 def _module(classname: str) -> str:

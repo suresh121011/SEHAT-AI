@@ -96,6 +96,8 @@ Unauthorized and unknown case IDs return the same `404 NOT_FOUND`.
 
 ### 2.5 Referral
 
+> **Implemented with case-scoped paths** ([`21_Referral_Closure_Tracking.md`](21_Referral_Closure_Tracking.md) §3): `GET|POST /cases/{case_id}/referrals`, `POST /cases/{case_id}/referrals/{referral_id}/status` (append-only events, not PATCH), `GET /cases/{case_id}/referrals/{referral_id}/letter`, `GET /cases/{case_id}/referrals/{referral_id}/fhir` (the FHIR R4 export of a referral), `GET /referral/active`, `GET /referral/overdue`. Supervisors receive metadata only. The table below is the original design sketch.
+
 | Method | Endpoint | Description | Roles |
 |:---:|:---|:---|:---|
 | POST | `/referral` | Create referral packet | medical_officer |
