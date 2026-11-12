@@ -57,6 +57,8 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.ai.test_encounter_eval",
     # per-symptom term and duration: grounding of a symptom's own duration, never a guessed number or a shared one
     "tests.ai.test_symptom_duration",
+    # one Azure chat factory: allow-listed host, cloud and synthetic switches, truthful connection check
+    "tests.services.test_kernel_factory",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -64,7 +66,8 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #   1520 -> 1555 on 2026-11-11 (CI on main 0b5b23b ran 1541; this change adds 20 tests that run in CI: 14 summary-source,
 #            1 corpus-shape and 5 gate tests, so 1561 are expected; the margin of 6 matches the earlier one)
 #   1555 -> 1568 on 2026-11-12 (CI on main 4f7750a ran 1560; this change adds 14 per-symptom tests, so 1574 are expected)
-MIN_EXECUTED = 1568
+#   1568 -> 1590 on 2026-11-12 (CI on main ed64e64 ran 1574; this change adds 24 tests, so 1598 are expected)
+MIN_EXECUTED = 1590
 
 
 def _module(classname: str) -> str:

@@ -1,9 +1,8 @@
 """Azure OpenAI structured provider via Semantic Kernel (docs/16 §2, §7). Config-gated: it is built only when
 AI_PROVIDER=azure and app.config has accepted AI_CLOUD_ENABLED=1, AI_CLOUD_SYNTHETIC_DATA_ONLY=1, complete
-credentials and an allowed endpoint host. It never falls back to another provider; any failure is an
-abstaining pass, and if every pass fails the request returns 502.
-
-Not exercised against a live deployment in this build (no credentials); covered by a mocked contract test.
+credentials and an allowed endpoint host. The chat service comes from the one factory in app.ai.azure_chat, which
+checks the same rules again. It never falls back to another provider; any failure is an abstaining pass, and if every
+pass fails the request returns 502.
 """
 
 import anyio
@@ -19,17 +18,15 @@ class AzureProvider(StructuredProvider):
     cloud = True
 
     def __init__(self, settings, service=None):
-        from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+        from app.ai import azure_chat as kernel
 
         self.model_id = settings.azure_openai_deployment_name
         self.timeout_s = settings.ai_timeout_s
-        self.service = service or AzureChatCompletion(
-            service_id="sehat-ai-extraction",
-            api_key=settings.azure_openai_api_key,
-            endpoint=settings.azure_openai_endpoint,
-            deployment_name=settings.azure_openai_deployment_name,
-            api_version=settings.azure_openai_api_version,
-        )
+        if service is None:
+            service = kernel.azure_chat_service(settings, "sehat-ai-extraction")
+            if service is None:  # refuse to start; never fall back
+                raise RuntimeError(f"AI_PROVIDER=azure but Azure chat is not available: {kernel.azure_unavailable_reason(settings)}")
+        self.service = service
         self.schema = {"type": "json_schema", "json_schema": {"name": "sehat_extraction", "schema": strict_json_schema(ExtractionOutput), "strict": True}}
 
     def execution_settings(self, temperature: float):

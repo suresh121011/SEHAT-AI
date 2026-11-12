@@ -468,7 +468,8 @@ class GoogleAIBackend:
 
 
 class AzureVisionBackend:
-    """Azure OpenAI vision deployment via Semantic Kernel (same construction as app.ai.azure_provider). Not exercised live."""
+    """Azure OpenAI vision deployment via Semantic Kernel; the chat service comes from the one factory in app.ai.azure_chat.
+    Not exercised live with an image."""
 
     name = "azure"
     cloud = True
@@ -481,11 +482,11 @@ class AzureVisionBackend:
 
     def _get_service(self):
         if self._service is None:
-            from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+            from app.ai import azure_chat as kernel
 
-            s = self._settings
-            self._service = AzureChatCompletion(service_id="sehat-ai-medical-image", api_key=s.azure_openai_api_key, endpoint=s.azure_openai_endpoint,
-                                                deployment_name=s.azure_openai_deployment_name, api_version=s.azure_openai_api_version)
+            self._service = kernel.azure_chat_service(self._settings, "sehat-ai-medical-image")
+            if self._service is None:  # a configuration fault, reported as a backend error; never another backend
+                raise RuntimeError(f"Azure chat is not available: {kernel.azure_unavailable_reason(self._settings)}")
         return self._service
 
     async def describe(self, image_bytes: bytes, mime: str, prompt: str, *, image_type: str) -> str:

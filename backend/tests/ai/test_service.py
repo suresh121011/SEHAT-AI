@@ -119,6 +119,18 @@ def test_azure_settings_accepted_by_env_only(env):
     assert s.ai_provider == "azure" and s.ai_cloud_enabled and s.ai_cloud_synthetic_data_only
 
 
+def test_an_azure_ai_foundry_endpoint_is_accepted_and_lookalikes_are_not(env):
+    # *.services.ai.azure.com serves the same Azure OpenAI API (allow-list widened 2026-11-12); only that exact suffix.
+    for k, v in {**AZURE_ENV, "AZURE_OPENAI_ENDPOINT": "https://sehat-demo.services.ai.azure.com/"}.items():
+        env.setenv(k, v)
+    assert get_settings().ai_provider == "azure"
+    for bad in ("https://sehat-demo.ai.azure.com/", "https://services.ai.azure.com/", "https://sehat.services.ai.azure.com.evil.io/"):
+        get_settings.cache_clear()
+        env.setenv("AZURE_OPENAI_ENDPOINT", bad)
+        with pytest.raises(RuntimeError, match="AZURE_OPENAI_ENDPOINT must be"):
+            get_settings()
+
+
 @pytest.mark.parametrize("override,message", [
     ({"AI_CLOUD_ENABLED": "0"}, "AI_CLOUD_ENABLED=1"),
     ({"AI_CLOUD_SYNTHETIC_DATA_ONLY": "0"}, "AI_CLOUD_SYNTHETIC_DATA_ONLY=1"),

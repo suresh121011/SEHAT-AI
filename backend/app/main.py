@@ -65,6 +65,18 @@ async def lifespan(app: FastAPI):
         finally:
             await conn.close()
     app.state.kernel = build_kernel(settings)
+    from app.ai.azure_chat import initial_azure_status
+    from app.services.kernel import probe_azure
+
+    # Azure: one fixed synthetic prompt in the background, so /health says whether the connection works (a wrong
+    # deployment name used to show as "configured"). Startup is never blocked and a failure is not fatal.
+    app.state.azure_chat = initial_azure_status(settings)
+    app.state.azure_check = None
+    if app.state.azure_chat["state"] == "not_checked":
+        async def _azure_check():
+            app.state.azure_chat = await probe_azure(app.state.kernel)
+
+        app.state.azure_check = asyncio.create_task(_azure_check())
     from app.ai.providers import build_provider
 
     app.state.ai_provider = build_provider(settings)  # None when AI_PROVIDER=none (AI endpoints answer 503)
@@ -84,6 +96,8 @@ async def lifespan(app: FastAPI):
     yield
     if app.state.ai_warm_up is not None and not app.state.ai_warm_up.done():
         app.state.ai_warm_up.cancel()
+    if app.state.azure_check is not None and not app.state.azure_check.done():
+        app.state.azure_check.cancel()
     from app.ocr.worker_client import shutdown_all
 
     shutdown_all()  # the local OCR worker (and its llama-server) never outlives the API

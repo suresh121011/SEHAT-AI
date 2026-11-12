@@ -333,7 +333,7 @@ AI_PROVIDER=azure
 AI_CLOUD_ENABLED=1                     # redacted case text leaves this machine
 AI_CLOUD_SYNTHETIC_DATA_ONLY=1         # acknowledgement: redaction has known misses (§8); synthetic data only
 AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/   # or *.cognitiveservices.azure.com; https, no path/port/credentials
+AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/   # or *.cognitiveservices.azure.com or *.services.ai.azure.com; https, no path/port/credentials
 AZURE_OPENAI_DEPLOYMENT_NAME=...       # a deployment that supports structured outputs (json_schema, strict)
 AZURE_OPENAI_API_VERSION=...           # an API version that supports structured outputs
 AI_MAKER_PASSES=3                      # 3–5
@@ -346,7 +346,11 @@ Before relying on it, also:
 - Check that the deployment accepts `temperature`. Some reasoning models do not. If yours doesn't, every pass fails and you get a 502, never a silent fallback.
 - Keep the 5 known redaction misses in mind (`tests/privacy/test_pii.py` xfails).
 
-The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening it is a reviewed change.
+The endpoint host allowlist is in code (`AZURE_OPENAI_HOST_SUFFIXES`). Widening it is a reviewed change. It was widened on 2026-11-12 to `*.services.ai.azure.com` (an Azure AI Foundry resource, which serves the same Azure OpenAI API).
+
+**One factory (2026-11-12).** Every Azure chat service is built in `app/ai/azure_chat.py`, under the same rules for the kernel, extraction and the image backend: cloud switch on, synthetic data only, complete credentials, an allowed host. Before that, the Semantic Kernel registered Azure without the host check, so a wrong address in the settings would have received the API key. `python -m app.services.kernel` checks the connection and prints a short result such as `Azure chat: ready in 2572 ms` or `Azure chat: failed (deployment_not_found)`. `GET /api/v1/health` reports the same check, run once in the background at startup, as `azure_chat`.
+
+**First real run (2026-11-12, `gpt-4.1-mini` deployment, nine synthetic sentences, one pass, after grounding):** terms 14 / 15, exact durations 11 / 11, number never guessed 4 / 4, denials 3 / 4, valid replies 9 / 9, 2.6 s per sentence. The local Qwen3-4B on the same sentences: denials 1 / 4, 4.9 s. A smoke check, not an accuracy result. The extraction setting still points at the local model; switching `AI_PROVIDER` to `azure` is a separate decision.
 
 ## 8. Limits and known gaps (honest)
 

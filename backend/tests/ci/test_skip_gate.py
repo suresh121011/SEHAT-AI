@@ -99,11 +99,11 @@ def test_skipped_tests_never_count_towards_the_minimum():
 
 def test_the_minimum_and_the_required_list_are_never_lowered_silently():
     # A reduction is a reviewed change to this number, like removing a test. See the history beside MIN_EXECUTED.
-    assert gate.MIN_EXECUTED >= 1568
+    assert gate.MIN_EXECUTED >= 1590
     for mod in ("tests.ai.test_encounter_summary_sources", "tests.ai.test_encounter_eval", "tests.interview.test_interview",
                 "tests.privacy.test_urgency_authority", "tests.ci.test_skip_gate"):
         assert mod in gate.REQUIRED_MODULES
-    assert len(gate.REQUIRED_MODULES) == len(set(gate.REQUIRED_MODULES)) >= 25
+    assert len(gate.REQUIRED_MODULES) == len(set(gate.REQUIRED_MODULES)) >= 26
 
 
 def test_every_required_module_exists_on_disk():
