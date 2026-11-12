@@ -4,6 +4,7 @@ local engines on 2026-10-01 (tests/fixtures/ocr/engine_outputs). Synthetic docum
 
 import json
 import logging
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -401,7 +402,10 @@ def test_no_document_text_in_logs_or_audit_and_no_triage_written(ocr_client, cap
     logs = "\n".join(f"{r.getMessage()} {r.exc_text or ''}" for r in caplog.records)
     audit = json.dumps(audit_rows(ocr_client))
     for secret in CANARY + ("85,000", "11.2", "9.9", "Haemoglobin"):
-        assert secret not in logs and secret not in audit, secret
+        # A short number is matched as a whole value, not as a slice of a timestamp: "00:51:49.904994" contains "9.9"
+        # and made this test fail by the clock (CI, 2026-11-12). A leaked value still matches: '"value": "9.9"'.
+        leak = re.compile(rf"(?<![\d.:,]){re.escape(secret)}(?![\d])")
+        assert not leak.search(logs) and not leak.search(audit), secret
     actions = [r["action"] for r in audit_rows(ocr_client)]
     assert {"ocr_document_started", "ocr_document_processed", "ocr_attestation_recorded", "ocr_review_resolved"} <= set(actions)
     with sqlite3.connect(get_settings().database_path) as c:
