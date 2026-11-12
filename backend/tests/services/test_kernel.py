@@ -108,8 +108,9 @@ def test_safety_guard_plugin():
 # ── final remediation plan K1 / S-1 ───────────────────────────────────────────────────────────────────────────
 
 def _azure(base, cloud: bool):
-    return dataclasses.replace(base, azure_openai_api_key="sk-sentinel-not-real-0001", azure_openai_endpoint="https://example.invalid/",
-                               azure_openai_deployment_name="d", ai_cloud_enabled=cloud)
+    # An allowed host: since the one factory (2026-11-12) a host off the allow-list never gets a service (test_kernel_factory).
+    return dataclasses.replace(base, azure_openai_api_key="sk-sentinel-not-real-0001", azure_openai_endpoint="https://sehat-demo.openai.azure.com/",
+                               azure_openai_deployment_name="d", ai_cloud_enabled=cloud, ai_cloud_synthetic_data_only=True)
 
 
 def test_kernel_registers_no_cloud_service_while_ai_cloud_is_disabled():

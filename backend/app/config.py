@@ -34,7 +34,8 @@ SARVAM_ALLOWED_HOSTS = frozenset({"api.sarvam.ai"})
 
 # Azure OpenAI endpoint host suffixes that may receive the API key and redacted case text (docs/16 §7).
 # Kept in code on purpose, like SARVAM_ALLOWED_HOSTS.
-AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
+# .services.ai.azure.com: an Azure AI Foundry resource, which serves the same Azure OpenAI API (added 2026-11-12).
+AZURE_OPENAI_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com", ".services.ai.azure.com")
 AI_PROVIDERS = ("none", "fake", "azure", "local")
 # AI_PROVIDER=local talks to a llama-server on this machine only (docs/16 §2a). Loopback hosts only, in code.
 LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "::1"})  # literal IPs only: "localhost" resolves through /etc/hosts
