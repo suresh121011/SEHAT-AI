@@ -833,11 +833,56 @@ INTERVIEW_STATEMENTS: tuple[str, ...] = (
     *_append_only("interview_answer_events"),
 )
 
+# ── Step 19: referral closure tracking (docs/21; architecture §16). Additive only: the baseline `referrals` table is
+# left as it is (unused here). A packet is fixed when made; its status is an append-only event history, each status at
+# most once per referral, and only closure states carry a code (an outcome or a barrier) from a closed list. ──────────
+REFERRAL_STATEMENTS: tuple[str, ...] = (
+    """CREATE TABLE referral_packets (
+    seq                INTEGER PRIMARY KEY AUTOINCREMENT,
+    referral_id        TEXT NOT NULL UNIQUE,
+    case_id            TEXT NOT NULL REFERENCES cases(case_id),
+    triage_run_id      TEXT NOT NULL REFERENCES triage_runs(run_id),
+    sign_off_event_id  TEXT NOT NULL REFERENCES review_events(event_id),
+    from_facility      TEXT NOT NULL,
+    to_facility        TEXT NOT NULL,
+    urgency            TEXT NOT NULL CHECK (urgency IN ('RED', 'YELLOW', 'GREEN')),
+    reason_code        TEXT NOT NULL CHECK (reason_code IN ('emergency_care', 'specialist_assessment', 'investigations', 'maternal_newborn_care', 'admission_observation')),
+    transport_mode     TEXT NOT NULL CHECK (transport_mode IN ('108_ambulance', 'own_vehicle', 'public_transport')),
+    escort_required    INTEGER NOT NULL CHECK (escort_required IN (0, 1)),
+    travel_minutes     INTEGER CHECK (travel_minutes IS NULL OR travel_minutes BETWEEN 1 AND 1440),
+    insurance_scheme   TEXT NOT NULL CHECK (insurance_scheme IN ('pmjay', 'gjay', 'none', 'unknown')),
+    consent_seq        INTEGER NOT NULL REFERENCES consent_events(seq),
+    actor_id           TEXT NOT NULL,
+    actor_role         TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    CHECK (from_facility != to_facility)
+)""",
+    "CREATE INDEX idx_referral_packets_case ON referral_packets(case_id, seq)",
+    *_append_only("referral_packets"),
+    """CREATE TABLE referral_events (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    referral_id  TEXT NOT NULL REFERENCES referral_packets(referral_id),
+    case_id      TEXT NOT NULL REFERENCES cases(case_id),
+    status       TEXT NOT NULL CHECK (status IN ('referred', 'in_transit', 'reached', 'seen', 'outcome_recorded', 'not_reached')),
+    detail_code  TEXT,
+    actor_id     TEXT NOT NULL,
+    actor_role   TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    UNIQUE (referral_id, status),
+    CHECK (status != 'outcome_recorded' OR detail_code IN ('admitted', 'discharged', 'referred_onward')),
+    CHECK (status != 'not_reached' OR detail_code IN ('transport', 'cost', 'escort', 'declined', 'not_contactable')),
+    CHECK (status IN ('outcome_recorded', 'not_reached') OR detail_code IS NULL)
+)""",
+    "CREATE INDEX idx_referral_events_referral ON referral_events(referral_id, seq)",
+    *_append_only("referral_events"),
+)
+
 MIGRATIONS: tuple[tuple[str, ...], ...] = (BASELINE_STATEMENTS, PRIVACY_STATEMENTS, VOICE_STATEMENTS, OCR_STATEMENTS, OCR_PURGE_STATEMENTS, AI_STATEMENTS,
                                            TRIAGE_INPUT_STATEMENTS, REVIEW_STATEMENTS, TRIAGE_CORRECTION_STATEMENTS, MEDICAL_IMAGE_STATEMENTS,
                                            KEYWORD_RED_FLAG_STATEMENTS, HANDOVER_STATEMENTS, ENCOUNTER_SUMMARY_STATEMENTS, PATIENT_REGISTRY_STATEMENTS,
                                            SESSION_STATEMENTS, PATIENT_IDENTITY_STATEMENTS,
-                                           RATE_LIMIT_STATEMENTS, INTERVIEW_STATEMENTS)
+                                           RATE_LIMIT_STATEMENTS, INTERVIEW_STATEMENTS, REFERRAL_STATEMENTS)
 SCHEMA_VERSION = len(MIGRATIONS)
 # Steps that rebuild a referenced table: foreign-key enforcement is switched off around the step (the
 # pragma is a no-op inside a transaction), and integrity is re-checked with foreign_key_check before

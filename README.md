@@ -43,6 +43,7 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | [`docs/18_Medical_Image_Pipeline.md`](docs/18_Medical_Image_Pipeline.md) | Medical image descriptions (never findings): backends, gates, local MedGemma, limits |
 | [`docs/19_Encounter_Summary.md`](docs/19_Encounter_Summary.md) | Deterministic, source-linked encounter summary and its synthetic evaluation |
 | [`docs/20_Agent_Harness_and_Governance_Files.md`](docs/20_Agent_Harness_and_Governance_Files.md) | What each governance and agent file contains, who reads it and why |
+| [`docs/21_Referral_Closure_Tracking.md`](docs/21_Referral_Closure_Tracking.md) | Referral closure tracking (Phase 2): signed-off referral packet, append-only forward-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export, supervisor metadata only, limits |
 
 ---
 

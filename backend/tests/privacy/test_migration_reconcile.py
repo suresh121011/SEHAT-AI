@@ -116,7 +116,7 @@ def test_a_database_from_the_contribution_is_repaired_forward_with_every_row_kep
     path = _contributor_db(tmp_path, then_main_step_14)
     before = _snapshot(path)
     with caplog.at_level(logging.WARNING, logger="sehat.database"):
-        assert _migrate(path) == SCHEMA_VERSION == 18
+        assert _migrate(path) == SCHEMA_VERSION == 19
     assert SUMMARY_TABLES | REGISTRY_TABLES <= _tables(path)
     after = _snapshot(path)
     assert after["cases"] == before["cases"] and after["gemini"] == before["gemini"]  # nothing lost, leftovers untouched
