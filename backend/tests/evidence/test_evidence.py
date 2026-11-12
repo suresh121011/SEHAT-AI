@@ -26,7 +26,7 @@ def _entry(**overrides) -> corpus.Passage:
     text = "Respiratory rate more than 22 or less than 10 breaths per minute is a RED criterion."
     data = {"passage_id": "atp_red_rr_test", "rule_ids": ["ATP_RED_RR"], "source_id": "ATP_2022", "locator": "Supplementary Table 1",
             "anchors": ["22", "10"], "text": text, "sha256": _sha(text),
-            "licence": {"status": "quote_permitted", "note": "test"}, "reviewer": "Dr Test (synthetic)", "reviewed_at": "2026-11-13"}
+            "licence": {"status": "quote_permitted", "note": "test"}, "reviewer": "Dr Test (synthetic)", "reviewed_at": "2026-11-01"}
     data.update(overrides)
     return corpus.Passage(**data)
 
@@ -101,7 +101,7 @@ LISTED = frozenset({"Dr Test (synthetic)"})  # a test reviewer list; the owner's
 def test_a_complete_reviewed_passage_is_verified():
     result = gate.assess(_entry(), "ATP_2022", LISTED)
     assert result.state == "VERIFIED" and result.reasons == []
-    assert gate.view(_entry(), "ATP_2022", LISTED)["message"] == "Checked against the source by Dr Test (synthetic) on 2026-11-13."
+    assert gate.view(_entry(), "ATP_2022", LISTED)["message"] == "Checked against the source by Dr Test (synthetic) on 2026-11-01."
 
 
 def test_a_reviewer_not_on_the_owners_list_is_never_verified(tmp_path):
@@ -153,9 +153,15 @@ def test_text_the_guard_blocks_is_withheld_and_fails_the_linter(text, tmp_path):
 
 
 def test_a_review_date_must_be_a_real_date_not_in_the_future():
-    for bad in ("2026-99-99", "2999-01-01"):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    two_days_ahead = (now + timedelta(days=2)).date().isoformat()
+    for bad in ("2026-99-99", "2999-01-01", two_days_ahead):
         with pytest.raises(ValueError):
             _entry(reviewed_at=bad)
+    # Today's date in the zone furthest ahead of UTC (UTC+14) is accepted whatever zone the server runs in.
+    assert _entry(reviewed_at=(now + timedelta(hours=14)).date().isoformat()).reviewed_at
 
 
 def test_the_view_shows_text_only_when_it_may_be_shown():

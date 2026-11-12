@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -67,7 +67,9 @@ class Passage(BaseModel):
     @field_validator("reviewed_at")
     @classmethod
     def _a_real_past_date(cls, value: str | None) -> str | None:
-        if value is not None and date.fromisoformat(value) > date.today():
+        # Reviewers write their own calendar date. Anywhere on Earth that is at most one day ahead of UTC (UTC+14), so
+        # the server's own zone (UTC in CI, IST here) never decides; a later date is in the future everywhere.
+        if value is not None and date.fromisoformat(value) > datetime.now(timezone.utc).date() + timedelta(days=1):
             raise ValueError("a review date cannot be in the future")
         return value  # date.fromisoformat also refuses impossible dates such as 2026-99-99
 
