@@ -82,9 +82,17 @@ The first prints a `deny` decision, the second an `ask` decision; an ordinary co
   times out (10 s), Claude Code continues without it; the `permissions.deny` rules in `settings.json` still apply.
 - It is not a sandbox and not a security boundary between people; see `SECURITY.md`.
 
-## Second harness: the safety evaluation (planned, Phase 6)
+## Second harness: the safety evaluation (Phase 6, `docs/25`)
 
-The agent harness controls how code is changed. The planned safety-evaluation harness will check what the product does:
-one command, `make safety-eval`, running the deterministic safety suites and the synthetic evaluations and writing a
-scorecard in which every number carries its denominator (feature #31). Until then, `make safety-test` runs the safety
-test modules and `make eval-summary` runs the encounter-summary evaluation.
+The agent harness controls how code is changed. The safety-evaluation harness checks what the product does. One
+command, `make safety-eval` (about 30 s), writes a scorecard in which every number carries its denominator (feature
+#31) and exits 1 if any gate fails. `make safety-eval-quick` skips the pytest suites.
+
+| Kind | Checks |
+|:---|:---|
+| Gated | The rules engine against 71 labelled synthetic vignettes and 45 threshold probes; a missing-data sweep; the raise-only merge; citations; the safety test suites; the two synthetic evaluations |
+| Reported only (pinned, not gated) | The keyword suggester, the output guard, the input rail and redaction |
+
+Its own tests (`backend/tests/safety_eval/`) run in CI. They hand the evaluation five deliberately broken components
+(an engine, a threshold, a merge, a citation and a guard) and check that the matching check turns red. They also pin
+the reported numbers, so a drop shows up in a pull request.

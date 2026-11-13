@@ -30,7 +30,10 @@ SAFETY_TESTS := tests/rules tests/privacy/test_urgency_authority.py tests/privac
 
 .DEFAULT_GOAL := help
 .PHONY: help doctor _venv setup setup-backend setup-guardrails setup-voice setup-frontend test test-backend \
-	test-frontend ci hooks-test safety-test eval-summary llm-list llm-download llm-check llm-start dev-backend dev-frontend
+	test-frontend ci hooks-test safety-test safety-eval safety-eval-quick eval-summary llm-list llm-download llm-check \
+	llm-start dev-backend dev-frontend
+
+SAFETY_OUT ?= $(or $(TMPDIR),/tmp)/sehat-safety-eval
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-17s %s\n", $$1, $$2}'
@@ -77,6 +80,12 @@ hooks-test: ## Agent harness tests (HARNESS.md)
 
 safety-test: ## Safety-critical modules only: rules, boundaries, consent, guard, audit, RED, CI gates
 	cd backend && $(PYTEST) $(SAFETY_TESTS)
+
+safety-eval: ## Safety scorecard: rules, guards, redaction + safety suites + evaluations (docs/25; about 30 s)
+	cd backend && $(TEST_ENV) "$(PYTHON)" -m safety_eval --out "$(SAFETY_OUT)"
+
+safety-eval-quick: ## Safety scorecard without the pytest suites (a few seconds)
+	cd backend && $(TEST_ENV) "$(PYTHON)" -m safety_eval --quick --out "$(SAFETY_OUT)"
 
 eval-summary: ## Encounter-summary evaluation on 47 synthetic cases (offline; prints denominators)
 	cd backend && $(TEST_ENV) "$(PYTHON)" scripts/eval_encounter_summary.py

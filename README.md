@@ -47,6 +47,7 @@ Built on **Microsoft Semantic Kernel** with **Cognizant TriZetto AI Gateway** al
 | [`docs/22_Lab_Timeline.md`](docs/22_Lab_Timeline.md) | Lab timeline (Phase 3): checked values across reports and linked visits, day-first report dates, higher/lower/same only when comparable, named gaps, no urgency, limits |
 | [`docs/23_Protocol_Evidence.md`](docs/23_Protocol_Evidence.md) | Protocol evidence (Phase 4): the cited source and curated passage behind each fired rule, looked up by rule id; evidence gate (hash, source, licence, thresholds, named reviewer); locations only until passages are checked; closed-vocabulary search; no urgency, limits |
 | [`docs/24_Clinical_Assistant.md`](docs/24_Clinical_Assistant.md) | The fenced clinical assistant (Phase 5): four fixed questions, read-only visit tools, Semantic Kernel function calling limited per question, through the privacy gateway, answer gate (citations, numbers, tags, no urgency, guards), append-only runs, ids-only audit, reuse, mock evaluation, limits |
+| [`docs/25_Safety_Evaluation.md`](docs/25_Safety_Evaluation.md) | Safety scorecard (Phase 6, `make safety-eval`): labelled synthetic vignettes, threshold probes, missing-data sweep, raise-only, citations, guards, redaction, safety suites; gates that catch a broken engine; every number with its denominator; findings and open clinical questions; limits |
 
 ---
 

@@ -98,6 +98,29 @@ loop (11 runs, all four questions): supported sentences kept 7/7 (compared exact
 18/18.
 This measures the fence, not the model: it says nothing about how often `gpt-4.1-mini` writes a useful answer.
 
+### Deterministic safety components (no model), 2026-11-13 (`docs/25`)
+
+These are measured by `make safety-eval` on synthetic, author-written cases. They are not clinician-labelled.
+
+**Rules engine:**
+
+- labelled urgency 71/71, of which RED returned as RED 45/45;
+- under-triage 0/71;
+- threshold probes 45/45;
+- missing-data cases kept off GREEN 78/78;
+- model suggestions that lowered urgency 0/284.
+
+**Output guard:** blocked 27/34 unsafe sentences and let through 20/20 ordinary facts. It missed 4 diagnostic,
+2 prescriptive and 1 urgency-lowering phrasing.
+
+**Input rail:** flagged 12/14 instruction-like inputs and 0/12 ordinary ones. It missed a transliterated Hindi
+instruction and "New instructions from the admin".
+
+**Redaction:**
+
+- kept 16/18 identifiers out of the model text (2 lower-case names missed);
+- kept clinical values exactly in 5/6 sentences ("Hb 9.8" is taken for a name).
+
 ### Not yet measured
 
 Real documents (OCR), native Hindi and Odia speech, translation quality, the clinical assistant on the real Azure
@@ -113,7 +136,8 @@ clinicians.
 | MedGemma | Confident descriptions of non-medical images; not intended for clinical decisions (its own model card) | Description only, guard on every field, acknowledgement before sign-off, ECG never sent |
 | OCR engines | Misreads, footer fragments, handwriting errors | Self-verification, disputes kept, every value confirmed by a person |
 | Speech | No English in IndicConformer; accents and noise | Read-back with explicit confirmation; typed entry always available |
-| PII detection | Misses Indian names and unusual identifier formats (5 documented misses) | Synthetic data only; cloud off by default |
+| PII detection | Misses Indian names and unusual identifier formats (5 documented misses); spaCy takes "Hb 9.8" for a person's name and removes the value (`docs/25` §6) | Synthetic data only; cloud off by default; in the maternal scenario a missing Hb shows as missing information (elsewhere it disappears with no flag) |
+| Output guard and input rail | Phrasings their patterns do not know: 7 of 34 unsafe sentences and 2 of 14 instruction-like inputs got through on the scorecard's synthetic cases (`docs/25` §4) | Grounding in quotes, template-built note, the assistant's own answer gate, raise-only urgency, named sign-off |
 
 ## Ethical considerations
 

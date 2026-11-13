@@ -38,6 +38,7 @@ All project documentation lives in `docs/`:
 | [`docs/22_Lab_Timeline.md`](docs/22_Lab_Timeline.md) | Lab timeline (Phase 3): checked values across reports and linked visits, day-first report dates, higher/lower/same only when comparable, named gaps, no urgency, limits |
 | [`docs/23_Protocol_Evidence.md`](docs/23_Protocol_Evidence.md) | Protocol evidence (Phase 4): the cited source and curated passage behind each fired rule, looked up by rule id; evidence gate (hash, source, licence, thresholds, named reviewer); locations only until passages are checked; closed-vocabulary search; no urgency, limits |
 | [`docs/24_Clinical_Assistant.md`](docs/24_Clinical_Assistant.md) | The fenced clinical assistant (Phase 5): four fixed questions, read-only visit tools, Semantic Kernel function calling limited per question, through the privacy gateway, answer gate (citations, numbers, tags, no urgency, guards), append-only runs, ids-only audit, reuse, mock evaluation, limits |
+| [`docs/25_Safety_Evaluation.md`](docs/25_Safety_Evaluation.md) | Safety scorecard (Phase 6, `make safety-eval`): labelled synthetic vignettes, threshold probes, missing-data sweep, raise-only, citations, guards, redaction, safety suites; gates that catch a broken engine; every number with its denominator; findings and open clinical questions; limits |
 
 ## Agent Rules
 
@@ -76,6 +77,7 @@ All project documentation lives in `docs/`:
 | `backend/app/assistant/` | The fenced clinical assistant: closed question list, answer gate, prompt, service through the privacy gateway (docs/24) |
 | `backend/app/routes/` | FastAPI routers; only those registered in `backend/app/main.py` are live |
 | `backend/app/*.py` | Consent, audit, auth, sessions, OIDC, rate limits, security events, review and verification queues, case triage, patient registry and identity, config |
+| `backend/safety_eval/` | The safety scorecard (`make safety-eval`, docs/25): synthetic labelled vignettes and text cases, gated and reported metrics, Markdown/JSON report |
 | `backend/tests/` | pytest suites by area; `tests/ci/` guards the CI skip gate and the agent harness |
 | `backend/scripts/` | Model downloads, local model server, evaluations, end-to-end checks, CI skip gate, `doctor.py` |
 | `frontend/src/` | Next.js 15 / React 19 app: `app/` routes, `components/`, `lib/` (with `node:test` unit tests) |

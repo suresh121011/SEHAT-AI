@@ -94,6 +94,7 @@ backend. To check the whole local path on synthetic text, from `backend/`:
 | `make test` | Backend suite, then frontend tests, TypeScript and ESLint |
 | `make ci` | What CI runs: migration checks, full suite with JUnit, the skip gate, then the frontend |
 | `make safety-test` | Only the safety-critical modules (rules, boundaries, consent, guard, audit, RED lifecycle, CI gates) |
+| `make safety-eval` | The safety scorecard (`docs/25`): labelled vignettes, threshold probes, missing-data sweep, raise-only, citations, guards, redaction, the safety suites and the two evaluations; writes `$TMPDIR/sehat-safety-eval/safety-scorecard.md`; exits 1 if a gate fails. `make safety-eval-quick` skips the suites |
 | `make hooks-test` | The agent harness tests |
 
 From a worktree, the Makefile uses the main checkout's `.venv` automatically; override with `PY=/path/to/python`.
@@ -143,6 +144,7 @@ Every change must keep these numbers or raise them. Record a new row when a phas
 | 2026-11-13 | `feat/lab-timeline` (Phase 3) merged with `main` `10f8827` (Phase 2) | 1854 passed, 14 skipped, 5 xfailed | 1809 expected; minimum 1800, 33 required modules | 154 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/protocol-evidence` (Phase 4) from `main` `ab0096f` | 1882 passed, 14 skipped, 5 xfailed | 1837 expected; minimum 1828, 34 required modules | 157 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/sk-assistant` (Phase 5) from `main` `bbb6aa7` | 2016 passed, 14 skipped, 5 xfailed | 1971 expected; minimum 1962, 38 required modules | 161 passed; TypeScript and ESLint clean |
+| 2026-11-13 | `feat/safety-eval` (Phase 6) from `main` `7f84e29` | 2070 passed, 14 skipped, 5 xfailed; `make safety-eval` all gates passed | 2025 expected; minimum 2016, 41 required modules | 161 passed; TypeScript and ESLint clean |
 
 The 14 local skips are opt-in live tests; the 5 expected failures document known PII-scrubber misses.
 
@@ -154,6 +156,6 @@ The 14 local skips are opt-in live tests; the 5 expected failures document known
 | 2 | Referral closure tracking: signed-off referral packet, append-only status to closure, 48-hour overdue flag, printable letter, FHIR R4 export (features #26–29; `docs/21`) | Merged (PR #25) |
 | 3 | Lab timeline across reports and linked visits with named gaps; no urgency output (`docs/22`) | Merged (PR #26) |
 | 4 | Protocol evidence behind each fired rule: cited source and its location as cited now; checked passages once the sources are obtained and a named reviewer checks them (feature #40; `docs/23`) | Merged (PR #27) |
-| 5 | The fenced clinical assistant: four fixed questions, read-only visit tools, answer gate, append-only runs (steps 3–6 of `docs/plans/semantic-kernel-orchestration-plan.md`; `docs/24`); verified with a scripted model, real-Azure run pending | In review |
-| 6 | `make safety-eval`: one safety scorecard with denominators (feature #31) | Planned |
+| 5 | The fenced clinical assistant: four fixed questions, read-only visit tools, answer gate, append-only runs (steps 3–6 of `docs/plans/semantic-kernel-orchestration-plan.md`; `docs/24`); verified with a scripted model, real-Azure run pending | Merged (PR #28) |
+| 6 | `make safety-eval`: one safety scorecard with denominators (feature #31; `docs/25`) | In review |
 | 7 | Demo hardening: seeded synthetic patient, offline rehearsals, backup recording | Planned |
