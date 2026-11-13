@@ -111,9 +111,32 @@ Branch protection needs the checks to pass and one approving review.
 
 ## 7. Demo
 
-Follow `docs/07_Demo_Script.md` and the `sehat-demo-run` skill (`.claude/skills/sehat-demo-run/SKILL.md`): pre-day
-checks, the three-terminal start, the pre-demo check, and what to say honestly. A seeded synthetic demo patient and a
-one-command demo target arrive in Phase 7.
+One command, from the main checkout (so your `.env` supplies the OCR, voice and image engines):
+
+```bash
+make demo
+```
+
+It does the following, all on 127.0.0.1:
+
+- starts the local model, the backend and the frontend;
+- uses a fresh scratch database outside the repository, in `$TMPDIR/sehat-demo-<API port>` (never `sehat.db`);
+- forces the offline settings: cloud AI, cloud speech recognition and cloud spoken read-back off, guardrails and the
+  keyword suggester on, and facility
+  isolation on;
+- seeds six synthetic demo cases through the real API;
+- runs the pre-demo check.
+
+`Ctrl-C` stops everything it started. The demo is at `http://127.0.0.1:3010`.
+
+| Command | What it does |
+|:---|:---|
+| `make demo` | The offline demo stack, seeded and checked. Variants: `NO_LLM=1` (model server already running), `DEMO_MODEL=fake` (rehearsal without the model), `ONLINE=1` (keep cloud settings, for the assistant beat), `API_PORT=… WEB_PORT=…` |
+| `make demo-check` | Pre-demo check of a running stack: backend, model ready, guardrails, the two rules beats, seeded queue, OCR, voice, frontend; each failure says how to fix it |
+| `make demo-seed` | Seed a running backend with the demo cases; refuses a database that already has cases, or a backend not on this computer |
+
+The script, seeded cases, fallbacks and what to say honestly are in `docs/07_Demo_Script.md`. The
+`sehat-demo-run` skill has the manual three-terminal start.
 
 ## 8. Troubleshooting
 
@@ -145,6 +168,7 @@ Every change must keep these numbers or raise them. Record a new row when a phas
 | 2026-11-13 | `feat/protocol-evidence` (Phase 4) from `main` `ab0096f` | 1882 passed, 14 skipped, 5 xfailed | 1837 expected; minimum 1828, 34 required modules | 157 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/sk-assistant` (Phase 5) from `main` `bbb6aa7` | 2016 passed, 14 skipped, 5 xfailed | 1971 expected; minimum 1962, 38 required modules | 161 passed; TypeScript and ESLint clean |
 | 2026-11-13 | `feat/safety-eval` (Phase 6) from `main` `7f84e29` | 2070 passed, 14 skipped, 5 xfailed; `make safety-eval` all gates passed | 2025 expected; minimum 2016, 41 required modules | 161 passed; TypeScript and ESLint clean |
+| 2026-11-13 | `feat/demo-hardening` (Phase 7) from `main` `15544dd` | 2108 passed, 14 skipped, 5 xfailed; `make demo` on the real local model: pre-demo check 0 failures | 2063 expected; minimum 2054, 42 required modules | 161 passed; TypeScript and ESLint clean |
 
 The 14 local skips are opt-in live tests; the 5 expected failures document known PII-scrubber misses.
 
@@ -157,5 +181,5 @@ The 14 local skips are opt-in live tests; the 5 expected failures document known
 | 3 | Lab timeline across reports and linked visits with named gaps; no urgency output (`docs/22`) | Merged (PR #26) |
 | 4 | Protocol evidence behind each fired rule: cited source and its location as cited now; checked passages once the sources are obtained and a named reviewer checks them (feature #40; `docs/23`) | Merged (PR #27) |
 | 5 | The fenced clinical assistant: four fixed questions, read-only visit tools, answer gate, append-only runs (steps 3–6 of `docs/plans/semantic-kernel-orchestration-plan.md`; `docs/24`); verified with a scripted model, real-Azure run pending | Merged (PR #28) |
-| 6 | `make safety-eval`: one safety scorecard with denominators (feature #31; `docs/25`) | In review |
-| 7 | Demo hardening: seeded synthetic patient, offline rehearsals, backup recording | Planned |
+| 6 | `make safety-eval`: one safety scorecard with denominators (feature #31; `docs/25`) | Merged (PR #29) |
+| 7 | Demo hardening: `make demo` (offline stack, seeded synthetic cases, pre-demo check), demo script v2.0 (`docs/07`). The backup recording is made by the presenter on the demo laptop | In review |

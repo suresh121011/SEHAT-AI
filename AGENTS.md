@@ -20,7 +20,7 @@ All project documentation lives in `docs/`:
 | [`docs/04_Security_Privacy_Access.md`](docs/04_Security_Privacy_Access.md) | Security, privacy, consent, DPDP-ready design |
 | [`docs/05_Frontend_Specification.md`](docs/05_Frontend_Specification.md) | UI/UX screens, flows, components |
 | [`docs/06_API_Data_Contracts.md`](docs/06_API_Data_Contracts.md) | API endpoints, JSON schemas, FHIR export |
-| [`docs/07_Demo_Script.md`](docs/07_Demo_Script.md) | 5-minute Odisha-focused demo script |
+| [`docs/07_Demo_Script.md`](docs/07_Demo_Script.md) | 5-minute Odisha-focused demo script (v2.0): `make demo`, seeded synthetic cases, seven beats as built, what to say honestly, rehearsal, fallbacks |
 | [`docs/08_Implementation_28h_Plan.md`](docs/08_Implementation_28h_Plan.md) | Phased 28-hour implementation plan |
 | [`docs/09_Implementation_Todo_List.md`](docs/09_Implementation_Todo_List.md) | Granular checkbox tasks for each phase |
 | [`docs/10_Safety_Rules_Engine.md`](docs/10_Safety_Rules_Engine.md) | Deterministic triage rules engine: verified clinical sources, decision record, test matrix |
@@ -78,6 +78,7 @@ All project documentation lives in `docs/`:
 | `backend/app/routes/` | FastAPI routers; only those registered in `backend/app/main.py` are live |
 | `backend/app/*.py` | Consent, audit, auth, sessions, OIDC, rate limits, security events, review and verification queues, case triage, patient registry and identity, config |
 | `backend/safety_eval/` | The safety scorecard (`make safety-eval`, docs/25): synthetic labelled vignettes and text cases, gated and reported metrics, Markdown/JSON report |
+| `backend/demo_kit/` | The demo kit (`make demo`, docs/07): offline stack on a scratch database, six synthetic seeded cases through the API, the pre-demo check |
 | `backend/tests/` | pytest suites by area; `tests/ci/` guards the CI skip gate and the agent harness |
 | `backend/scripts/` | Model downloads, local model server, evaluations, end-to-end checks, CI skip gate, `doctor.py` |
 | `frontend/src/` | Next.js 15 / React 19 app: `app/` routes, `components/`, `lib/` (with `node:test` unit tests) |

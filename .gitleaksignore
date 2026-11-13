@@ -1,0 +1,7 @@
+# gitleaks: confirmed false positives only, one exact finding per line (commit:file:rule:line). Never a pattern or a
+# whole file. Each entry needs a reason here and the same review as any CI-gate change.
+#
+# 2026-11-13, PR #30: the dummy JWT value for a throwaway test database, the same placeholder tests/conftest.py uses.
+# Not a credential. Replaced by "x" * 48 in the next commit; this entry only stops the PR scan from re-flagging the
+# earlier commit, because history is never rewritten (no force pushes).
+77e7b10792cc2e53809f7fbec5271edef63df0c5:backend/tests/demo_kit/test_demo_kit.py:generic-api-key:22
