@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[3]
 @pytest.fixture
 def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "demo.db"))
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-with-enough-length-for-hs256")
+    monkeypatch.setenv("JWT_SECRET_KEY", "x" * 48)  # a placeholder long enough for HS256; never a key-shaped literal
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("AI_PROVIDER", "fake")
     monkeypatch.setenv("AI_KEYWORD_RED_FLAGS", "1")
