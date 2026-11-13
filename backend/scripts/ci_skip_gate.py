@@ -82,6 +82,11 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.assistant.test_assistant",
     "tests.assistant.test_assistant_boundary",
     "tests.assistant.test_assistant_eval",
+    # the safety scorecard (docs/25): the labelled corpus, the pinned results, and gates that fail on a broken engine,
+    # threshold, raise-only merge or citation
+    "tests.safety_eval.test_corpus",
+    "tests.safety_eval.test_scorecard",
+    "tests.safety_eval.test_mutations",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -98,7 +103,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #            tests and 5 agent-harness cases for the newly protected evidence files, so 1837 are expected)
 #   1828 -> 1962 on 2026-11-13 (main bbb6aa7 after the protocol-evidence PR expects 1837; this change adds 134 assistant tests,
 #            so 1971 are expected)
-MIN_EXECUTED = 1962
+#   1962 -> 2016 on 2026-11-13 (main 7f84e29 after the assistant PR expects 1971; this change adds 54 safety-scorecard
+#            tests, so 2025 are expected)
+MIN_EXECUTED = 2016
 
 
 def _module(classname: str) -> str:

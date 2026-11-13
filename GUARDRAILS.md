@@ -81,6 +81,7 @@ Nothing marked Planned may be presented as working.
 | Branch protection | Required checks plus one approving review before merge | GitHub settings | Built |
 | Agent harness | Hooks and settings that stop coding agents from broad git operations, secrets, the shared database and unapproved safety changes | `.claude/`, `HARNESS.md`, `tests/ci/test_agent_harness.py` | Built |
 | Language review | Hindi and Odia wording tracked until native-speaker and clinical review | `docs/13_Language_Review_Checklist.md` | Partial (reviews pending) |
+| Safety scorecard (`make safety-eval`, feature #31) | One run checks several things and exits 1 if any gate fails. The gates: 71 labelled synthetic vignettes, 45 threshold probes, a 78-case missing-data sweep, 284 raise-only combinations, the citations of every fired rule, the safety suites, and the summary and assistant evaluations. The guard, input-rail, redaction and keyword numbers are reported only (pinned, not gated), with each miss listed. Tests show the gates fail on five deliberately broken components | `backend/safety_eval/`, `docs/25_Safety_Evaluation.md` | Built (synthetic, author-labelled; not a clinical validation) |
 
 ## 6. Planned (not built: never present as working)
 
@@ -88,7 +89,6 @@ Nothing marked Planned may be presented as working.
 |:---|:---|:---|
 | Protocol passages as an assistant tool (index hits through the evidence gate) | After passages are checked (`docs/23`) | Lets the assistant cite the protocol; no passage has checked text yet |
 | Assistant readable draft on the local model when Azure is off | Not scheduled | Plan step 3 named it; today the assistant is Azure-only |
-| `make safety-eval` scorecard with denominators (feature #31) | 6 | One reproducible safety slide |
 | HASSUM uncertainty escalation (feature #35) | None assigned | Claimed in the PRD's defence layers but **not implemented**; today grounding failures and MAKER disagreement route to a human instead |
 | Retention enforcement, erasure, grievance flow, breach procedure, emergency bypass, DPIA | Not scheduled | Required before real patient data (`ETHICS.md`) |
 | Bias and fairness evaluation across language, age, sex and literacy | Not scheduled | No evidence yet that performance is even across groups |
@@ -97,7 +97,15 @@ Nothing marked Planned may be presented as working.
 ## 7. Known limits
 
 - Synthetic data only. No clinical validation, no real-document OCR evaluation, no native-speaker review of Hindi or Odia.
-- PII redaction is heuristic; 5 misses are documented. The output guard and keyword rules are regular expressions.
+- PII redaction is heuristic; 5 misses are documented. A typed "Hb 9.8" is redacted as a name, so it never reaches
+  the extraction. "haemoglobin 9.8" is kept. Only the maternal scenario then flags Hb as missing (`docs/25` §6). The
+  output guard and keyword rules are regular expressions.
+  On the scorecard's synthetic sentences the guard blocked 27 of 34 unsafe ones and the input rail flagged 12 of 14
+  instruction-like inputs; each miss is listed in `docs/25` §4.
+- Open clinical questions: new confusion at age 14–15 or in pregnancy, and abnormal observations at age 15 or in
+  pregnancy that would score medium risk on an adult NEWS2, get GREEN. The engine follows its specification here: NEWS2
+  does not apply, and ATP covers only V/P/U and higher thresholds. Changing that needs a cited source and the owner's
+  approval (`docs/25` §6).
 - Protocol evidence shows sources and locations only: no passage has been added and checked by a named reviewer yet.
 - The clinical assistant is verified with scripted model replies only; its real-Azure behaviour is not measured yet.
 - The local model (Qwen3-4B, general-purpose) found 0 of 15 red flags on its own and kept 1 of 4 denied symptoms in a
