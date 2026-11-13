@@ -18,7 +18,29 @@ scratch database. Follow `docs/07_Demo_Script.md` for the story. Synthetic patie
   package missing, the backend refuses to start (by design).
 - Rehearse three times **with Wi-Fi off**. Record one full run as a backup video.
 
-## Start (three terminals, from `backend/` unless noted)
+## Start (one command, from the repo root of the main checkout)
+
+```bash
+make demo
+```
+
+`make demo` (`backend/demo_kit/`) does the following:
+
+- starts the local model, the backend and the frontend on 127.0.0.1;
+- uses a fresh scratch database in `$TMPDIR/sehat-demo-<API port>`;
+- forces the offline settings: cloud AI, cloud speech recognition and cloud spoken read-back off, guardrails and the
+  keyword suggester on, the model at `http://127.0.0.1:8091`, and the demo
+  facility mapping with isolation on;
+- seeds six synthetic cases through the real API;
+- runs the pre-demo check.
+
+`Ctrl-C` (or `kill`) stops every process it started. Variants: `NO_LLM=1`, `DEMO_MODEL=fake`, `ONLINE=1` (assistant
+beat), `API_PORT=… WEB_PORT=…`. Never stop a server you did not start; pick other ports instead.
+
+In a worktree the kit uses the main checkout's model folder; starting the model there rewrites its one-time API key
+file in that folder. The OCR, voice and image engines stay off without a `.env`.
+
+## Manual start (three terminals, from `backend/` unless noted)
 
 `$PY` is the project venv's python. `S` is a scratch folder, for example `S="${TMPDIR:-/tmp}/sehat-demo"; mkdir -p "$S/docs"`.
 
@@ -36,6 +58,8 @@ scratch database. Follow `docs/07_Demo_Script.md` for the story. Synthetic patie
 
 ## Pre-demo check (5 minutes before)
 
+- `make demo-check`: every item PASS or an understood WARN. Each failure line says how to fix it.
+- `make demo-seed` seeds a manually started backend; it refuses a database that already has cases.
 - `"$PY" scripts/e2e_local_ai_check.py http://127.0.0.1:8010`: local model + guardrails walkthrough on synthetic text.
 - `curl -s http://127.0.0.1:8010/api/v1/health` shows the providers you expect (extraction `local`, no cloud).
 - Wi-Fi off. Notifications off. Screen recording ready. Backup video on the desktop.
@@ -49,5 +73,7 @@ scratch database. Follow `docs/07_Demo_Script.md` for the story. Synthetic patie
 
 ## After
 
-Stop the three processes you started (Ctrl-C, or `lsof -ti:8010 -sTCP:LISTEN | xargs kill`, same for 3010) and delete `$S`.
-A seeded synthetic demo patient and a one-command demo target come in Phase 7 (`RUNBOOK.md`).
+`make demo`: Ctrl-C, `kill` or closing the terminal stops everything; delete `$TMPDIR/sehat-demo-<API port>` if you
+want. Only `kill -9` of the kit itself leaves its children running: then stop the processes listening on the demo
+ports you used (`lsof -nP -iTCP:<port> -sTCP:LISTEN`), and only those. Manual start: stop the three
+processes you started (Ctrl-C) and delete `$S`.

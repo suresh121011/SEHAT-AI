@@ -31,7 +31,7 @@ SAFETY_TESTS := tests/rules tests/privacy/test_urgency_authority.py tests/privac
 .DEFAULT_GOAL := help
 .PHONY: help doctor _venv setup setup-backend setup-guardrails setup-voice setup-frontend test test-backend \
 	test-frontend ci hooks-test safety-test safety-eval safety-eval-quick eval-summary llm-list llm-download llm-check \
-	llm-start dev-backend dev-frontend
+	llm-start dev-backend dev-frontend demo demo-seed demo-check
 
 SAFETY_OUT ?= $(or $(TMPDIR),/tmp)/sehat-safety-eval
 
@@ -106,6 +106,17 @@ dev-backend: ## Backend on HOST:API_PORT (127.0.0.1:8010) with a scratch databas
 	mkdir -p "$(SCRATCH)/docs"
 	cd backend && ENVIRONMENT=development DATABASE_PATH="$(SCRATCH)/sehat-dev.db" OCR_DOCUMENT_DIR="$(SCRATCH)/docs" \
 	  CORS_ALLOWED_ORIGINS="http://$(HOST):$(WEB_PORT)" "$(PYTHON)" -m uvicorn app.main:app --host $(HOST) --port $(API_PORT)
+
+demo: ## Offline demo: local model + backend + frontend on a fresh scratch database, seeded and checked (docs/07; Ctrl-C stops)
+	cd backend && "$(PYTHON)" -m demo_kit run --api-port $(API_PORT) --web-port $(WEB_PORT) $(if $(ONLINE),--online) \
+	  $(if $(filter fake,$(DEMO_MODEL)),--provider fake) $(if $(NO_LLM),--no-llm)
+
+demo-seed: ## Seed a running backend (API_PORT) with the synthetic demo cases; refuses a non-empty database
+	cd backend && "$(PYTHON)" -m demo_kit seed --api http://$(HOST):$(API_PORT)
+
+demo-check: ## Pre-demo check of a running stack: model, guardrails, rules beats, seeded queue, frontend
+	cd backend && "$(PYTHON)" -m demo_kit check --api http://$(HOST):$(API_PORT) --web http://$(HOST):$(WEB_PORT) \
+	  $(if $(filter fake,$(DEMO_MODEL)),--provider fake)
 
 dev-frontend: ## Frontend dev server on HOST:WEB_PORT (127.0.0.1:3010), talking to dev-backend
 	cd frontend && NEXT_PUBLIC_API_URL="http://$(HOST):$(API_PORT)/api/v1" npx next dev -H $(HOST) -p $(WEB_PORT)

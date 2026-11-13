@@ -87,6 +87,9 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "tests.safety_eval.test_corpus",
     "tests.safety_eval.test_scorecard",
     "tests.safety_eval.test_mutations",
+    # the demo kit (docs/07): seeded cases match the engine, seeding through the real API, loopback only, never sehat.db
+    # or a file in the repo, offline switches forced, facility isolation kept on
+    "tests.demo_kit.test_demo_kit",
 )
 
 # History (raise it as tests are added; never lower it silently, a lower number needs the same review as removing a test):
@@ -105,7 +108,8 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #            so 1971 are expected)
 #   1962 -> 2016 on 2026-11-13 (main 7f84e29 after the assistant PR expects 1971; this change adds 54 safety-scorecard
 #            tests, so 2025 are expected)
-MIN_EXECUTED = 2016
+#   2016 -> 2054 on 2026-11-13 (CI on main 15544dd ran 2025; this change adds 38 demo-kit tests, so 2063 are expected)
+MIN_EXECUTED = 2054
 
 
 def _module(classname: str) -> str:
